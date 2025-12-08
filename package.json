@@ -1,0 +1,21 @@
+{
+  "name": "polevie",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "bun run --filter @polevie/web dev",
+    "dev:api": "bun run --filter @polevie/api start:dev",
+    "dev": "bun run dev:api & bun run dev:web",
+    "build:web": "bun run --filter @polevie/web build",
+    "build:api": "bun run --filter @polevie/api build",
+    "build": "bun run build:api && bun run build:web",
+    "db:generate": "bun run --filter @polevie/api prisma:generate",
+    "db:migrate": "bun run --filter @polevie/api prisma:migrate",
+    "db:push": "bun run --filter @polevie/api prisma:push"
+  }
+}
+

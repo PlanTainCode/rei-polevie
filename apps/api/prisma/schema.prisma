@@ -1,0 +1,230 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Пользователь
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  telegramId   String?  @unique
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Отношения
+  companyMemberships CompanyMember[]
+  collectedSamples   Sample[]        @relation("CollectedBy")
+  createdProjects    Project[]       @relation("CreatedBy")
+
+  @@map("users")
+}
+
+// Компания
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  inn       String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Отношения
+  members     CompanyMember[]
+  invitations Invitation[]
+  projects    Project[]
+
+  @@map("companies")
+}
+
+// Членство в компании (связь пользователь-компания)
+model CompanyMember {
+  id        String      @id @default(cuid())
+  userId    String
+  companyId String
+  role      CompanyRole @default(WORKER)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  // Отношения
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, companyId])
+  @@map("company_members")
+}
+
+enum CompanyRole {
+  OWNER
+  ADMIN
+  MANAGER
+  WORKER
+}
+
+// Приглашение в компанию
+model Invitation {
+  id         String    @id @default(cuid())
+  email      String
+  role       CompanyRole @default(WORKER)
+  companyId  String
+  token      String    @unique
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  // Отношения
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("invitations")
+}
+
+// Проект/Объект
+model Project {
+  id               String        @id @default(cuid())
+  companyId        String
+  name             String        // Название проекта
+  
+  // Файлы
+  tzFileName       String?       // Имя файла ТЗ
+  tzFileUrl        String?       // Путь к файлу ТЗ
+  orderFileName    String?       // Имя файла поручения
+  orderFileUrl     String?       // Путь к файлу поручения
+  
+  // Извлечённые данные (из AI анализа)
+  objectName       String?       // Название объекта из документов
+  objectAddress    String?       // Адрес объекта
+  objectPurpose    String?       // Назначение объекта
+  documentNumber   String?       // Номер документа (110 из 801-110-25)
+  clientName       String?       // Название заказчика
+  
+  // Сопоставленные услуги (JSON)
+  services         Json?         // [{row, num, category, name, unit, quantity}]
+  
+  // Данные отбора проб (извлечённые из поручения)
+  samplingLayers   Json?         // [{depthFrom, depthTo, label, count}] - слои отбора
+  platformCount    Int?          // Количество площадок (ПП/СК)
+  microbiologyCount Int?         // Количество микробиологических проб
+  
+  // Сгенерированный файл
+  generatedFileName String?
+  generatedFileUrl  String?
+  generatedAt       DateTime?
+  
+  status           ProjectStatus @default(DRAFT)
+  processedAt      DateTime?     // Когда была выполнена обработка
+  createdById      String
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  // Отношения
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy User       @relation("CreatedBy", fields: [createdById], references: [id])
+  platforms Platform[]
+  samples   Sample[]
+
+  @@map("projects")
+}
+
+enum ProjectStatus {
+  DRAFT
+  ACTIVE
+  IN_PROGRESS
+  COMPLETED
+  ARCHIVED
+}
+
+// Площадка
+model Platform {
+  id        String       @id @default(cuid())
+  projectId String
+  number    Int
+  type      PlatformType
+  label     String       // ПП1, СК1 и т.д.
+  createdAt DateTime     @default(now())
+
+  // Отношения
+  project Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  samples Sample[]
+
+  @@unique([projectId, type, number])
+  @@map("platforms")
+}
+
+enum PlatformType {
+  PP  // Пробная площадка (слой 0,0-0,2)
+  SK  // Скважина (остальные слои)
+  DO  // Донные отложения
+  V   // Вода
+}
+
+// Проба
+model Sample {
+  id             String       @id @default(cuid())
+  projectId      String
+  platformId     String
+  
+  // Шифр и нумерация
+  cipher         String       // Шифр пробы (напр. 01АХ.01)
+  sampleNumber   Int          // Порядковый номер пробы (01, 02...)
+  analysisCode   String       // Код анализа (АХ, АМ, АЭ, БХ, ВХ)
+  layerNumber    Int          // Номер слоя (.01, .02...)
+  
+  // Глубина (диапазон)
+  depthFrom      Float        // Глубина от (напр. 0.0)
+  depthTo        Float        // Глубина до (напр. 0.2)
+  depthLabel     String       // Строка глубины (напр. "0,0-0,2")
+  
+  // Характеристики
+  type           SampleType   @default(SOIL)
+  description    String?      // Описание/характеристика пробы (заполняет пользователь)
+  mass           String       @default("1,0 кг/Пэ") // Масса пробы/тара
+  
+  // Координаты WGS84
+  latitude       String?      // Широта (напр. "55 50.792")
+  longitude      String?      // Долгота (напр. "37 39.277")
+  gpsPhotoUrl    String?      // Фото GPS трекера
+  
+  // Статус и служебные поля
+  isSubcontract  Boolean      @default(false) // Для микробиологии на подряд
+  status         SampleStatus @default(PENDING)
+  collectedAt    DateTime?
+  collectedById  String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  // Отношения
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  platform    Platform  @relation(fields: [platformId], references: [id], onDelete: Cascade)
+  collectedBy User?     @relation("CollectedBy", fields: [collectedById], references: [id])
+
+  @@unique([projectId, cipher]) // Уникальность cipher в рамках проекта
+  @@map("samples")
+}
+
+enum SampleType {
+  SOIL
+  SEDIMENT
+  WATER
+  AIR
+  WASTE
+  OTHER
+}
+
+// Типовые характеристики проб (справочник для UI)
+// глина, суглинок, супесь, песок, торф, ил, гравий, скала, чернозём
+// Используется текстовое поле description в Sample
+
+enum SampleStatus {
+  PENDING
+  COLLECTED
+  DELIVERED
+  ANALYZED
+  COMPLETED
+}
+

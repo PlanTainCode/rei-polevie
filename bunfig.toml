@@ -1,0 +1,4 @@
+[install]
+# Automatically install peer dependencies
+peer = true
+
