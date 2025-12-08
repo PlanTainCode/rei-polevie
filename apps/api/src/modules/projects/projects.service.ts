@@ -131,6 +131,14 @@ export class ProjectsService {
       console.error('Error extracting address:', err);
     }
 
+    // Извлекаем адрес заказчика через AI
+    let clientAddress = '';
+    try {
+      clientAddress = await this.aiService.extractClientAddress(combinedText);
+    } catch (err) {
+      console.error('Error extracting client address:', err);
+    }
+
     // Определяем назначение объекта через AI
     let objectPurpose = 'Территория участков под строительство';
     try {
@@ -198,6 +206,7 @@ export class ProjectsService {
         objectPurpose,
         documentNumber,
         clientName: extractedData.clientName,
+        clientAddress,
         services: services as unknown as object,
         samplingLayers: samplingLayers as unknown as object,
         platformCount,

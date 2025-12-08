@@ -102,6 +102,7 @@ model Project {
   objectPurpose    String?       // Назначение объекта
   documentNumber   String?       // Номер документа (110 из 801-110-25)
   clientName       String?       // Название заказчика
+  clientAddress    String?       // Адрес заказчика
   
   // Сопоставленные услуги (JSON)
   services         Json?         // [{row, num, category, name, unit, quantity}]

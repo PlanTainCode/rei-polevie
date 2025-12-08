@@ -41,6 +41,11 @@ const LIGHT_YELLOW: ExcelJS.FillPattern = {
   fgColor: { argb: 'FFFFFFCC' },
 };
 
+// Чёрный цвет шрифта
+const BLACK_FONT: Partial<ExcelJS.Font> = {
+  color: { argb: 'FF000000' },
+};
+
 @Injectable()
 export class ExcelService {
   private readonly templatePath = join(process.cwd(), 'templates', 'Задание ПБ2-шб.xlsx');
@@ -53,6 +58,24 @@ export class ExcelService {
     private prisma: PrismaService,
     private aiService: AiService,
   ) {}
+
+  /**
+   * Устанавливает значение ячейки с чёрным цветом шрифта
+   * Используется для замены красных плейсхолдеров из шаблона
+   */
+  private setCellValue(cell: ExcelJS.Cell, value: string | number | null | undefined): void {
+    if (value !== null && value !== undefined && value !== '') {
+      cell.value = value;
+      cell.font = { ...cell.font, ...BLACK_FONT };
+    }
+  }
+
+  /**
+   * Очищает ячейку (убирает красный плейсхолдер)
+   */
+  private clearCell(cell: ExcelJS.Cell): void {
+    cell.value = null;
+  }
 
   /**
    * Формирует строку "Наименование и адрес объекта"
@@ -283,11 +306,14 @@ export class ExcelService {
     // Номер акта (J2) - формат: 801-XXX-25-АОП-1
     const year = new Date().getFullYear().toString().slice(-2);
     const actNumber = `801-${project.documentNumber || '000'}-${year}-АОП-1`;
-    sheet.getCell('J2').value = actNumber;
+    this.setCellValue(sheet.getCell('J2'), actNumber);
+
+    // Переименовываем лист по номеру акта
+    sheet.name = actNumber;
 
     // Дата составления Акта (E4) — завтрашняя дата
     const tomorrow = this.getTomorrowDate();
-    sheet.getCell('E4').value = this.formatDate(tomorrow);
+    this.setCellValue(sheet.getCell('E4'), this.formatDate(tomorrow));
 
     // Наименование объекта и адрес (E5) — проверяем через AI
     const objectField = await this.formatObjectField(
@@ -295,23 +321,26 @@ export class ExcelService {
       project.objectAddress,
     );
     const objectCell = sheet.getCell('E5');
-    objectCell.value = objectField;
+    this.setCellValue(objectCell, objectField);
     objectCell.alignment = { wrapText: true, vertical: 'top' };
     // Автовысота строки
     const charsPerLine = 60;
     const textLines = Math.ceil(objectField.length / charsPerLine);
     sheet.getRow(5).height = Math.max(20, textLines * 15);
 
-    // Заказчик (E6)
-    if (project.clientName) {
-      sheet.getCell('E6').value = project.clientName;
+    // Заказчик с адресом (E6)
+    const clientInfo = project.clientAddress 
+      ? `${project.clientName || ''}, ${project.clientAddress}`.trim()
+      : project.clientName;
+    if (clientInfo) {
+      this.setCellValue(sheet.getCell('E6'), clientInfo);
     }
 
     // Дата отбора проб (E9) — завтрашняя дата
-    sheet.getCell('E9').value = this.formatDate(tomorrow);
+    this.setCellValue(sheet.getCell('E9'), this.formatDate(tomorrow));
 
     // Количество проб (E119)
-    sheet.getCell('E119').value = soilSamples.length;
+    this.setCellValue(sheet.getCell('E119'), soilSamples.length);
 
     // ========== ЗАПОЛНЯЕМ ТАБЛИЦУ ПРОБ ==========
     
@@ -325,30 +354,40 @@ export class ExcelService {
       const row = sheet.getRow(rowNum);
 
       // A: № п/п
-      sheet.getCell(`A${rowNum}`).value = i + 1;
+      this.setCellValue(sheet.getCell(`A${rowNum}`), i + 1);
 
       // B: Глубина отбора (0,0-0,2)
-      sheet.getCell(`B${rowNum}`).value = sample.depthLabel;
+      this.setCellValue(sheet.getCell(`B${rowNum}`), sample.depthLabel);
 
       // C: № пробы (01АХ.01)
-      sheet.getCell(`C${rowNum}`).value = sample.cipher;
+      this.setCellValue(sheet.getCell(`C${rowNum}`), sample.cipher);
 
-      // E: Описание/характеристика (заполняется пользователем)
+      // E: Описание/характеристика (заполняется пользователем, очищаем плейсхолдер)
       if (sample.description) {
-        sheet.getCell(`E${rowNum}`).value = sample.description;
+        this.setCellValue(sheet.getCell(`E${rowNum}`), sample.description);
+      } else {
+        this.clearCell(sheet.getCell(`E${rowNum}`));
       }
 
       // F: Место отбора (ПП1, СК1)
-      sheet.getCell(`F${rowNum}`).value = sample.platform.label;
+      this.setCellValue(sheet.getCell(`F${rowNum}`), sample.platform.label);
 
       // H: Масса пробы/тара (1,0 кг/Пэ)
-      sheet.getCell(`H${rowNum}`).value = sample.mass;
+      this.setCellValue(sheet.getCell(`H${rowNum}`), sample.mass);
 
       // Q: Широта - только если есть в БД
-      sheet.getCell(`Q${rowNum}`).value = sample.latitude || null;
+      if (sample.latitude) {
+        this.setCellValue(sheet.getCell(`Q${rowNum}`), sample.latitude);
+      } else {
+        this.clearCell(sheet.getCell(`Q${rowNum}`));
+      }
 
       // R: Долгота - только если есть в БД
-      sheet.getCell(`R${rowNum}`).value = sample.longitude || null;
+      if (sample.longitude) {
+        this.setCellValue(sheet.getCell(`R${rowNum}`), sample.longitude);
+      } else {
+        this.clearCell(sheet.getCell(`R${rowNum}`));
+      }
 
       // Скрываем неиспользуемые строки
       row.hidden = false;
@@ -460,11 +499,14 @@ export class ExcelService {
     // Номер акта (J3) - формат: 801-XXX-25-АОП-2
     const year = new Date().getFullYear().toString().slice(-2);
     const actNumber = `801-${project.documentNumber || '000'}-${year}-АОП-2`;
-    sheet.getCell('J3').value = actNumber;
+    this.setCellValue(sheet.getCell('J3'), actNumber);
+
+    // Переименовываем лист по номеру акта
+    sheet.name = actNumber;
 
     // Дата составления Акта (E5) — завтрашняя дата
     const tomorrow = this.getTomorrowDate();
-    sheet.getCell('E5').value = this.formatDate(tomorrow);
+    this.setCellValue(sheet.getCell('E5'), this.formatDate(tomorrow));
 
     // Наименование объекта и адрес (E6) — проверяем через AI
     const objectField = await this.formatObjectField(
@@ -472,20 +514,23 @@ export class ExcelService {
       project.objectAddress,
     );
     const objectCell = sheet.getCell('E6');
-    objectCell.value = objectField;
+    this.setCellValue(objectCell, objectField);
     objectCell.alignment = { wrapText: true, vertical: 'top' };
     // Автовысота строки
     const charsPerLine = 60;
     const textLines = Math.ceil(objectField.length / charsPerLine);
     sheet.getRow(6).height = Math.max(20, textLines * 15);
 
-    // Заказчик (E7)
-    if (project.clientName) {
-      sheet.getCell('E7').value = project.clientName;
+    // Заказчик с адресом (E7)
+    const clientInfo = project.clientAddress 
+      ? `${project.clientName || ''}, ${project.clientAddress}`.trim()
+      : project.clientName;
+    if (clientInfo) {
+      this.setCellValue(sheet.getCell('E7'), clientInfo);
     }
 
     // Дата отбора проб (E10) — завтрашняя дата
-    sheet.getCell('E10').value = this.formatDate(tomorrow);
+    this.setCellValue(sheet.getCell('E10'), this.formatDate(tomorrow));
 
     // ========== ЗАПОЛНЯЕМ ТАБЛИЦУ ПРОБ ==========
     
@@ -923,10 +968,8 @@ export class ExcelService {
       sheet.getCell(`B${baseRow}`).value = taskNumber;
       sheet.getCell(`H${baseRow}`).value = tomorrowStr;
 
-      // Row N+2: Адрес объекта (B) - только для первой бирки, остальные по формуле
-      if (i === 0) {
-        sheet.getCell(`B${baseRow + 2}`).value = address;
-      }
+      // Row N+2: Адрес объекта (B) - на всех бирках
+      sheet.getCell(`B${baseRow + 2}`).value = address;
 
       // Row N+4: Номер площадки (D), Глубина (J)
       sheet.getCell(`D${baseRow + 4}`).value = sample.platform.label;
@@ -1001,10 +1044,8 @@ export class ExcelService {
       sheet.getCell(`B${baseRow}`).value = taskNumber;
       sheet.getCell(`H${baseRow}`).value = tomorrowStr;
 
-      // Row N+2: Адрес объекта (B) - только для первой бирки
-      if (i === 0) {
-        sheet.getCell(`B${baseRow + 2}`).value = address;
-      }
+      // Row N+2: Адрес объекта (B) - на всех бирках
+      sheet.getCell(`B${baseRow + 2}`).value = address;
 
       // Row N+4: Номер площадки (D), Глубина (J)
       sheet.getCell(`D${baseRow + 4}`).value = sample.platform.label;
