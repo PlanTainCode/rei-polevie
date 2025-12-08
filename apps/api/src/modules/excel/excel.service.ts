@@ -824,6 +824,11 @@ export class ExcelService {
       }
     }
 
+    // Дата отбора — завтрашний день в формате ДД.ММ.ГГГГ
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = `${String(tomorrow.getDate()).padStart(2, '0')}.${String(tomorrow.getMonth() + 1).padStart(2, '0')}.${tomorrow.getFullYear()}`;
+
     // Заполняем бирки - только левую часть (A-J)
     // Правая часть (K) использует формулы из шаблона, которые ссылаются на левую часть
     for (let i = 0; i < soilSamples.length; i++) {
@@ -832,8 +837,9 @@ export class ExcelService {
 
       // === ЛЕВАЯ БИРКА (A-J) ===
       
-      // Row N+0: № задания ПБ (B)
+      // Row N+0: № задания ПБ (B), Дата отбора (H)
       sheet.getCell(`B${baseRow}`).value = taskNumber;
+      sheet.getCell(`H${baseRow}`).value = tomorrowStr;
 
       // Row N+2-3: Адрес объекта (B)
       sheet.getCell(`B${baseRow + 2}`).value = address;
@@ -903,13 +909,19 @@ export class ExcelService {
       row.height = (row.height || 10.5) * ROW_HEIGHT_MULTIPLIER;
     }
 
+    // Дата отбора — завтрашний день
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = `${String(tomorrow.getDate()).padStart(2, '0')}.${String(tomorrow.getMonth() + 1).padStart(2, '0')}.${tomorrow.getFullYear()}`;
+
     // Заполняем бирки - только левую часть
     for (let i = 0; i < amSamples.length; i++) {
       const sample = amSamples[i];
       const baseRow = FIRST_TAG_START + (i * TAG_HEIGHT);
 
-      // Row N+0: № задания ПБ (B)
+      // Row N+0: № задания ПБ (B), Дата отбора (H)
       sheet.getCell(`B${baseRow}`).value = taskNumber;
+      sheet.getCell(`H${baseRow}`).value = tomorrowStr;
 
       // Row N+2: Адрес объекта (B) - только для первой бирки, остальные по формуле
       if (i === 0) {
@@ -975,13 +987,19 @@ export class ExcelService {
       row.height = (row.height || 10.5) * ROW_HEIGHT_MULTIPLIER;
     }
 
+    // Дата отбора — завтрашний день
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = `${String(tomorrow.getDate()).padStart(2, '0')}.${String(tomorrow.getMonth() + 1).padStart(2, '0')}.${tomorrow.getFullYear()}`;
+
     // Заполняем бирки - только левую часть
     for (let i = 0; i < apSamples.length; i++) {
       const sample = apSamples[i];
       const baseRow = FIRST_TAG_START + (i * TAG_HEIGHT);
 
-      // Row N+0: № задания ПБ (B)
+      // Row N+0: № задания ПБ (B), Дата отбора (H)
       sheet.getCell(`B${baseRow}`).value = taskNumber;
+      sheet.getCell(`H${baseRow}`).value = tomorrowStr;
 
       // Row N+2: Адрес объекта (B) - только для первой бирки
       if (i === 0) {
@@ -1043,12 +1061,18 @@ export class ExcelService {
       row.height = (row.height || 10.5) * ROW_HEIGHT_MULTIPLIER;
     }
 
+    // Дата отбора — завтрашний день
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = `${String(tomorrow.getDate()).padStart(2, '0')}.${String(tomorrow.getMonth() + 1).padStart(2, '0')}.${tomorrow.getFullYear()}`;
+
     // Заполняем бирки
     for (let i = 0; i < doSamples.length; i++) {
       const sample = doSamples[i];
       const baseRow = FIRST_TAG_START + (i * TAG_HEIGHT);
 
       sheet.getCell(`B${baseRow}`).value = taskNumber;
+      sheet.getCell(`H${baseRow}`).value = tomorrowStr;
 
       if (i === 0) {
         sheet.getCell(`B${baseRow + 2}`).value = address;
@@ -1106,12 +1130,18 @@ export class ExcelService {
       row.height = (row.height || 10.5) * ROW_HEIGHT_MULTIPLIER;
     }
 
+    // Дата отбора — завтрашний день
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = `${String(tomorrow.getDate()).padStart(2, '0')}.${String(tomorrow.getMonth() + 1).padStart(2, '0')}.${tomorrow.getFullYear()}`;
+
     // Заполняем бирки
     for (let i = 0; i < waterSamples.length; i++) {
       const sample = waterSamples[i];
       const baseRow = FIRST_TAG_START + (i * TAG_HEIGHT);
 
       sheet.getCell(`B${baseRow}`).value = taskNumber;
+      sheet.getCell(`H${baseRow}`).value = tomorrowStr;
 
       if (i === 0) {
         sheet.getCell(`B${baseRow + 2}`).value = address;
