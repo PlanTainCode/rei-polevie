@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import * as mammoth from 'mammoth';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
+import { AiService, AiSamplingData } from '../ai/ai.service';
 
 export interface SamplingLayer {
   depthFrom: number;
@@ -39,6 +40,7 @@ export interface ParsedDocumentInfo {
     // Новые поля для проб
     samplingLayers?: SamplingLayer[];
     samplingData?: SamplingData; // Расширенные данные по типам
+    aiSamplingData?: AiSamplingData; // Данные от AI
     microbiologyCount?: number; // Кол-во микробиологических проб (для определения кол-ва ПП/СК)
     contractNumber?: string; // Номер договора (801-110-25)
   };
@@ -46,6 +48,8 @@ export interface ParsedDocumentInfo {
 
 @Injectable()
 export class WordParserService {
+  constructor(private aiService: AiService) {}
+
   async parseDocument(fileUrl: string): Promise<ParsedDocumentInfo> {
     const filePath = join(process.cwd(), 'uploads', fileUrl);
     const buffer = await readFile(filePath);
@@ -68,7 +72,7 @@ export class WordParserService {
     const tables = this.extractTablesFromHtml(html);
 
     // Извлекаем структурированные данные (передаём таблицы для поиска заказчика)
-    const extractedData = this.extractData(rawText, paragraphs, tables);
+    const extractedData = await this.extractData(rawText, paragraphs, tables);
 
     return {
       rawText,
@@ -109,11 +113,11 @@ export class WordParserService {
     return tables;
   }
 
-  private extractData(
+  private async extractData(
     rawText: string,
     paragraphs: string[],
     tables: string[][],
-  ): ParsedDocumentInfo['extractedData'] {
+  ): Promise<ParsedDocumentInfo['extractedData']> {
     const data: ParsedDocumentInfo['extractedData'] = {};
 
     // Ищем название клиента/заказчика
@@ -207,14 +211,24 @@ export class WordParserService {
       data.contractNumber = contractMatch[1];
     }
 
-    // Извлекаем слои отбора проб (расширенный парсинг по таблицам)
-    data.samplingData = this.extractSamplingDataFromTables(rawText, tables);
+    // Извлекаем слои отбора проб через AI
+    const aiSamplingData = await this.aiService.extractSamplingLayers(rawText);
+    data.aiSamplingData = aiSamplingData;
+
+    // Конвертируем AI данные в старый формат для совместимости
+    data.samplingData = {
+      soilLayers: aiSamplingData.soil.layers,
+      sedimentLayers: aiSamplingData.sediment.layers,
+      sedimentCount: aiSamplingData.sediment.totalCount,
+      waterLayers: aiSamplingData.water.layers,
+      waterCount: aiSamplingData.water.totalCount,
+    };
     
     // Для обратной совместимости: samplingLayers = soilLayers
     data.samplingLayers = data.samplingData.soilLayers;
 
-    // Извлекаем количество микробиологических проб
-    data.microbiologyCount = this.extractMicrobiologyCount(rawText);
+    // Микробиология из AI
+    data.microbiologyCount = aiSamplingData.microbiology.count;
 
     return data;
   }

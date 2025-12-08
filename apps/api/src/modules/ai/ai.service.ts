@@ -614,5 +614,151 @@ ${TEMPLATE_SERVICES.map((s, i) => `${i + 1}. [Строка ${s.row}, №${s.num}
       return null;
     }
   }
+
+  /**
+   * Извлекает данные о слоях отбора проб из текста документа через AI
+   * Возвращает унифицированный формат для всех типов проб
+   */
+  async extractSamplingLayers(documentText: string): Promise<AiSamplingData> {
+    const systemPrompt = `Ты эксперт по анализу документов для отбора проб почвы, донных отложений и воды.
+
+Твоя задача - извлечь информацию о слоях отбора проб и количестве проб в каждом слое из текста документа.
+
+ВАЖНО:
+1. В документе могут быть разные типы проб:
+   - Почва/грунт (ПГ) — ищи секцию "Отбор проб ПГ" или просто "Отбор проб" если нет ПГ/ДО/Вода
+   - Донные отложения (ДО) — ищи секцию "Отбор проб ДО"
+   - Вода — ищи секцию "Отбор проб Вода"
+
+2. Слои записываются как глубины: "0,0-0,2", "0,2-0,5", "0-0,5" и т.д.
+   - Первый слой (обычно 0,0-0,2 или 0-0,2) — это пробная площадка (isPP: true)
+   - Остальные слои — скважины (isPP: false)
+
+3. Количество проб обычно указано рядом со слоями или в отдельной колонке "Кол-во" / "проб"
+   - Может быть указано как: "4", "2 пробы", "по 2 на слой"
+
+4. Микробиология — ищи упоминания "микробиологическ", "паразитологич", "санитарно-бактериол"
+   - Обычно указано общее количество проб
+
+Отвечай СТРОГО в формате JSON:
+{
+  "soil": {
+    "layers": [
+      {"depthFrom": 0.0, "depthTo": 0.2, "label": "0,0-0,2", "count": 4, "isPP": true},
+      {"depthFrom": 0.2, "depthTo": 0.5, "label": "0,2-0,5", "count": 4, "isPP": false}
+    ],
+    "totalCount": 8
+  },
+  "sediment": {
+    "layers": [
+      {"depthFrom": 0.0, "depthTo": 0.5, "label": "0-0,5", "count": 2, "isPP": false}
+    ],
+    "totalCount": 2
+  },
+  "water": {
+    "layers": [
+      {"depthFrom": 0, "depthTo": 0, "label": "поверхн.", "count": 2, "isPP": false}
+    ],
+    "totalCount": 2
+  },
+  "microbiology": {
+    "count": 3,
+    "hasMicrobiology": true,
+    "hasParasitology": true
+  }
+}
+
+Если какого-то типа проб нет в документе, верни пустой массив layers и totalCount: 0.
+Если микробиологии нет, верни count: 0, hasMicrobiology: false, hasParasitology: false.`;
+
+    try {
+      const response = await this.chat([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Извлеки данные о слоях отбора проб из этого документа:\n\n${documentText}` },
+      ]);
+
+      console.log('AI sampling layers response:', response);
+
+      // Парсим JSON из ответа
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        console.error('No JSON found in AI response');
+        return this.getEmptySamplingData();
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      
+      return {
+        soil: {
+          layers: (parsed.soil?.layers || []).map(this.normalizeLayer),
+          totalCount: parsed.soil?.totalCount || 0,
+        },
+        sediment: {
+          layers: (parsed.sediment?.layers || []).map(this.normalizeLayer),
+          totalCount: parsed.sediment?.totalCount || 0,
+        },
+        water: {
+          layers: (parsed.water?.layers || []).map(this.normalizeLayer),
+          totalCount: parsed.water?.totalCount || 0,
+        },
+        microbiology: {
+          count: parsed.microbiology?.count || 0,
+          hasMicrobiology: parsed.microbiology?.hasMicrobiology || false,
+          hasParasitology: parsed.microbiology?.hasParasitology || false,
+        },
+      };
+    } catch (error) {
+      console.error('Error extracting sampling layers:', error);
+      return this.getEmptySamplingData();
+    }
+  }
+
+  private normalizeLayer(layer: any): AiSamplingLayer {
+    return {
+      depthFrom: Number(layer.depthFrom) || 0,
+      depthTo: Number(layer.depthTo) || 0,
+      label: String(layer.label || ''),
+      count: Number(layer.count) || 0,
+      isPP: Boolean(layer.isPP),
+    };
+  }
+
+  private getEmptySamplingData(): AiSamplingData {
+    return {
+      soil: { layers: [], totalCount: 0 },
+      sediment: { layers: [], totalCount: 0 },
+      water: { layers: [], totalCount: 0 },
+      microbiology: { count: 0, hasMicrobiology: false, hasParasitology: false },
+    };
+  }
+}
+
+// Интерфейсы для AI парсинга слоёв
+export interface AiSamplingLayer {
+  depthFrom: number;
+  depthTo: number;
+  label: string;
+  count: number;
+  isPP: boolean;
+}
+
+export interface AiSamplingData {
+  soil: {
+    layers: AiSamplingLayer[];
+    totalCount: number;
+  };
+  sediment: {
+    layers: AiSamplingLayer[];
+    totalCount: number;
+  };
+  water: {
+    layers: AiSamplingLayer[];
+    totalCount: number;
+  };
+  microbiology: {
+    count: number;
+    hasMicrobiology: boolean;
+    hasParasitology: boolean;
+  };
 }
 
