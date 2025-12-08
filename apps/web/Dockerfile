@@ -8,7 +8,7 @@ COPY apps/web/package.json ./apps/web/
 COPY packages/shared/package.json ./packages/shared/
 
 # Устанавливаем зависимости
-RUN bun install --frozen-lockfile
+RUN bun install
 
 # Копируем исходный код
 COPY packages/shared ./packages/shared

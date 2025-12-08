@@ -14,7 +14,7 @@ COPY apps/api/package.json ./apps/api/
 COPY packages/shared/package.json ./packages/shared/
 
 # Устанавливаем зависимости
-RUN bun install --frozen-lockfile
+RUN bun install
 
 # Копируем исходный код
 COPY packages/shared ./packages/shared
@@ -43,7 +43,7 @@ COPY --from=builder /app/apps/api/package.json ./apps/api/
 COPY --from=builder /app/packages/shared ./packages/shared
 
 # Устанавливаем только production зависимости
-RUN bun install --frozen-lockfile --production
+RUN bun install --production
 
 # Копируем собранное приложение и Prisma
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
