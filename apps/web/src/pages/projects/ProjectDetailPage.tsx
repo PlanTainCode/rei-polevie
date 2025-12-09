@@ -26,7 +26,7 @@ import {
   Beaker,
   ArrowRight,
 } from 'lucide-react';
-import { projectsApi, type GenerateExcelResult, type GenerateFmbaResult } from '@/api/projects';
+import { projectsApi, type GenerateExcelResult } from '@/api/projects';
 import { Button, Input, Card, CardHeader, CardTitle, CardContent } from '@/components/ui';
 
 export function ProjectDetailPage() {
@@ -40,10 +40,8 @@ export function ProjectDetailPage() {
   const [newOrderFile, setNewOrderFile] = useState<File | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     services: true,
-    rawData: false, // Скрыто по умолчанию
   });
   const [excelResult, setExcelResult] = useState<GenerateExcelResult | null>(null);
-  const [fmbaResult, setFmbaResult] = useState<GenerateFmbaResult | null>(null);
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', id],
@@ -101,13 +99,6 @@ export function ProjectDetailPage() {
     mutationFn: () => projectsApi.reprocess(id!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', id] });
-    },
-  });
-
-  const generateFmbaMutation = useMutation({
-    mutationFn: () => projectsApi.generateFmba(id!),
-    onSuccess: (result) => {
-      setFmbaResult(result);
     },
   });
 
@@ -392,7 +383,7 @@ export function ProjectDetailPage() {
               {/* Кнопка генерации */}
               <div className="flex items-center justify-between p-4 bg-[var(--bg-tertiary)] rounded-lg">
                 <div>
-                  <p className="font-medium">Заявка в ИЛЦ</p>
+                  <p className="font-medium">Задание ПБ</p>
                   <p className="text-sm text-[var(--text-secondary)]">
                     {project.generatedAt
                       ? `Последняя генерация: ${new Date(project.generatedAt).toLocaleString('ru')}`
@@ -433,7 +424,7 @@ export function ProjectDetailPage() {
                 <div className="flex items-center gap-3 p-4 bg-primary-500/10 rounded-lg">
                   <CheckCircle className="w-5 h-5 text-primary-400 flex-shrink-0" />
                   <div className="flex-1">
-                    <p className="font-medium text-primary-400">Заявка сгенерирована</p>
+                    <p className="font-medium text-primary-400">Задание сгенерировано</p>
                     <p className="text-sm text-[var(--text-secondary)]">
                       {excelResult.fileName}
                     </p>
@@ -447,88 +438,11 @@ export function ProjectDetailPage() {
                   </Button>
                 </div>
               )}
-
-              {/* Заявка ФМБА на микробиологию */}
-              <div className="flex items-center justify-between p-4 bg-[var(--bg-tertiary)] rounded-lg">
-                <div>
-                  <p className="font-medium">Заявка ФМБА (микробиология)</p>
-                  <p className="text-sm text-[var(--text-secondary)]">
-                    Word документ для отправки в ФГБУЗ ГЦГ и Э ФМБА России
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  onClick={() => generateFmbaMutation.mutate()}
-                  isLoading={generateFmbaMutation.isPending}
-                >
-                  <FileText className="w-4 h-4" />
-                  Сгенерировать
-                </Button>
-              </div>
-
-              {/* Результат генерации ФМБА */}
-              {generateFmbaMutation.isError && (
-                <div className="flex items-center gap-3 p-4 bg-red-500/10 rounded-lg text-red-400">
-                  <AlertCircle className="w-5 h-5 flex-shrink-0" />
-                  <p>Ошибка генерации заявки ФМБА. Попробуйте снова.</p>
-                </div>
-              )}
-
-              {fmbaResult && !fmbaResult.success && (
-                <div className="flex items-center gap-3 p-4 bg-yellow-500/10 rounded-lg text-yellow-400">
-                  <AlertCircle className="w-5 h-5 flex-shrink-0" />
-                  <p>{fmbaResult.message || 'Нет проб микробиологии'}</p>
-                </div>
-              )}
-
-              {fmbaResult && fmbaResult.success && fmbaResult.fileName && (
-                <div className="flex items-center gap-3 p-4 bg-primary-500/10 rounded-lg">
-                  <CheckCircle className="w-5 h-5 text-primary-400 flex-shrink-0" />
-                  <div className="flex-1">
-                    <p className="font-medium text-primary-400">Заявка ФМБА сгенерирована</p>
-                    <p className="text-sm text-[var(--text-secondary)]">
-                      {fmbaResult.fileName}
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    onClick={() => projectsApi.downloadWord(id!, fmbaResult.fileName!)}
-                  >
-                    <Download className="w-4 h-4" />
-                    Скачать
-                  </Button>
-                </div>
-              )}
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Сырые данные (скрыты по умолчанию) */}
-      {project.processedAt && (
-        <Card>
-          <CardHeader
-            className="cursor-pointer hover:bg-[var(--bg-tertiary)] transition-colors"
-            onClick={() => toggleSection('rawData')}
-          >
-            <div className="flex items-center gap-2">
-              {expandedSections.rawData ? (
-                <ChevronDown className="w-5 h-5" />
-              ) : (
-                <ChevronRight className="w-5 h-5" />
-              )}
-              <CardTitle className="text-[var(--text-secondary)]">
-                Сырые данные из документов
-              </CardTitle>
-            </div>
-          </CardHeader>
-          {expandedSections.rawData && (
-            <CardContent>
-              <RawDataSection projectId={id!} />
-            </CardContent>
-          )}
-        </Card>
-      )}
     </div>
   );
 }
@@ -634,42 +548,3 @@ function DataField({
   );
 }
 
-function RawDataSection({ projectId }: { projectId: string }) {
-  const { data: parsedDocs, isLoading } = useQuery({
-    queryKey: ['project-parse', projectId],
-    queryFn: () => projectsApi.parseDocuments(projectId),
-  });
-
-  if (isLoading) {
-    return (
-      <div className="text-center py-8">
-        <div className="animate-spin w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full mx-auto" />
-      </div>
-    );
-  }
-
-  if (!parsedDocs?.tz && !parsedDocs?.order) {
-    return <p className="text-[var(--text-secondary)] text-center py-4">Нет данных</p>;
-  }
-
-  return (
-    <div className="space-y-4">
-      {parsedDocs.tz && (
-        <div>
-          <h4 className="text-sm font-medium mb-2">Текст из ТЗ</h4>
-          <pre className="p-3 bg-[var(--bg-primary)] rounded-lg text-xs max-h-48 overflow-auto whitespace-pre-wrap">
-            {parsedDocs.tz.paragraphs.slice(0, 30).join('\n\n')}
-          </pre>
-        </div>
-      )}
-      {parsedDocs.order && (
-        <div>
-          <h4 className="text-sm font-medium mb-2">Текст из поручения</h4>
-          <pre className="p-3 bg-[var(--bg-primary)] rounded-lg text-xs max-h-48 overflow-auto whitespace-pre-wrap">
-            {parsedDocs.order.paragraphs.slice(0, 30).join('\n\n')}
-          </pre>
-        </div>
-      )}
-    </div>
-  );
-}

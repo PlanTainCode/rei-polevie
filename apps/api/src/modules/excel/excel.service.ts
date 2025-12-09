@@ -49,6 +49,7 @@ const BLACK_FONT: Partial<ExcelJS.Font> = {
 @Injectable()
 export class ExcelService {
   private readonly templatePath = join(process.cwd(), 'templates', 'Задание ПБ2-шб.xlsx');
+  private readonly fmbaTemplatePath = join(process.cwd(), 'templates', 'Задание ПБ (фмба).xltm');
   private readonly outputDir = join(process.cwd(), 'generated');
   
   // Кэш для проверки адреса в названии (чтобы не вызывать AI многократно)
@@ -144,13 +145,13 @@ export class ExcelService {
     // 1. Заполняем номер заявки (формат 801-XXX-25-ЗЛР-1)
     const year = new Date().getFullYear().toString().slice(-2);
     const requestNumber = `801-${documentNumber}-${year}-ЗЛР-1`;
-    sheet.getCell('E7').value = requestNumber;
+    this.setCellValue(sheet.getCell('E7'), requestNumber);
 
     // 2. Заполняем наименование и адрес объекта (проверяем через AI, есть ли адрес в названии)
     const objectField = await this.formatObjectField(objectName, objectAddress);
     
     const objectCell = sheet.getCell('D9');
-    objectCell.value = objectField;
+    this.setCellValue(objectCell, objectField);
     objectCell.alignment = { wrapText: true, vertical: 'top' };
     
     // Подстраиваем высоту строки под текст (примерно 15 пунктов на строку)
@@ -160,15 +161,15 @@ export class ExcelService {
     row9.height = Math.max(30, textLines * 15);
 
     // 3. Назначение объекта и дата
-    sheet.getCell('D11').value = objectPurpose;
-    sheet.getCell('D13').value = this.formatDate(new Date());
+    this.setCellValue(sheet.getCell('D11'), objectPurpose);
+    this.setCellValue(sheet.getCell('D13'), this.formatDate(new Date()));
 
     // 4. Заполняем количество по услугам (исключаем микробиологию - row 22, идёт на подряд)
     const filteredServices = services.filter(s => s.row !== 22);
     const serviceRows = new Set(filteredServices.map(s => s.row));
     for (const service of filteredServices) {
       const cell = sheet.getCell(`G${service.row}`);
-      cell.value = typeof service.quantity === 'number' ? service.quantity : service.quantity;
+      this.setCellValue(cell, typeof service.quantity === 'number' ? service.quantity : service.quantity);
     }
 
     // 5. Скрываем столбец A
@@ -213,8 +214,8 @@ export class ExcelService {
     // Создаём папку для выходных файлов
     await mkdir(this.outputDir, { recursive: true });
 
-    // Генерируем имя файла
-    const fileName = `Заявка_ИЛЦ_${project.name.replace(/[^a-zA-Zа-яА-ЯёЁ0-9]/g, '_')}_${Date.now()}.xlsx`;
+    // Генерируем имя файла (формат: Задание_ПБ_XXX.xlsx)
+    const fileName = `Задание_ПБ_${documentNumber}.xlsx`;
     const filePath = join(this.outputDir, fileName);
 
     // Сохраняем файл
@@ -1203,12 +1204,16 @@ export class ExcelService {
   /**
    * Заполняет лист "Табличка в поле (2)" (таблички под печать для фото)
    * 
-   * Структура:
+   * Структура шаблона:
    * - A1:A20 объединены - наименование объекта
    * - C2-D16: Справочник ПП/СК (ПП1/СК1, ПП2/СК2...)
-   * - Row 21 (h=102): CONCATENATE(C2,"/",D2) => "ПП1/СК1"
+   * - Row 21 (h=102): CONCATENATE(C2,"/",D2) => "ПП1/СК1" - первая табличка
    * - A22:A41 объединены - формула =A1 (наименование)
-   * - И так далее... каждая табличка = 21 строка
+   * - Row 42 (h=102): CONCATENATE(C3,"/",D3) => "ПП2/СК2" - вторая табличка
+   * - И так далее... каждая табличка = 21 строка (20 строк данных + 1 строка с номером)
+   * 
+   * Формулы CONCATENATE берут значения из справочника C2:D16, поэтому
+   * нужно заполнить справочник номерами площадок.
    */
   async fillFieldTableSheet(workbook: ExcelJS.Workbook, projectId: string): Promise<void> {
     const project = await this.prisma.project.findUnique({
@@ -1234,8 +1239,8 @@ export class ExcelService {
 
     // Определяем количество уникальных площадок (только почва АХ)
     const soilSamples = project.samples.filter((s) => s.analysisCode === 'АХ');
-    const uniquePlatforms = new Set(soilSamples.map((s) => s.platform.number));
-    const platformCount = uniquePlatforms.size;
+    const uniquePlatformNumbers = [...new Set(soilSamples.map((s) => s.platform.number))].sort((a, b) => a - b);
+    const platformCount = uniquePlatformNumbers.length;
 
     if (platformCount === 0) {
       sheet.state = 'hidden';
@@ -1249,14 +1254,341 @@ export class ExcelService {
     );
     sheet.getCell('A1').value = objectNameField;
 
-    // Константы
-    const TABLE_HEIGHT = 21;
+    // Заполняем справочник ПП/СК в ячейках C2:D16
+    // Формулы CONCATENATE в табличках ссылаются на этот справочник
+    for (let i = 0; i < Math.min(platformCount, 15); i++) {
+      const rowNum = 2 + i; // C2, C3, ... C16
+      const platformNum = uniquePlatformNumbers[i];
+      sheet.getCell(`C${rowNum}`).value = `ПП${platformNum}`;
+      sheet.getCell(`D${rowNum}`).value = `СК${platformNum}`;
+    }
 
-    // Скрываем таблички после последней нужной площадки
-    const lastVisibleRow = platformCount * TABLE_HEIGHT;
+    // Очищаем неиспользуемые строки справочника
+    for (let i = platformCount; i < 15; i++) {
+      const rowNum = 2 + i;
+      sheet.getCell(`C${rowNum}`).value = null;
+      sheet.getCell(`D${rowNum}`).value = null;
+    }
+
+    // Константы структуры листа
+    const TABLE_HEIGHT = 21; // Высота одной таблички (20 строк + 1 строка номера)
+    const FIRST_TABLE_ROW = 21; // Первая табличка на строке 21
+
+    // Добавляем горизонтальные разрывы страниц после каждой таблички
+    // чтобы при печати каждая табличка была на отдельном листе
+    for (let i = 0; i < platformCount; i++) {
+      const tableEndRow = FIRST_TABLE_ROW + (i * TABLE_HEIGHT);
+      // Добавляем разрыв страницы после каждой таблички (кроме последней)
+      if (i < platformCount - 1) {
+        sheet.getRow(tableEndRow).addPageBreak();
+      }
+    }
+
+    // Вычисляем последнюю строку, которую нужно показать
+    // Последняя табличка заканчивается на строке: FIRST_TABLE_ROW + (platformCount - 1) * TABLE_HEIGHT
+    const lastVisibleRow = FIRST_TABLE_ROW + (platformCount - 1) * TABLE_HEIGHT;
     
+    // Скрываем все строки после последней таблички
     for (let i = lastVisibleRow + 1; i <= sheet.rowCount; i++) {
       sheet.getRow(i).hidden = true;
+    }
+
+    // Показываем все нужные строки (на случай если они были скрыты ранее)
+    for (let i = 1; i <= lastVisibleRow; i++) {
+      sheet.getRow(i).hidden = false;
+    }
+  }
+
+  /**
+   * Копирует лист "Заявка в ФМБА" из шаблона ФМБА в рабочую книгу
+   * и заполняет данными микробиологии/паразитологии
+   * 
+   * Структура листа:
+   * - D32: Дата отбора проб
+   * - D35:J38: Место и адрес отбора
+   * - Строки 47-56: Пробы АМ (микробиология)
+   * - Строки 57-66: Пробы АП (паразитология)
+   * - Формат A: "ПП{N}, {шифр}"
+   */
+  async fillFmbaRequestSheet(workbook: ExcelJS.Workbook, projectId: string): Promise<void> {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      include: {
+        samples: {
+          include: { platform: true },
+          orderBy: { sampleNumber: 'asc' },
+        },
+      },
+    });
+
+    if (!project) return;
+
+    // Фильтруем пробы АМ и АП
+    const amSamples = project.samples.filter((s) => s.analysisCode === 'АМ');
+    const apSamples = project.samples.filter((s) => s.analysisCode === 'АП');
+
+    // Если нет микробиологических проб — не генерируем лист
+    if (amSamples.length === 0) return;
+
+    // Загружаем шаблон ФМБА
+    const fmbaWorkbook = new ExcelJS.Workbook();
+    await fmbaWorkbook.xlsx.readFile(this.fmbaTemplatePath);
+    const fmbaSheet = fmbaWorkbook.getWorksheet('Заявка в ФМБА');
+    
+    if (!fmbaSheet) return;
+
+    // Создаём новый лист в рабочей книге
+    const sheet = workbook.addWorksheet('Заявка в ФМБА');
+
+    // Копируем данные из шаблона ФМБА (ячейки, стили, объединения)
+    // Копируем ширину столбцов
+    for (let c = 1; c <= 10; c++) {
+      const srcCol = fmbaSheet.getColumn(c);
+      const dstCol = sheet.getColumn(c);
+      dstCol.width = srcCol.width;
+    }
+
+    // Копируем строки и ячейки
+    for (let r = 1; r <= 78; r++) {
+      const srcRow = fmbaSheet.getRow(r);
+      const dstRow = sheet.getRow(r);
+      dstRow.height = srcRow.height;
+
+      for (let c = 1; c <= 10; c++) {
+        const srcCell = srcRow.getCell(c);
+        const dstCell = dstRow.getCell(c);
+        
+        // Копируем значение (не формулы)
+        if (srcCell.value !== null && srcCell.value !== undefined) {
+          // Пропускаем формулы — копируем как есть или результат
+          if (typeof srcCell.value === 'object' && 'formula' in srcCell.value) {
+            dstCell.value = srcCell.value.result || null;
+          } else {
+            dstCell.value = srcCell.value;
+          }
+        }
+        
+        // Копируем стили
+        if (srcCell.font) dstCell.font = { ...srcCell.font };
+        if (srcCell.alignment) dstCell.alignment = { ...srcCell.alignment };
+        if (srcCell.border) dstCell.border = { ...srcCell.border };
+        if (srcCell.fill) dstCell.fill = srcCell.fill;
+      }
+    }
+
+    // Копируем объединения ячеек
+    const merges = fmbaSheet.model.merges || [];
+    for (const merge of merges) {
+      try {
+        sheet.mergeCells(merge);
+      } catch {
+        // Игнорируем ошибки объединения
+      }
+    }
+
+    // ========== ЗАПОЛНЯЕМ ДАННЫЕ ==========
+    
+    // Номер заявки (E7) — формат "З А Я В К А № XXX-25 от DD.MM.YYYY"
+    const year = new Date().getFullYear().toString().slice(-2);
+    const documentNumber = project.documentNumber || '000';
+    const tomorrow = this.getTomorrowDate();
+    const requestTitle = `З А Я В К А № ${documentNumber}-${year} от ${this.formatDate(tomorrow)}`;
+    this.setCellValue(sheet.getCell('E7'), requestTitle);
+    
+    // Дата отбора проб (D32) — завтрашняя дата, убираем фон
+    const d32Cell = sheet.getCell('D32');
+    this.setCellValue(d32Cell, this.formatDate(tomorrow));
+    d32Cell.fill = { type: 'pattern', pattern: 'none' }; // Прозрачный фон
+    
+    // Дата доставки образцов (E68) — та же дата что и отбора
+    this.setCellValue(sheet.getCell('E68'), this.formatDate(tomorrow));
+
+    // Место и адрес отбора проб (D35) — объединённая ячейка
+    const objectField = await this.formatObjectField(
+      project.objectName || project.name,
+      project.objectAddress,
+    );
+    const d35Cell = sheet.getCell('D35');
+    this.setCellValue(d35Cell, objectField);
+    d35Cell.fill = { type: 'pattern', pattern: 'none' }; // Прозрачный фон
+    d35Cell.alignment = { wrapText: true, vertical: 'top' };
+    
+    // Подстраиваем высоту строк 35-38 под текст адреса
+    const addressCharsPerLine = 70; // Примерно столько символов в объединённой ячейке D-J
+    const addressLines = Math.ceil(objectField.length / addressCharsPerLine);
+    const addressRowHeight = Math.max(14.25, addressLines * 14);
+    // Распределяем высоту между строками 35-38 (объединены)
+    const heightPerRow = addressRowHeight / 4;
+    for (let r = 35; r <= 38; r++) {
+      sheet.getRow(r).height = heightPerRow;
+    }
+
+    // ========== ЗАПОЛНЯЕМ ТАБЛИЦУ ПРОБ АМ (микробиология) ==========
+    
+    const AM_START_ROW = 47;
+    const AM_MAX_ROWS = 10; // Строки 47-56
+
+    for (let i = 0; i < amSamples.length && i < AM_MAX_ROWS; i++) {
+      const sample = amSamples[i];
+      const rowNum = AM_START_ROW + i;
+
+      // A: Площадка и шифр ("ПП1, 01АМ.01")
+      this.setCellValue(sheet.getCell(`A${rowNum}`), `${sample.platform.label}, ${sample.cipher}`);
+      
+      // B: Глубина отбора
+      this.setCellValue(sheet.getCell(`B${rowNum}`), sample.depthLabel);
+      
+      // C-D: Характеристика почвы (объединены) — оставляем "-"
+      this.setCellValue(sheet.getCell(`C${rowNum}`), '-');
+      
+      // E: Масса
+      this.setCellValue(sheet.getCell(`E${rowNum}`), '1 кг');
+      
+      // F-G: Показатели — уже в шаблоне (ОКБ, ТКБ, энтерококки...)
+      // H-J: НД — уже в шаблоне (СанПиН 1.2.3685-21)
+    }
+
+    // Скрываем пустые строки АМ и убираем границы
+    for (let i = amSamples.length; i < AM_MAX_ROWS; i++) {
+      const rowNum = AM_START_ROW + i;
+      sheet.getRow(rowNum).hidden = true;
+      // Убираем границы у скрытых ячеек
+      for (const col of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']) {
+        sheet.getCell(`${col}${rowNum}`).border = {};
+      }
+    }
+
+    // ========== ЗАПОЛНЯЕМ ТАБЛИЦУ ПРОБ АП (паразитология) ==========
+    
+    const AP_START_ROW = 57;
+    const AP_MAX_ROWS = 10; // Строки 57-66
+
+    // Проверяем, есть ли услуга "цисты кишечных патогенных простейших" в поручении
+    // Обычно это услуга с названием, содержащим "простейш" или "цист"
+    const services = (project.services as unknown as { name?: string; row?: number }[]) || [];
+    const hasCystsService = services.some(
+      (s) => s.name?.toLowerCase().includes('простейш') || s.name?.toLowerCase().includes('цист')
+    );
+
+    for (let i = 0; i < apSamples.length && i < AP_MAX_ROWS; i++) {
+      const sample = apSamples[i];
+      const rowNum = AP_START_ROW + i;
+
+      // A: Площадка и шифр ("ПП1, 01АП.01")
+      this.setCellValue(sheet.getCell(`A${rowNum}`), `${sample.platform.label}, ${sample.cipher}`);
+      
+      // B: Глубина отбора
+      this.setCellValue(sheet.getCell(`B${rowNum}`), sample.depthLabel);
+      
+      // C-D: Характеристика почвы — оставляем "-"
+      this.setCellValue(sheet.getCell(`C${rowNum}`), '-');
+      
+      // E: Масса
+      this.setCellValue(sheet.getCell(`E${rowNum}`), '1 кг');
+      
+      // F-G: Показатели — модифицируем если нет услуги "цисты"
+      if (!hasCystsService) {
+        // Убираем "цисты кишечных патогенных простейших" из показателей
+        const fCell = sheet.getCell(`F${rowNum}`);
+        const cellValue = fCell.value;
+        
+        if (cellValue && typeof cellValue === 'object' && 'richText' in cellValue) {
+          // Фильтруем richText, убирая красный текст (цисты)
+          const filteredRichText = (cellValue.richText as { text: string; font?: { color?: { argb?: string } } }[])
+            .filter(rt => rt.font?.color?.argb !== 'FFFF0000');
+          
+          if (filteredRichText.length > 0) {
+            // Убираем запятую в конце последнего элемента
+            const lastPart = filteredRichText[filteredRichText.length - 1];
+            lastPart.text = lastPart.text.replace(/,\s*$/, '');
+            fCell.value = { richText: filteredRichText };
+          }
+        } else if (typeof cellValue === 'string') {
+          // Если обычный текст — убираем "цисты кишечных патогенных простейших"
+          fCell.value = cellValue
+            .replace(/,?\s*цисты кишечных патогенных простейших/gi, '')
+            .replace(/,\s*$/, '');
+        }
+      }
+      
+      // H-J: НД — уже в шаблоне
+    }
+
+    // Скрываем пустые строки АП и убираем границы
+    for (let i = apSamples.length; i < AP_MAX_ROWS; i++) {
+      const rowNum = AP_START_ROW + i;
+      sheet.getRow(rowNum).hidden = true;
+      // Убираем границы у скрытых ячеек
+      for (const col of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']) {
+        sheet.getCell(`${col}${rowNum}`).border = {};
+      }
+    }
+
+    // ========== АВТОПОДСТРОЙКА ВЫСОТЫ СТРОК ПОД КОНТЕНТ ==========
+    
+    // Для строк с показателями (F-G) подстраиваем высоту
+    const allDataRows = [
+      ...Array.from({ length: amSamples.length }, (_, i) => AM_START_ROW + i),
+      ...Array.from({ length: apSamples.length }, (_, i) => AP_START_ROW + i),
+    ];
+    
+    for (const rowNum of allDataRows) {
+      // Получаем текст показателей (ячейка F объединена с G)
+      const cell = sheet.getCell(`F${rowNum}`);
+      const cellValue = cell.value;
+      let text = '';
+      
+      if (cellValue && typeof cellValue === 'object' && 'richText' in cellValue) {
+        // richText - собираем весь текст
+        text = (cellValue.richText as { text: string }[]).map(rt => rt.text).join('');
+      } else if (typeof cellValue === 'string') {
+        text = cellValue;
+      }
+      
+      // Примерно 40 символов на строку в объединённой ячейке F-G
+      const charsPerLine = 40;
+      const lines = Math.max(1, Math.ceil(text.length / charsPerLine));
+      const minHeight = 14.25; // Стандартная высота строки
+      const calculatedHeight = Math.max(minHeight, lines * 12);
+      
+      sheet.getRow(rowNum).height = calculatedHeight;
+    }
+
+    // ========== УБИРАЕМ ГРАНИЦЫ ЗА ПРЕДЕЛАМИ ТАБЛИЦЫ ==========
+    
+    // Убираем границы у строк после таблицы данных
+    // Скрываем лишние строки между данными и футером (строки 68+)
+    const FOOTER_START = 68;
+    
+    // Если таблица АП короче 10 строк, скрываем строки между данными и футером
+    if (apSamples.length < AP_MAX_ROWS) {
+      for (let rowNum = AP_START_ROW + apSamples.length; rowNum < FOOTER_START; rowNum++) {
+        sheet.getRow(rowNum).hidden = true;
+        for (const col of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']) {
+          sheet.getCell(`${col}${rowNum}`).border = {};
+        }
+      }
+    }
+
+    // Перемещаем лист на вторую позицию (после "Заявка в ИЛЦ")
+    // В ExcelJS порядок листов определяется порядком их id
+    // Проще всего поменять orderNo, но это не всегда работает
+    // Используем workaround: переименовываем лист и двигаем его
+    const ilcSheet = workbook.getWorksheet('Заявка в ИЛЦ');
+    if (ilcSheet && sheet) {
+      // Устанавливаем порядок: лист ФМБА должен быть вторым
+      // Перемещаем через свойство orderNo (если поддерживается)
+      try {
+        const sheets = workbook.worksheets;
+        const fmbaIndex = sheets.findIndex(s => s.name === 'Заявка в ФМБА');
+        if (fmbaIndex > 1) {
+          // Удаляем и вставляем на нужную позицию
+          const [fmbaWs] = sheets.splice(fmbaIndex, 1);
+          sheets.splice(1, 0, fmbaWs);
+        }
+      } catch {
+        // Игнорируем ошибки перемещения
+      }
     }
   }
 
@@ -1287,6 +1619,9 @@ export class ExcelService {
 
     // Удаляем устаревшие листы
     this.removeObsoleteSheets(workbook);
+
+    // Заполняем лист "Заявка в ФМБА" (если есть пробы АМ) — вторым после ИЛЦ
+    await this.fillFmbaRequestSheet(workbook, projectId);
 
     // Заполняем лист "Акт отбора проб Почва"
     await this.fillSoilActSheet(workbook, projectId);

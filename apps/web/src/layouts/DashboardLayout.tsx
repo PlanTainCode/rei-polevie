@@ -5,7 +5,6 @@ import {
   LayoutDashboard,
   Building2,
   FileText,
-  FlaskConical,
   Menu,
   X,
   LogOut,
@@ -18,7 +17,6 @@ const navigation = [
   { name: 'Главная', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Компания', href: '/company', icon: Building2 },
   { name: 'Объекты', href: '/projects', icon: FileText },
-  { name: 'Пробы', href: '/samples', icon: FlaskConical },
 ];
 
 export function DashboardLayout() {
