@@ -20,6 +20,7 @@ async function bootstrap() {
   app.enableCors({
     origin: configService.get('FRONTEND_URL', 'http://localhost:5173'),
     credentials: true,
+    exposedHeaders: ['Content-Disposition'],
   });
 
   // Глобальный префикс

@@ -48,6 +48,13 @@ const BLACK_FONT: Partial<ExcelJS.Font> = {
   color: { argb: 'FF000000' },
 };
 
+// Шрифт Times New Roman для бирок
+const TIMES_FONT: Partial<ExcelJS.Font> = {
+  name: 'Times New Roman',
+  size: 11,
+  color: { argb: 'FF000000' },
+};
+
 @Injectable()
 export class ExcelService {
   private readonly templatePath = join(process.cwd(), 'templates', 'Задание ПБ2-шб.xlsx');
@@ -1147,18 +1154,18 @@ export class ExcelService {
       // === ЛЕВАЯ БИРКА (A-J) ===
       
       // Row N+0: № задания ПБ (B), Дата отбора (H)
-      sheet.getCell(`B${baseRow}`).value = taskNumber;
-      sheet.getCell(`H${baseRow}`).value = dateStr;
+      this.setTagCell(sheet, `B${baseRow}`, taskNumber);
+      this.setTagCell(sheet, `H${baseRow}`, dateStr);
 
       // Row N+2-3: Адрес объекта (B)
-      sheet.getCell(`B${baseRow + 2}`).value = address;
+      this.setTagCell(sheet, `B${baseRow + 2}`, address);
 
       // Row N+4: Номер площадки (D), Глубина (J)
-      sheet.getCell(`D${baseRow + 4}`).value = sample.platform.label;
-      sheet.getCell(`J${baseRow + 4}`).value = sample.depthLabel;
+      this.setTagCell(sheet, `D${baseRow + 4}`, sample.platform.label);
+      this.setTagCell(sheet, `J${baseRow + 4}`, sample.depthLabel);
 
       // Row N+6: Номер пробы (B)
-      sheet.getCell(`B${baseRow + 6}`).value = sample.cipher;
+      this.setTagCell(sheet, `B${baseRow + 6}`, sample.cipher);
       
       // Правая бирка (K) - НЕ ТРОГАЕМ, там формулы из шаблона
       // K3/K16/... = формула на $B$2 (номер задания) -> покажет "0" если не нужно
@@ -1228,18 +1235,18 @@ export class ExcelService {
       const baseRow = FIRST_TAG_START + (i * TAG_HEIGHT);
 
       // Row N+0: № задания ПБ (B), Дата отбора (H)
-      sheet.getCell(`B${baseRow}`).value = taskNumber;
-      sheet.getCell(`H${baseRow}`).value = dateStr;
+      this.setTagCell(sheet, `B${baseRow}`, taskNumber);
+      this.setTagCell(sheet, `H${baseRow}`, dateStr);
 
       // Row N+2: Адрес объекта (B) - на всех бирках
-      sheet.getCell(`B${baseRow + 2}`).value = address;
+      this.setTagCell(sheet, `B${baseRow + 2}`, address);
 
       // Row N+4: Номер площадки (D), Глубина (J)
-      sheet.getCell(`D${baseRow + 4}`).value = sample.platform.label;
-      sheet.getCell(`J${baseRow + 4}`).value = sample.depthLabel;
+      this.setTagCell(sheet, `D${baseRow + 4}`, sample.platform.label);
+      this.setTagCell(sheet, `J${baseRow + 4}`, sample.depthLabel);
 
       // Row N+6: Номер пробы (B)
-      sheet.getCell(`B${baseRow + 6}`).value = sample.cipher;
+      this.setTagCell(sheet, `B${baseRow + 6}`, sample.cipher);
     }
 
     // Скрываем строки после последней бирки
@@ -1303,18 +1310,18 @@ export class ExcelService {
       const baseRow = FIRST_TAG_START + (i * TAG_HEIGHT);
 
       // Row N+0: № задания ПБ (B), Дата отбора (H)
-      sheet.getCell(`B${baseRow}`).value = taskNumber;
-      sheet.getCell(`H${baseRow}`).value = dateStr;
+      this.setTagCell(sheet, `B${baseRow}`, taskNumber);
+      this.setTagCell(sheet, `H${baseRow}`, dateStr);
 
       // Row N+2: Адрес объекта (B) - на всех бирках
-      sheet.getCell(`B${baseRow + 2}`).value = address;
+      this.setTagCell(sheet, `B${baseRow + 2}`, address);
 
       // Row N+4: Номер площадки (D), Глубина (J)
-      sheet.getCell(`D${baseRow + 4}`).value = sample.platform.label;
-      sheet.getCell(`J${baseRow + 4}`).value = sample.depthLabel;
+      this.setTagCell(sheet, `D${baseRow + 4}`, sample.platform.label);
+      this.setTagCell(sheet, `J${baseRow + 4}`, sample.depthLabel);
 
       // Row N+6: Номер пробы (B)
-      sheet.getCell(`B${baseRow + 6}`).value = sample.cipher;
+      this.setTagCell(sheet, `B${baseRow + 6}`, sample.cipher);
     }
 
     // Скрываем строки после последней бирки
@@ -1374,16 +1381,16 @@ export class ExcelService {
       const sample = doSamples[i];
       const baseRow = FIRST_TAG_START + (i * TAG_HEIGHT);
 
-      sheet.getCell(`B${baseRow}`).value = taskNumber;
-      sheet.getCell(`H${baseRow}`).value = dateStr;
+      this.setTagCell(sheet, `B${baseRow}`, taskNumber);
+      this.setTagCell(sheet, `H${baseRow}`, dateStr);
 
       if (i === 0) {
-        sheet.getCell(`B${baseRow + 2}`).value = address;
+        this.setTagCell(sheet, `B${baseRow + 2}`, address);
       }
 
-      sheet.getCell(`D${baseRow + 4}`).value = sample.platform.label;
-      sheet.getCell(`J${baseRow + 4}`).value = sample.depthLabel;
-      sheet.getCell(`B${baseRow + 6}`).value = sample.cipher;
+      this.setTagCell(sheet, `D${baseRow + 4}`, sample.platform.label);
+      this.setTagCell(sheet, `J${baseRow + 4}`, sample.depthLabel);
+      this.setTagCell(sheet, `B${baseRow + 6}`, sample.cipher);
     }
 
     // Скрываем строки после последней бирки
@@ -1443,16 +1450,16 @@ export class ExcelService {
       const sample = waterSamples[i];
       const baseRow = FIRST_TAG_START + (i * TAG_HEIGHT);
 
-      sheet.getCell(`B${baseRow}`).value = taskNumber;
-      sheet.getCell(`H${baseRow}`).value = dateStr;
+      this.setTagCell(sheet, `B${baseRow}`, taskNumber);
+      this.setTagCell(sheet, `H${baseRow}`, dateStr);
 
       if (i === 0) {
-        sheet.getCell(`B${baseRow + 2}`).value = address;
+        this.setTagCell(sheet, `B${baseRow + 2}`, address);
       }
 
-      sheet.getCell(`D${baseRow + 4}`).value = sample.platform.label;
-      sheet.getCell(`J${baseRow + 4}`).value = sample.depthLabel;
-      sheet.getCell(`B${baseRow + 6}`).value = sample.cipher;
+      this.setTagCell(sheet, `D${baseRow + 4}`, sample.platform.label);
+      this.setTagCell(sheet, `J${baseRow + 4}`, sample.depthLabel);
+      this.setTagCell(sheet, `B${baseRow + 6}`, sample.cipher);
     }
 
     // Скрываем строки после последней бирки
@@ -2085,5 +2092,18 @@ export class ExcelService {
     await workbook.xlsx.writeFile(ilcResult.filePath);
 
     return ilcResult;
+  }
+
+  /**
+   * Устанавливает значение ячейки в бирке с шрифтом Times New Roman
+   */
+  private setTagCell(
+    sheet: ExcelJS.Worksheet,
+    cellAddress: string,
+    value: string | number | null | undefined,
+  ): void {
+    const cell = sheet.getCell(cellAddress);
+    cell.value = value ?? '';
+    cell.font = { ...TIMES_FONT };
   }
 }

@@ -1273,6 +1273,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Обновляет координаты для всех проб площадки
+   * Также обновляет связанную площадку (ПП1 ↔ СК1)
    */
   private async updatePlatformCoordinates(
     platformId: string,
@@ -1290,10 +1291,49 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     if (Object.keys(updateData).length === 0) return;
 
+    // Получаем информацию о текущей площадке
+    const platform = await this.prisma.platform.findUnique({
+      where: { id: platformId },
+    });
+
+    if (!platform) return;
+
+    // Обновляем пробы текущей площадки
     await this.prisma.sample.updateMany({
       where: { platformId },
       data: updateData,
     });
+
+    // Находим связанную площадку (ПП ↔ СК с тем же номером)
+    // ПП1 и СК1 находятся в одном месте, поэтому координаты должны быть одинаковые
+    let linkedType: 'PP' | 'SK' | null = null;
+    if (platform.type === 'PP') {
+      linkedType = 'SK';
+    } else if (platform.type === 'SK') {
+      linkedType = 'PP';
+    }
+
+    if (linkedType) {
+      const linkedPlatform = await this.prisma.platform.findFirst({
+        where: {
+          projectId: platform.projectId,
+          type: linkedType,
+          number: platform.number,
+        },
+      });
+
+      if (linkedPlatform) {
+        // Обновляем координаты проб связанной площадки
+        await this.prisma.sample.updateMany({
+          where: { platformId: linkedPlatform.id },
+          data: updateData,
+        });
+        
+        this.logger.log(
+          `Coordinates synced: ${platform.label} → ${linkedPlatform.label}`,
+        );
+      }
+    }
   }
 
   /**

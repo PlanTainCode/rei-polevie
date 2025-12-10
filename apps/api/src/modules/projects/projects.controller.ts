@@ -66,10 +66,16 @@ export class ProjectsController {
 
   @Post()
   @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'tz', maxCount: 1 },
-      { name: 'order', maxCount: 1 },
-    ]),
+    FileFieldsInterceptor(
+      [
+        { name: 'tz', maxCount: 1 },
+        { name: 'order', maxCount: 1 },
+      ],
+      {
+        storage: documentsStorage,
+        fileFilter: documentsFilter,
+      },
+    ),
   )
   async create(
     @Request() req: { user: { userId: string } },
@@ -95,10 +101,16 @@ export class ProjectsController {
 
   @Patch(':id')
   @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'tz', maxCount: 1 },
-      { name: 'order', maxCount: 1 },
-    ]),
+    FileFieldsInterceptor(
+      [
+        { name: 'tz', maxCount: 1 },
+        { name: 'order', maxCount: 1 },
+      ],
+      {
+        storage: documentsStorage,
+        fileFilter: documentsFilter,
+      },
+    ),
   )
   async update(
     @Request() req: { user: { userId: string } },
