@@ -8,6 +8,7 @@ export interface GenerateSamplesInput {
   samplingLayers: SamplingLayer[];
   platformCount: number; // Количество площадок (ПП и СК)
   hasMicrobiology?: boolean; // Есть ли микробиология (АМ + АП)
+  hasEntomology?: boolean; // Есть ли энтомология (АЭ)
   sedimentCount?: number; // Количество проб донных отложений (БХ)
   sedimentLayers?: SamplingLayer[]; // Слои донных отложений
   waterCount?: number; // Количество проб воды (ВХ)
@@ -41,6 +42,7 @@ export class SamplesService {
       samplingLayers, 
       platformCount, 
       hasMicrobiology, 
+      hasEntomology,
       sedimentCount, 
       sedimentLayers,
       waterCount,
@@ -59,6 +61,12 @@ export class SamplesService {
     if (hasMicrobiology && platformCount > 0) {
       const mbSamples = this.generateMicrobiologySamples(platformCount);
       samples.push(...mbSamples);
+    }
+
+    // Генерируем пробы АЭ (энтомология) если есть
+    if (hasEntomology && platformCount > 0) {
+      const entomologySamples = this.generateEntomologySamples(platformCount);
+      samples.push(...entomologySamples);
     }
 
     // Генерируем пробы БХ (донные отложения) если есть
@@ -128,6 +136,8 @@ export class SamplesService {
           mass = '750 г/Пэ';
         } else if (sample.analysisCode === 'АП') {
           mass = '200 г/Пэ';
+        } else if (sample.analysisCode === 'АЭ') {
+          mass = '1,0 кг/Пэ';
         } else if (sample.analysisCode === 'ВХ') {
           mass = '1,0 л/Ст; 1,5л Пэ';
         }
@@ -247,6 +257,37 @@ export class SamplesService {
         cipher: `${platformNumStr}АП.01`,
         sampleNumber: pNum,
         analysisCode: 'АП',
+        layerNumber: 1,
+        depthFrom: 0,
+        depthTo: 0.1,
+        depthLabel: '0,0-0,1',
+        platformType: 'PP',
+        platformNumber: pNum,
+        platformLabel: `ПП${pNum}`,
+        type: 'SOIL',
+      });
+    }
+
+    return samples;
+  }
+
+  /**
+   * Генерирует пробы АЭ (энтомология)
+   * 
+   * АЭ: глубина 0,0-0,1, масса 1,0 кг/Пэ
+   * Только для пробных площадок (ПП1, ПП2 и т.д.)
+   */
+  private generateEntomologySamples(platformCount: number): GeneratedSample[] {
+    const samples: GeneratedSample[] = [];
+
+    for (let pNum = 1; pNum <= platformCount; pNum++) {
+      const platformNumStr = pNum.toString().padStart(2, '0');
+
+      // Проба АЭ (энтомология)
+      samples.push({
+        cipher: `${platformNumStr}АЭ.01`,
+        sampleNumber: pNum,
+        analysisCode: 'АЭ',
         layerNumber: 1,
         depthFrom: 0,
         depthTo: 0.1,

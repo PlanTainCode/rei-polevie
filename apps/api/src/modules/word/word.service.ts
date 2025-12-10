@@ -63,9 +63,9 @@ export class WordService {
       return null;
     }
 
-    // Формируем данные
+    // Формируем данные (documentNumber теперь полный номер, напр. 801-115-25)
     const year = new Date().getFullYear().toString().slice(-2);
-    const requestNumber = `${project.documentNumber || '000'}-${year}`;
+    const requestNumber = project.documentNumber || `801-000-${year}`;
     const currentDate = this.formatDate(new Date());
     const address = project.objectAddress || '';
 

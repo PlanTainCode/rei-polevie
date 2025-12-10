@@ -4,6 +4,7 @@ import { CompaniesService } from '../companies/companies.service';
 import { AiService, ServiceMatch } from '../ai/ai.service';
 import { WordParserService, SamplingLayer } from './word-parser.service';
 import { SamplesService } from './samples.service';
+import { WeatherService } from '../weather/weather.service';
 import { CreateProjectDto } from './dto/project.dto';
 import { unlink } from 'fs/promises';
 import { join } from 'path';
@@ -16,6 +17,7 @@ export class ProjectsService {
     private aiService: AiService,
     private wordParser: WordParserService,
     private samplesService: SamplesService,
+    private weatherService: WeatherService,
   ) {}
 
   async create(
@@ -221,6 +223,11 @@ export class ProjectsService {
       (s) => s.row === 22 || s.name?.toLowerCase().includes('микробиолог')
     );
 
+    // Определяем наличие энтомологии по услугам (row 23 — энтомология)
+    const hasEntomology = services.some(
+      (s) => s.row === 23 || s.name?.toLowerCase().includes('мух') || s.name?.toLowerCase().includes('энтомолог')
+    );
+
     // Слои для донок и воды из таблиц
     const sedimentLayers = samplingData?.sedimentLayers || [];
     const waterLayers = samplingData?.waterLayers || [];
@@ -237,12 +244,13 @@ export class ProjectsService {
           samplingLayers,
           platformCount,
           hasMicrobiology,
+          hasEntomology,
           sedimentCount,
           sedimentLayers,
           waterCount,
           waterLayers,
         });
-        console.log(`Generated samples for project ${projectId}, microbiology: ${hasMicrobiology}, sediment: ${sedimentCount}, water: ${waterCount}`);
+        console.log(`Generated samples for project ${projectId}, microbiology: ${hasMicrobiology}, entomology: ${hasEntomology}, sediment: ${sedimentCount}, water: ${waterCount}`);
       } catch (err) {
         console.error('Error generating samples:', err);
       }
@@ -250,31 +258,33 @@ export class ProjectsService {
   }
 
   /**
-   * Извлекает номер документа из текста (например 801-110-25 -> 110)
+   * Извлекает полный номер документа из текста (например 801-110-25)
    */
   private extractDocumentNumber(text: string, numbers: string[]): string {
     const patterns = [
-      /\b(\d{3})-(\d{2,4})-(\d{2})\b/g,
-      /№\s*(\d{3})-(\d{2,4})-(\d{2})/gi,
+      /\b(\d{3}-\d{2,4}-\d{2})\b/g,
+      /№\s*(\d{3}-\d{2,4}-\d{2})/gi,
     ];
 
     for (const pattern of patterns) {
       const matches = text.matchAll(pattern);
       for (const match of matches) {
-        if (match[2]) {
-          return match[2];
+        if (match[1]) {
+          return match[1]; // Возвращаем полный номер (801-110-25)
         }
       }
     }
 
     for (const num of numbers) {
-      const match = num.match(/(\d{3})-(\d{2,4})-(\d{2})/);
-      if (match && match[2]) {
-        return match[2];
+      const match = num.match(/(\d{3}-\d{2,4}-\d{2})/);
+      if (match && match[1]) {
+        return match[1];
       }
     }
 
-    return String(Math.floor(Math.random() * 900) + 100);
+    // Если не найден — генерируем с текущим годом
+    const year = new Date().getFullYear().toString().slice(-2);
+    return `801-${Math.floor(Math.random() * 900) + 100}-${year}`;
   }
 
   async findAll(userId: string) {
@@ -422,6 +432,91 @@ export class ProjectsService {
   async reprocessDocuments(id: string, userId: string) {
     await this.findById(id, userId); // Проверка доступа
     await this.processDocuments(id);
+    return this.findById(id, userId);
+  }
+
+  /**
+   * Устанавливает даты документов и получает метеоданные для даты отбора
+   */
+  async setDocumentDates(
+    id: string, 
+    dates: { ilcRequestDate?: Date; fmbaRequestDate?: Date; samplingDate?: Date },
+    userId: string,
+  ) {
+    const project = await this.findById(id, userId);
+
+    if (!project.canEdit) {
+      throw new ForbiddenException('Нет прав на редактирование проекта');
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const updateData: Record<string, any> = {};
+
+    if (dates.ilcRequestDate !== undefined) {
+      updateData.ilcRequestDate = dates.ilcRequestDate;
+    }
+    if (dates.fmbaRequestDate !== undefined) {
+      updateData.fmbaRequestDate = dates.fmbaRequestDate;
+    }
+    if (dates.samplingDate !== undefined) {
+      updateData.samplingDate = dates.samplingDate;
+      
+      // Сбрасываем метеоданные при изменении даты отбора (будут перезапрошены при генерации)
+      updateData.weatherTemperature = null;
+      updateData.weatherWind = null;
+      updateData.weatherPressure = null;
+      updateData.weatherHumidity = null;
+      updateData.weatherSnowDepth = null;
+    }
+
+    if (Object.keys(updateData).length > 0) {
+      await this.prisma.project.update({
+        where: { id },
+        data: updateData,
+      });
+    }
+
+    return this.findById(id, userId);
+  }
+
+  /**
+   * Обновляет метеоданные для проекта (перезапрос)
+   */
+  async refreshWeather(id: string, userId: string) {
+    const project = await this.findById(id, userId);
+
+    if (!project.canEdit) {
+      throw new ForbiddenException('Нет прав на редактирование проекта');
+    }
+
+    // Берём дату из проекта или завтра
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const projectData = await this.prisma.project.findUnique({ where: { id } }) as any;
+    const date = projectData?.samplingDate || new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    if (!project.objectAddress) {
+      throw new ForbiddenException('Адрес объекта не указан');
+    }
+
+    const weather = await this.weatherService.getWeatherByAddress(project.objectAddress, date);
+
+    if (!weather) {
+      throw new NotFoundException('Не удалось получить метеоданные');
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await this.prisma.project.update({
+      where: { id },
+      data: {
+        samplingDate: date,
+        weatherTemperature: weather.temperature,
+        weatherWind: weather.wind,
+        weatherPressure: weather.pressure,
+        weatherHumidity: weather.humidity,
+        weatherSnowDepth: weather.snowDepth,
+      } as any,
+    });
+
     return this.findById(id, userId);
   }
 

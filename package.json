@@ -16,6 +16,11 @@
     "db:generate": "bun run --filter @polevie/api prisma:generate",
     "db:migrate": "bun run --filter @polevie/api prisma:migrate",
     "db:push": "bun run --filter @polevie/api prisma:push"
+  },
+  "dependencies": {
+    "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "@types/sharp": "^0.32.0"
   }
 }
-

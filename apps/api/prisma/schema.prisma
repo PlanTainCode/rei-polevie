@@ -23,6 +23,7 @@ model User {
   companyMemberships CompanyMember[]
   collectedSamples   Sample[]        @relation("CollectedBy")
   createdProjects    Project[]       @relation("CreatedBy")
+  uploadedPhotos     Photo[]         @relation("UploadedPhotos")
 
   @@map("users")
 }
@@ -100,7 +101,7 @@ model Project {
   objectName       String?       // Название объекта из документов
   objectAddress    String?       // Адрес объекта
   objectPurpose    String?       // Назначение объекта
-  documentNumber   String?       // Номер документа (110 из 801-110-25)
+  documentNumber   String?       // Полный номер документа (801-110-25)
   clientName       String?       // Название заказчика
   clientAddress    String?       // Адрес заказчика
   
@@ -111,6 +112,18 @@ model Project {
   samplingLayers   Json?         // [{depthFrom, depthTo, label, count}] - слои отбора
   platformCount    Int?          // Количество площадок (ПП/СК)
   microbiologyCount Int?         // Количество микробиологических проб
+  
+  // Даты для документов (выбираются пользователем)
+  ilcRequestDate   DateTime?     // Дата заявки в ИЛЦ
+  fmbaRequestDate  DateTime?     // Дата заявки в ФМБА
+  samplingDate     DateTime?     // Дата отбора проб
+  
+  // Метеоусловия на дату отбора (формат: "начало...окончание", 9:00...12:00)
+  weatherTemperature   String?   // Температура воздуха, °C (напр. "-0.5...0.5")
+  weatherWind          String?   // Ветер: направление и скорость (напр. "СВ, 5.2...С, 6.0")
+  weatherPressure      String?   // Атмосферное давление, мм рт.ст. (напр. "753...755")
+  weatherHumidity      String?   // Влажность, % (напр. "80...75")
+  weatherSnowDepth     String?   // Высота снежного покрова, м (напр. "0...0")
   
   // Сгенерированный файл
   generatedFileName String?
@@ -128,6 +141,7 @@ model Project {
   createdBy User       @relation("CreatedBy", fields: [createdById], references: [id])
   platforms Platform[]
   samples   Sample[]
+  photos    Photo[]
 
   @@map("projects")
 }
@@ -227,5 +241,39 @@ enum SampleStatus {
   DELIVERED
   ANALYZED
   COMPLETED
+}
+
+// Фотография объекта (фотоальбом)
+model Photo {
+  id           String   @id @default(cuid())
+  projectId    String
+  
+  // Файлы
+  filename     String   // UUID + расширение (photo-cuid.jpg)
+  originalName String   // Оригинальное имя файла
+  thumbnailName String? // Имя превью файла
+  
+  // Данные
+  description  String?  // Описание (вводит пользователь)
+  
+  // Координаты из EXIF или вручную (десятичный формат)
+  latitude     String?  // "55.64433"
+  longitude    String?  // "037.49028"
+  
+  // Дата фото (из EXIF DateTimeOriginal или дата загрузки)
+  photoDate    DateTime?
+  
+  // Порядок в альбоме (для генерации презентации)
+  sortOrder    Int      @default(0)
+  
+  // Служебные
+  uploadedAt   DateTime @default(now())
+  uploadedById String?
+
+  // Отношения
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploadedBy   User?    @relation("UploadedPhotos", fields: [uploadedById], references: [id])
+
+  @@map("photos")
 }
 

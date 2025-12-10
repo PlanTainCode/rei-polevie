@@ -4,6 +4,7 @@ import { join } from 'path';
 import { mkdir } from 'fs/promises';
 import { ServiceMatch, AiService } from '../ai/ai.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { WeatherService } from '../weather/weather.service';
 
 interface GenerateOptions {
   projectId: string;
@@ -32,6 +33,7 @@ const OBSOLETE_SHEETS = [
   '770-00001-52007-18 Зака мб вода',
   '775-00001-52007-18(МЭД здание)',
   'ГГХ',
+  'Прейскурант ИЛЦ (актуальный)',
 ];
 
 // Светло-жёлтый цвет
@@ -58,7 +60,63 @@ export class ExcelService {
   constructor(
     private prisma: PrismaService,
     private aiService: AiService,
+    private weatherService: WeatherService,
   ) {}
+
+  /**
+   * Автоматически получает метеоданные для проекта, если они ещё не загружены
+   */
+  private async ensureWeatherData(projectId: string): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const project = await this.prisma.project.findUnique({ where: { id: projectId } }) as any;
+    if (!project) return;
+
+    // Проверяем корректность формата данных (должен содержать "..." для диапазона 9:00...12:00)
+    const hasValidFormat = project.weatherTemperature?.includes('...');
+    
+    if (hasValidFormat) {
+      console.log('Weather data already exists for project', projectId);
+      return;
+    }
+    
+    console.log('Weather data missing or invalid format, fetching new data for project', projectId);
+
+    // Если нет адреса — не можем получить погоду
+    if (!project.objectAddress) {
+      console.log('No address for project', projectId, '- skipping weather');
+      return;
+    }
+
+    // Дата отбора — завтра (или из проекта)
+    const samplingDate = project.samplingDate || this.getTomorrowDate();
+
+    console.log('Fetching weather for project', projectId, 'address:', project.objectAddress, 'date:', samplingDate);
+
+    const weather = await this.weatherService.getWeatherByAddress(project.objectAddress, samplingDate);
+
+    if (!weather) {
+      console.log('Could not fetch weather for project', projectId);
+      return;
+    }
+
+    console.log('Weather data:', weather);
+
+    // Сохраняем метеоданные
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await this.prisma.project.update({
+      where: { id: projectId },
+      data: {
+        samplingDate,
+        weatherTemperature: weather.temperature,
+        weatherWind: weather.wind,
+        weatherPressure: weather.pressure,
+        weatherHumidity: weather.humidity,
+        weatherSnowDepth: weather.snowDepth,
+      } as any,
+    });
+
+    console.log('Weather data saved for project', projectId);
+  }
 
   /**
    * Устанавливает значение ячейки с чёрным цветом шрифта
@@ -76,6 +134,39 @@ export class ExcelService {
    */
   private clearCell(cell: ExcelJS.Cell): void {
     cell.value = null;
+  }
+
+  /**
+   * Заполняет строку метеоусловий в акте отбора проб
+   * Формат: "начало...окончание" (9:00...12:00)
+   * Структура: A - температура, E - ветер, H - давление, L - влажность, P - снег
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private fillWeatherRow(sheet: ExcelJS.Worksheet, project: any, rowNum: number): void {
+    // Температура воздуха (A) — формат: "-0.5...0.5"
+    if (project.weatherTemperature) {
+      this.setCellValue(sheet.getCell(`A${rowNum}`), project.weatherTemperature);
+    }
+
+    // Направление ветра и скорость (E) — формат: "СВ, 5.2...С, 6.0"
+    if (project.weatherWind) {
+      this.setCellValue(sheet.getCell(`E${rowNum}`), project.weatherWind);
+    }
+
+    // Атмосферное давление (H) — формат: "753...755"
+    if (project.weatherPressure) {
+      this.setCellValue(sheet.getCell(`H${rowNum}`), project.weatherPressure);
+    }
+
+    // Влажность (L) — формат: "80...75"
+    if (project.weatherHumidity) {
+      this.setCellValue(sheet.getCell(`L${rowNum}`), project.weatherHumidity);
+    }
+
+    // Высота снежного покрова (P) — формат: "0...0"
+    if (project.weatherSnowDepth) {
+      this.setCellValue(sheet.getCell(`P${rowNum}`), project.weatherSnowDepth);
+    }
   }
 
   /**
@@ -128,7 +219,9 @@ export class ExcelService {
     const objectName = project.objectName || project.name;
     const objectAddress = project.objectAddress || '';
     const objectPurpose = project.objectPurpose || 'Территория участков под строительство';
-    const documentNumber = project.documentNumber || String(Math.floor(Math.random() * 900) + 100);
+    // documentNumber теперь полный номер (801-115-25)
+    const year = new Date().getFullYear().toString().slice(-2);
+    const documentNumber = project.documentNumber || `801-${Math.floor(Math.random() * 900) + 100}-${year}`;
     const services = (project.services as unknown as ServiceMatch[]) || [];
 
     // Загружаем шаблон
@@ -142,9 +235,8 @@ export class ExcelService {
       throw new Error('Лист "Заявка в ИЛЦ" не найден в шаблоне');
     }
 
-    // 1. Заполняем номер заявки (формат 801-XXX-25-ЗЛР-1)
-    const year = new Date().getFullYear().toString().slice(-2);
-    const requestNumber = `801-${documentNumber}-${year}-ЗЛР-1`;
+    // 1. Заполняем номер заявки (формат XXX-XXX-XX-ЗЛР-1)
+    const requestNumber = `${documentNumber}-ЗЛР-1`;
     this.setCellValue(sheet.getCell('E7'), requestNumber);
 
     // 2. Заполняем наименование и адрес объекта (проверяем через AI, есть ли адрес в названии)
@@ -161,8 +253,11 @@ export class ExcelService {
     row9.height = Math.max(30, textLines * 15);
 
     // 3. Назначение объекта и дата
+    // Получаем даты из проекта
+    const { ilcDate } = this.getProjectDates(project);
+    
     this.setCellValue(sheet.getCell('D11'), objectPurpose);
-    this.setCellValue(sheet.getCell('D13'), this.formatDate(new Date()));
+    this.setCellValue(sheet.getCell('D13'), this.formatDate(ilcDate));
 
     // 4. Заполняем количество по услугам (исключаем микробиологию - row 22, идёт на подряд)
     const filteredServices = services.filter(s => s.row !== 22);
@@ -259,6 +354,43 @@ export class ExcelService {
   }
 
   /**
+   * Получает даты для документов из проекта
+   * Логика:
+   * - Если ни одна дата не задана → все = завтра
+   * - Если задана только одна → она используется везде
+   * - Если заданы все → каждая в своём месте
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private getProjectDates(project: any): { ilcDate: Date; fmbaDate: Date; samplingDate: Date } {
+    const tomorrow = this.getTomorrowDate();
+    
+    const ilcDate = project.ilcRequestDate ? new Date(project.ilcRequestDate) : null;
+    const fmbaDate = project.fmbaRequestDate ? new Date(project.fmbaRequestDate) : null;
+    const samplingDate = project.samplingDate ? new Date(project.samplingDate) : null;
+
+    // Считаем сколько дат задано
+    const definedDates = [ilcDate, fmbaDate, samplingDate].filter(d => d !== null);
+    
+    if (definedDates.length === 0) {
+      // Ни одна не задана — все завтра
+      return { ilcDate: tomorrow, fmbaDate: tomorrow, samplingDate: tomorrow };
+    }
+    
+    if (definedDates.length === 1) {
+      // Задана только одна — используем её везде
+      const singleDate = definedDates[0]!;
+      return { ilcDate: singleDate, fmbaDate: singleDate, samplingDate: singleDate };
+    }
+    
+    // Заданы несколько — используем каждую в своём месте, незаданные = завтра
+    return {
+      ilcDate: ilcDate || tomorrow,
+      fmbaDate: fmbaDate || tomorrow,
+      samplingDate: samplingDate || tomorrow,
+    };
+  }
+
+  /**
    * Получает путь к сгенерированному файлу
    */
   async getGeneratedFile(fileName: string): Promise<{ path: string; exists: boolean }> {
@@ -300,21 +432,44 @@ export class ExcelService {
       (s) => s.type === 'SOIL' && s.analysisCode === 'АХ'
     );
 
+    // Фильтруем пробы энтомологии (тип SOIL с кодом АЭ)
+    const entomologySamples = project.samples.filter(
+      (s) => s.type === 'SOIL' && s.analysisCode === 'АЭ' && s.platform
+    );
+    
+    console.log(`[fillSoilActSheet] Всего проб в проекте: ${project.samples.length}`);
+    console.log(`[fillSoilActSheet] Проб АХ: ${soilSamples.length}`);
+    console.log(`[fillSoilActSheet] Проб АЭ: ${entomologySamples.length}`);
+    if (entomologySamples.length > 0) {
+      console.log(`[fillSoilActSheet] Первая проба АЭ:`, {
+        cipher: entomologySamples[0].cipher,
+        platformId: entomologySamples[0].platformId,
+        platform: entomologySamples[0].platform ? {
+          id: entomologySamples[0].platform.id,
+          label: entomologySamples[0].platform.label,
+          type: entomologySamples[0].platform.type
+        } : 'NULL'
+      });
+    }
+
     if (soilSamples.length === 0) return;
+
+    // Получаем даты из проекта
+    const { samplingDate } = this.getProjectDates(project);
 
     // ========== ЗАПОЛНЯЕМ ШАПКУ ==========
     
-    // Номер акта (J2) - формат: 801-XXX-25-АОП-1
+    // Номер акта (J2) - формат: XXX-XXX-XX-АОП-1
     const year = new Date().getFullYear().toString().slice(-2);
-    const actNumber = `801-${project.documentNumber || '000'}-${year}-АОП-1`;
+    const documentNumber = project.documentNumber || `801-000-${year}`;
+    const actNumber = `${documentNumber}-АОП-1`;
     this.setCellValue(sheet.getCell('J2'), actNumber);
 
     // Переименовываем лист по номеру акта
     sheet.name = actNumber;
 
-    // Дата составления Акта (E4) — завтрашняя дата
-    const tomorrow = this.getTomorrowDate();
-    this.setCellValue(sheet.getCell('E4'), this.formatDate(tomorrow));
+    // Дата составления Акта (E4)
+    this.setCellValue(sheet.getCell('E4'), this.formatDate(samplingDate));
 
     // Наименование объекта и адрес (E5) — проверяем через AI
     const objectField = await this.formatObjectField(
@@ -337,8 +492,11 @@ export class ExcelService {
       this.setCellValue(sheet.getCell('E6'), clientInfo);
     }
 
-    // Дата отбора проб (E9) — завтрашняя дата
-    this.setCellValue(sheet.getCell('E9'), this.formatDate(tomorrow));
+    // Дата отбора проб (E9)
+    this.setCellValue(sheet.getCell('E9'), this.formatDate(samplingDate));
+
+    // ========== МЕТЕОУСЛОВИЯ (строка 13) ==========
+    this.fillWeatherRow(sheet, project, 13);
 
     // Количество проб (E119)
     this.setCellValue(sheet.getCell('E119'), soilSamples.length);
@@ -404,11 +562,99 @@ export class ExcelService {
       }
     }
 
-    // Очищаем колонки энтомологических исследований (J-P) - оставляем пустыми
-    for (let i = 0; i < soilSamples.length && i < MAX_ROWS; i++) {
-      const rowNum = DATA_START_ROW + i;
-      for (const col of ['J', 'K', 'L', 'M', 'N', 'O', 'P']) {
-        sheet.getCell(`${col}${rowNum}`).value = null;
+    // ========== ЗАПОЛНЯЕМ ЭНТОМОЛОГИЮ (колонки J-P) ==========
+    
+    if (entomologySamples.length > 0) {
+      // Создаём карту проб АЭ по площадкам для быстрого поиска
+      const entomologyByPlatform = new Map<string, typeof entomologySamples[0]>();
+      for (const aeSample of entomologySamples) {
+        entomologyByPlatform.set(aeSample.platform.label, aeSample);
+      }
+      
+      console.log(`[fillSoilActSheet] Найдено проб АЭ: ${entomologySamples.length}`);
+      console.log(`[fillSoilActSheet] Площадки с АЭ: ${Array.from(entomologyByPlatform.keys()).join(', ')}`);
+      console.log(`[fillSoilActSheet] Детали проб АЭ:`, entomologySamples.map(s => ({
+        cipher: s.cipher,
+        platform: s.platform.label,
+        depth: s.depthLabel
+      })));
+      
+      // Заполняем энтомологию для каждой пробы на пробной площадке
+      for (let i = 0; i < soilSamples.length && i < MAX_ROWS; i++) {
+        const sample = soilSamples[i];
+        const rowNum = DATA_START_ROW + i;
+        
+        // Проверяем, нужно ли заполнять энтомологию для этой строки
+        // Энтомология заполняется только для пробных площадок (ПП1, ПП2 и т.д.)
+        // и только для верхнего слоя (0,0-0,2 или 0-0,2)
+        const isPP = sample.platform.label.startsWith('ПП');
+        const isTopLayer = 
+          sample.depthLabel === '0,0-0,2' || 
+          sample.depthLabel === '0-0,2' ||
+          sample.depthLabel.startsWith('0,0-0,') ||
+          sample.depthLabel.startsWith('0-0,');
+        
+        if (isPP && isTopLayer) {
+          console.log(`[fillSoilActSheet] Проверяем строку ${rowNum}: площадка ${sample.platform.label}, глубина ${sample.depthLabel}, isPP=${isPP}, isTopLayer=${isTopLayer}`);
+          
+          // Ищем соответствующую пробу АЭ для этой площадки
+          const aeSample = entomologyByPlatform.get(sample.platform.label);
+          
+          console.log(`[fillSoilActSheet] Для площадки ${sample.platform.label} найдена проба АЭ:`, aeSample ? {
+            cipher: aeSample.cipher,
+            platform: aeSample.platform.label,
+            depth: aeSample.depthLabel
+          } : 'НЕ НАЙДЕНА');
+          
+          if (aeSample) {
+            console.log(`[fillSoilActSheet] Заполняем энтомологию для строки ${rowNum}, площадка ${sample.platform.label}, проба АЭ: ${aeSample.cipher}`);
+            
+            // J: Глубина отбора (0,0-0,1) - колонка 7
+            this.setCellValue(sheet.getCell(`J${rowNum}`), aeSample.depthLabel);
+            
+            // K: № пробы объединенной (из БД) - колонка 8
+            this.setCellValue(sheet.getCell(`K${rowNum}`), aeSample.cipher);
+            
+            // L: Дубликат № пробы (может быть объединенная ячейка) - колонка 8
+            this.setCellValue(sheet.getCell(`L${rowNum}`), aeSample.cipher);
+            
+            // M: Описание/характеристика (из БД) - колонка 9
+            if (aeSample.description) {
+              this.setCellValue(sheet.getCell(`M${rowNum}`), aeSample.description);
+            } else {
+              this.clearCell(sheet.getCell(`M${rowNum}`));
+            }
+            
+            // N: Место отбора (та же площадка) - колонка 10
+            this.setCellValue(sheet.getCell(`N${rowNum}`), aeSample.platform.label);
+            
+            // O: Дубликат места отбора (может быть объединенная ячейка) - колонка 10
+            this.setCellValue(sheet.getCell(`O${rowNum}`), aeSample.platform.label);
+            
+            // P: Масса пробы/тара (из БД) - колонка 11
+            this.setCellValue(sheet.getCell(`P${rowNum}`), aeSample.mass);
+          } else {
+            console.log(`[fillSoilActSheet] Проба АЭ не найдена для площадки ${sample.platform.label}`);
+            // Если проба АЭ не найдена, очищаем колонки
+            for (const col of ['J', 'K', 'L', 'M', 'N', 'O', 'P']) {
+              this.clearCell(sheet.getCell(`${col}${rowNum}`));
+            }
+          }
+        } else {
+          // Очищаем колонки энтомологии для проб не на пробных площадках или не верхнего слоя
+          for (const col of ['J', 'K', 'L', 'M', 'N', 'O', 'P']) {
+            this.clearCell(sheet.getCell(`${col}${rowNum}`));
+          }
+        }
+      }
+    } else {
+      console.log(`[fillSoilActSheet] Пробы АЭ не найдены, очищаем колонки J-P`);
+      // Если энтомологии нет, очищаем все колонки J-P
+      for (let i = 0; i < soilSamples.length && i < MAX_ROWS; i++) {
+        const rowNum = DATA_START_ROW + i;
+        for (const col of ['J', 'K', 'L', 'M', 'N', 'O', 'P']) {
+          this.clearCell(sheet.getCell(`${col}${rowNum}`));
+        }
       }
     }
 
@@ -495,19 +741,22 @@ export class ExcelService {
 
     if (amSamples.length === 0) return;
 
+    // Получаем даты из проекта
+    const { samplingDate } = this.getProjectDates(project);
+
     // ========== ЗАПОЛНЯЕМ ШАПКУ ==========
     
-    // Номер акта (J3) - формат: 801-XXX-25-АОП-2
+    // Номер акта (J3) - формат: XXX-XXX-XX-АОП-2
     const year = new Date().getFullYear().toString().slice(-2);
-    const actNumber = `801-${project.documentNumber || '000'}-${year}-АОП-2`;
+    const documentNumber = project.documentNumber || `801-000-${year}`;
+    const actNumber = `${documentNumber}-АОП-2`;
     this.setCellValue(sheet.getCell('J3'), actNumber);
 
     // Переименовываем лист по номеру акта
     sheet.name = actNumber;
 
-    // Дата составления Акта (E5) — завтрашняя дата
-    const tomorrow = this.getTomorrowDate();
-    this.setCellValue(sheet.getCell('E5'), this.formatDate(tomorrow));
+    // Дата составления Акта (E5)
+    this.setCellValue(sheet.getCell('E5'), this.formatDate(samplingDate));
 
     // Наименование объекта и адрес (E6) — проверяем через AI
     const objectField = await this.formatObjectField(
@@ -530,8 +779,11 @@ export class ExcelService {
       this.setCellValue(sheet.getCell('E7'), clientInfo);
     }
 
-    // Дата отбора проб (E10) — завтрашняя дата
-    this.setCellValue(sheet.getCell('E10'), this.formatDate(tomorrow));
+    // Дата отбора проб (E10)
+    this.setCellValue(sheet.getCell('E10'), this.formatDate(samplingDate));
+
+    // ========== МЕТЕОУСЛОВИЯ (строка 13) ==========
+    this.fillWeatherRow(sheet, project, 13);
 
     // ========== ЗАПОЛНЯЕМ ТАБЛИЦУ ПРОБ ==========
     
@@ -615,16 +867,19 @@ export class ExcelService {
 
     if (sedimentSamples.length === 0) return;
 
+    // Получаем даты из проекта
+    const { samplingDate } = this.getProjectDates(project);
+
     // ========== ЗАПОЛНЯЕМ ШАПКУ ==========
     
-    // Номер акта (J2) - формат: 801-XXX-25-АОП-3
+    // Номер акта (J2) - формат: XXX-XXX-XX-АОП-3
     const year = new Date().getFullYear().toString().slice(-2);
-    const actNumber = `801-${project.documentNumber || '000'}-${year}-АОП-3`;
+    const documentNumber = project.documentNumber || `801-000-${year}`;
+    const actNumber = `${documentNumber}-АОП-3`;
     sheet.getCell('J2').value = actNumber;
 
-    // Дата составления Акта (E4) — завтрашняя дата
-    const tomorrow = this.getTomorrowDate();
-    sheet.getCell('E4').value = this.formatDate(tomorrow);
+    // Дата составления Акта (E4)
+    sheet.getCell('E4').value = this.formatDate(samplingDate);
 
     // Наименование объекта и адрес (E5) — проверяем через AI
     const objectField = await this.formatObjectField(
@@ -644,8 +899,11 @@ export class ExcelService {
       sheet.getCell('E6').value = project.clientName;
     }
 
-    // Дата отбора проб (E9) — завтрашняя дата
-    sheet.getCell('E9').value = this.formatDate(tomorrow);
+    // Дата отбора проб (E9)
+    sheet.getCell('E9').value = this.formatDate(samplingDate);
+
+    // ========== МЕТЕОУСЛОВИЯ (строка 13) ==========
+    this.fillWeatherRow(sheet, project, 13);
 
     // ========== ЗАПОЛНЯЕМ ТАБЛИЦУ ПРОБ ==========
     
@@ -721,16 +979,19 @@ export class ExcelService {
 
     if (waterSamples.length === 0) return;
 
+    // Получаем даты из проекта
+    const { samplingDate } = this.getProjectDates(project);
+
     // ========== ЗАПОЛНЯЕМ ШАПКУ ==========
     
-    // Номер акта (J2) - формат: 801-XXX-25-АОП-4
+    // Номер акта (J2) - формат: XXX-XXX-XX-АОП-4
     const year = new Date().getFullYear().toString().slice(-2);
-    const actNumber = `801-${project.documentNumber || '000'}-${year}-АОП-4`;
+    const documentNumber = project.documentNumber || `801-000-${year}`;
+    const actNumber = `${documentNumber}-АОП-4`;
     sheet.getCell('J2').value = actNumber;
 
-    // Дата составления Акта (E4) — завтрашняя дата
-    const tomorrow = this.getTomorrowDate();
-    sheet.getCell('E4').value = this.formatDate(tomorrow);
+    // Дата составления Акта (E4)
+    sheet.getCell('E4').value = this.formatDate(samplingDate);
 
     // Наименование объекта и адрес (E5) — проверяем через AI
     const objectField = await this.formatObjectField(
@@ -750,8 +1011,11 @@ export class ExcelService {
       sheet.getCell('E6').value = project.clientName;
     }
 
-    // Дата отбора проб (E9) — завтрашняя дата
-    sheet.getCell('E9').value = this.formatDate(tomorrow);
+    // Дата отбора проб (E9)
+    sheet.getCell('E9').value = this.formatDate(samplingDate);
+
+    // ========== МЕТЕОУСЛОВИЯ (строка 13) ==========
+    this.fillWeatherRow(sheet, project, 13);
 
     // ========== ЗАПОЛНЯЕМ ТАБЛИЦУ ПРОБ ==========
     
@@ -850,9 +1114,9 @@ export class ExcelService {
     const FIRST_TAG_START = 2; // Первая бирка начинается со строки 2
     const ROW_HEIGHT_MULTIPLIER = 1.25; // Увеличиваем высоту строк
 
-    // Формируем номер задания
+    // Формируем номер задания (полный номер документа)
     const year = new Date().getFullYear().toString().slice(-2);
-    const taskNumber = `801-${project.documentNumber || '000'}-${year}`;
+    const taskNumber = project.documentNumber || `801-000-${year}`;
     
     // Адрес объекта
     const address = project.objectAddress || '';
@@ -870,10 +1134,9 @@ export class ExcelService {
       }
     }
 
-    // Дата отбора — завтрашний день в формате ДД.ММ.ГГГГ
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = `${String(tomorrow.getDate()).padStart(2, '0')}.${String(tomorrow.getMonth() + 1).padStart(2, '0')}.${tomorrow.getFullYear()}`;
+    // Получаем даты из проекта
+    const { samplingDate } = this.getProjectDates(project);
+    const dateStr = this.formatDate(samplingDate);
 
     // Заполняем бирки - только левую часть (A-J)
     // Правая часть (K) использует формулы из шаблона, которые ссылаются на левую часть
@@ -885,7 +1148,7 @@ export class ExcelService {
       
       // Row N+0: № задания ПБ (B), Дата отбора (H)
       sheet.getCell(`B${baseRow}`).value = taskNumber;
-      sheet.getCell(`H${baseRow}`).value = tomorrowStr;
+      sheet.getCell(`H${baseRow}`).value = dateStr;
 
       // Row N+2-3: Адрес объекта (B)
       sheet.getCell(`B${baseRow + 2}`).value = address;
@@ -940,9 +1203,9 @@ export class ExcelService {
     const FIRST_TAG_START = 2;
     const ROW_HEIGHT_MULTIPLIER = 1.25;
 
-    // Формируем номер задания
+    // Формируем номер задания (полный номер документа)
     const year = new Date().getFullYear().toString().slice(-2);
-    const taskNumber = `801-${project.documentNumber || '000'}-${year}`;
+    const taskNumber = project.documentNumber || `801-000-${year}`;
     
     // Адрес объекта (берётся из БОП через формулу, но заполним для первой бирки)
     const address = project.objectAddress || '';
@@ -955,10 +1218,9 @@ export class ExcelService {
       row.height = (row.height || 10.5) * ROW_HEIGHT_MULTIPLIER;
     }
 
-    // Дата отбора — завтрашний день
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = `${String(tomorrow.getDate()).padStart(2, '0')}.${String(tomorrow.getMonth() + 1).padStart(2, '0')}.${tomorrow.getFullYear()}`;
+    // Получаем даты из проекта
+    const { samplingDate } = this.getProjectDates(project);
+    const dateStr = this.formatDate(samplingDate);
 
     // Заполняем бирки - только левую часть
     for (let i = 0; i < amSamples.length; i++) {
@@ -967,7 +1229,7 @@ export class ExcelService {
 
       // Row N+0: № задания ПБ (B), Дата отбора (H)
       sheet.getCell(`B${baseRow}`).value = taskNumber;
-      sheet.getCell(`H${baseRow}`).value = tomorrowStr;
+      sheet.getCell(`H${baseRow}`).value = dateStr;
 
       // Row N+2: Адрес объекта (B) - на всех бирках
       sheet.getCell(`B${baseRow + 2}`).value = address;
@@ -1016,9 +1278,9 @@ export class ExcelService {
     const FIRST_TAG_START = 2;
     const ROW_HEIGHT_MULTIPLIER = 1.25;
 
-    // Формируем номер задания
+    // Формируем номер задания (полный номер документа)
     const year = new Date().getFullYear().toString().slice(-2);
-    const taskNumber = `801-${project.documentNumber || '000'}-${year}`;
+    const taskNumber = project.documentNumber || `801-000-${year}`;
     
     // Адрес объекта
     const address = project.objectAddress || '';
@@ -1031,10 +1293,9 @@ export class ExcelService {
       row.height = (row.height || 10.5) * ROW_HEIGHT_MULTIPLIER;
     }
 
-    // Дата отбора — завтрашний день
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = `${String(tomorrow.getDate()).padStart(2, '0')}.${String(tomorrow.getMonth() + 1).padStart(2, '0')}.${tomorrow.getFullYear()}`;
+    // Получаем даты из проекта
+    const { samplingDate } = this.getProjectDates(project);
+    const dateStr = this.formatDate(samplingDate);
 
     // Заполняем бирки - только левую часть
     for (let i = 0; i < apSamples.length; i++) {
@@ -1043,7 +1304,7 @@ export class ExcelService {
 
       // Row N+0: № задания ПБ (B), Дата отбора (H)
       sheet.getCell(`B${baseRow}`).value = taskNumber;
-      sheet.getCell(`H${baseRow}`).value = tomorrowStr;
+      sheet.getCell(`H${baseRow}`).value = dateStr;
 
       // Row N+2: Адрес объекта (B) - на всех бирках
       sheet.getCell(`B${baseRow + 2}`).value = address;
@@ -1091,8 +1352,9 @@ export class ExcelService {
     const FIRST_TAG_START = 2;
     const ROW_HEIGHT_MULTIPLIER = 1.25;
 
+    // Формируем номер задания (полный номер документа)
     const year = new Date().getFullYear().toString().slice(-2);
-    const taskNumber = `801-${project.documentNumber || '000'}-${year}`;
+    const taskNumber = project.documentNumber || `801-000-${year}`;
     const address = project.objectAddress || '';
 
     const lastTagRow = FIRST_TAG_START + (doSamples.length * TAG_HEIGHT) - 1;
@@ -1103,10 +1365,9 @@ export class ExcelService {
       row.height = (row.height || 10.5) * ROW_HEIGHT_MULTIPLIER;
     }
 
-    // Дата отбора — завтрашний день
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = `${String(tomorrow.getDate()).padStart(2, '0')}.${String(tomorrow.getMonth() + 1).padStart(2, '0')}.${tomorrow.getFullYear()}`;
+    // Получаем даты из проекта
+    const { samplingDate } = this.getProjectDates(project);
+    const dateStr = this.formatDate(samplingDate);
 
     // Заполняем бирки
     for (let i = 0; i < doSamples.length; i++) {
@@ -1114,7 +1375,7 @@ export class ExcelService {
       const baseRow = FIRST_TAG_START + (i * TAG_HEIGHT);
 
       sheet.getCell(`B${baseRow}`).value = taskNumber;
-      sheet.getCell(`H${baseRow}`).value = tomorrowStr;
+      sheet.getCell(`H${baseRow}`).value = dateStr;
 
       if (i === 0) {
         sheet.getCell(`B${baseRow + 2}`).value = address;
@@ -1160,8 +1421,9 @@ export class ExcelService {
     const FIRST_TAG_START = 2;
     const ROW_HEIGHT_MULTIPLIER = 1.25;
 
+    // Формируем номер задания (полный номер документа)
     const year = new Date().getFullYear().toString().slice(-2);
-    const taskNumber = `801-${project.documentNumber || '000'}-${year}`;
+    const taskNumber = project.documentNumber || `801-000-${year}`;
     const address = project.objectAddress || '';
 
     const lastTagRow = FIRST_TAG_START + (waterSamples.length * TAG_HEIGHT) - 1;
@@ -1172,10 +1434,9 @@ export class ExcelService {
       row.height = (row.height || 10.5) * ROW_HEIGHT_MULTIPLIER;
     }
 
-    // Дата отбора — завтрашний день
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = `${String(tomorrow.getDate()).padStart(2, '0')}.${String(tomorrow.getMonth() + 1).padStart(2, '0')}.${tomorrow.getFullYear()}`;
+    // Получаем даты из проекта
+    const { samplingDate } = this.getProjectDates(project);
+    const dateStr = this.formatDate(samplingDate);
 
     // Заполняем бирки
     for (let i = 0; i < waterSamples.length; i++) {
@@ -1183,7 +1444,7 @@ export class ExcelService {
       const baseRow = FIRST_TAG_START + (i * TAG_HEIGHT);
 
       sheet.getCell(`B${baseRow}`).value = taskNumber;
-      sheet.getCell(`H${baseRow}`).value = tomorrowStr;
+      sheet.getCell(`H${baseRow}`).value = dateStr;
 
       if (i === 0) {
         sheet.getCell(`B${baseRow + 2}`).value = address;
@@ -1363,6 +1624,26 @@ export class ExcelService {
           // Пропускаем формулы — копируем как есть или результат
           if (typeof srcCell.value === 'object' && 'formula' in srcCell.value) {
             dstCell.value = srcCell.value.result || null;
+          } else if (typeof srcCell.value === 'object' && 'richText' in srcCell.value) {
+            // Копируем richText с форматированием (важно для цист простейших)
+            // Копируем каждый элемент richText с сохранением всех свойств
+            const richText = (srcCell.value.richText as any[]).map(rt => ({
+              text: rt.text,
+              font: rt.font ? {
+                name: rt.font.name,
+                size: rt.font.size,
+                bold: rt.font.bold,
+                italic: rt.font.italic,
+                underline: rt.font.underline,
+                strike: rt.font.strike,
+                color: rt.font.color ? {
+                  argb: rt.font.color.argb,
+                  theme: rt.font.color.theme,
+                  tint: rt.font.color.tint
+                } : undefined
+              } : undefined
+            }));
+            dstCell.value = { richText };
           } else {
             dstCell.value = srcCell.value;
           }
@@ -1388,20 +1669,22 @@ export class ExcelService {
 
     // ========== ЗАПОЛНЯЕМ ДАННЫЕ ==========
     
-    // Номер заявки (E7) — формат "З А Я В К А № XXX-25 от DD.MM.YYYY"
+    // Получаем даты из проекта
+    const { fmbaDate, samplingDate } = this.getProjectDates(project);
+    
+    // Номер заявки (E7) — формат "З А Я В К А № XXX-XXX-XX от DD.MM.YYYY"
     const year = new Date().getFullYear().toString().slice(-2);
-    const documentNumber = project.documentNumber || '000';
-    const tomorrow = this.getTomorrowDate();
-    const requestTitle = `З А Я В К А № ${documentNumber}-${year} от ${this.formatDate(tomorrow)}`;
+    const documentNumber = project.documentNumber || `801-000-${year}`;
+    const requestTitle = `З А Я В К А № ${documentNumber} от ${this.formatDate(fmbaDate)}`;
     this.setCellValue(sheet.getCell('E7'), requestTitle);
     
-    // Дата отбора проб (D32) — завтрашняя дата, убираем фон
+    // Дата отбора проб (D32) — дата отбора, убираем фон
     const d32Cell = sheet.getCell('D32');
-    this.setCellValue(d32Cell, this.formatDate(tomorrow));
+    this.setCellValue(d32Cell, this.formatDate(samplingDate));
     d32Cell.fill = { type: 'pattern', pattern: 'none' }; // Прозрачный фон
     
     // Дата доставки образцов (E68) — та же дата что и отбора
-    this.setCellValue(sheet.getCell('E68'), this.formatDate(tomorrow));
+    this.setCellValue(sheet.getCell('E68'), this.formatDate(samplingDate));
 
     // Место и адрес отбора проб (D35) — объединённая ячейка
     const objectField = await this.formatObjectField(
@@ -1463,12 +1746,39 @@ export class ExcelService {
     const AP_START_ROW = 57;
     const AP_MAX_ROWS = 10; // Строки 57-66
 
-    // Проверяем, есть ли услуга "цисты кишечных патогенных простейших" в поручении
-    // Обычно это услуга с названием, содержащим "простейш" или "цист"
-    const services = (project.services as unknown as { name?: string; row?: number }[]) || [];
-    const hasCystsService = services.some(
+    // Проверяем, есть ли упоминание цист простейших в поручении
+    // Проверяем:
+    // 1. В названиях услуг
+    // 2. В matchedText услуг (где AI мог отметить наличие цист)
+    const services = (project.services as unknown as { name?: string; row?: number; matchedText?: string }[]) || [];
+    
+    // Проверяем в названиях услуг
+    const hasCystsInName = services.some(
       (s) => s.name?.toLowerCase().includes('простейш') || s.name?.toLowerCase().includes('цист')
     );
+    
+    // Проверяем в matchedText (где AI мог отметить цисты)
+    const hasCystsInMatchedText = services.some(
+      (s) => s.matchedText?.toLowerCase().includes('цист') || 
+             s.matchedText?.toLowerCase().includes('простейш')
+    );
+    
+    const hasCystsService = hasCystsInName || hasCystsInMatchedText;
+    
+    console.log(`[fillFmbaRequestSheet] Проверка цист:`);
+    console.log(`  hasCystsInName: ${hasCystsInName}`);
+    console.log(`  hasCystsInMatchedText: ${hasCystsInMatchedText}`);
+    console.log(`  hasCystsService: ${hasCystsService}`);
+    if (hasCystsService) {
+      const cystsServices = services.filter(
+        (s) => (s.name?.toLowerCase().includes('простейш') || s.name?.toLowerCase().includes('цист')) ||
+               (s.matchedText?.toLowerCase().includes('цист') || s.matchedText?.toLowerCase().includes('простейш'))
+      );
+      console.log(`[fillFmbaRequestSheet] Услуги/тексты с цистами:`, cystsServices.map(s => ({
+        name: s.name,
+        matchedText: s.matchedText?.substring(0, 100)
+      })));
+    }
 
     for (let i = 0; i < apSamples.length && i < AP_MAX_ROWS; i++) {
       const sample = apSamples[i];
@@ -1486,22 +1796,55 @@ export class ExcelService {
       // E: Масса
       this.setCellValue(sheet.getCell(`E${rowNum}`), '1 кг');
       
-      // F-G: Показатели — модифицируем если нет услуги "цисты"
+      // F-G: Показатели — модифицируем в зависимости от наличия услуги "цисты"
+      // Если услуга есть, оставляем текст из шаблона как есть: "яйца и личинки гельминтов, цисты кишечных патогенных простейших"
+      const fCell = sheet.getCell(`F${rowNum}`);
+      const cellValue = fCell.value;
+      
+      if (i === 0) {
+        // Логируем только для первой пробы
+        console.log(`[fillFmbaRequestSheet] Проба АП ${i + 1}, строка ${rowNum}:`);
+        console.log(`  hasCystsService: ${hasCystsService}`);
+        console.log(`  cellValue type: ${typeof cellValue}`);
+        if (cellValue && typeof cellValue === 'object' && 'richText' in cellValue) {
+          const richText = cellValue.richText as { text: string; font?: { color?: { argb?: string } } }[];
+          console.log(`  richText parts: ${richText.length}`);
+          richText.forEach((rt, idx) => {
+            console.log(`    [${idx}] text: "${rt.text}", color: ${rt.font?.color?.argb || 'none'}`);
+          });
+          // Проверяем, есть ли цисты в тексте
+          const fullText = richText.map(rt => rt.text).join('');
+          console.log(`  fullText: "${fullText}"`);
+          console.log(`  contains цист: ${fullText.toLowerCase().includes('цист')}`);
+          console.log(`  contains простейш: ${fullText.toLowerCase().includes('простейш')}`);
+        } else if (typeof cellValue === 'string') {
+          console.log(`  text value: "${cellValue}"`);
+          console.log(`  contains цист: ${cellValue.toLowerCase().includes('цист')}`);
+          console.log(`  contains простейш: ${cellValue.toLowerCase().includes('простейш')}`);
+        }
+      }
+      
       if (!hasCystsService) {
         // Убираем "цисты кишечных патогенных простейших" из показателей
-        const fCell = sheet.getCell(`F${rowNum}`);
-        const cellValue = fCell.value;
-        
         if (cellValue && typeof cellValue === 'object' && 'richText' in cellValue) {
           // Фильтруем richText, убирая красный текст (цисты)
-          const filteredRichText = (cellValue.richText as { text: string; font?: { color?: { argb?: string } } }[])
-            .filter(rt => rt.font?.color?.argb !== 'FFFF0000');
+          const richText = cellValue.richText as { text: string; font?: { color?: { argb?: string } } }[];
+          const filteredRichText = richText.filter(rt => {
+            const text = rt.text.toLowerCase();
+            // Убираем части с цистами (красный цвет или текст с "цист"/"простейш")
+            return rt.font?.color?.argb !== 'FFFF0000' && 
+                   !text.includes('цист') && 
+                   !text.includes('простейш');
+          });
           
           if (filteredRichText.length > 0) {
             // Убираем запятую в конце последнего элемента
             const lastPart = filteredRichText[filteredRichText.length - 1];
             lastPart.text = lastPart.text.replace(/,\s*$/, '');
             fCell.value = { richText: filteredRichText };
+          } else {
+            // Если все было про цисты, оставляем только гельминты
+            fCell.value = 'яйца и личинки гельминтов';
           }
         } else if (typeof cellValue === 'string') {
           // Если обычный текст — убираем "цисты кишечных патогенных простейших"
@@ -1509,6 +1852,40 @@ export class ExcelService {
             .replace(/,?\s*цисты кишечных патогенных простейших/gi, '')
             .replace(/,\s*$/, '');
         }
+      } else {
+        // Если услуга с цистами ЕСТЬ, проверяем что текст содержит цисты
+        // Если нет - восстанавливаем из шаблона
+        let hasCystsInText = false;
+        let fullText = '';
+        
+        if (cellValue && typeof cellValue === 'object' && 'richText' in cellValue) {
+          const richText = cellValue.richText as { text: string; font?: { color?: { argb?: string } } }[];
+          fullText = richText.map(rt => rt.text).join('');
+          hasCystsInText = fullText.toLowerCase().includes('цист') || fullText.toLowerCase().includes('простейш');
+        } else if (typeof cellValue === 'string') {
+          fullText = cellValue;
+          hasCystsInText = fullText.toLowerCase().includes('цист') || fullText.toLowerCase().includes('простейш');
+        }
+        
+        if (!hasCystsInText) {
+          // Текст не содержит цисты, но услуга есть - восстанавливаем полный текст
+          console.log(`[fillFmbaRequestSheet] Восстанавливаем цисты для строки ${rowNum}, текущий текст: "${fullText}"`);
+          
+          // Создаем richText с полным текстом: гельминты (черный) + цисты (красный)
+          fCell.value = {
+            richText: [
+              {
+                text: 'яйца и личинки гельминтов, ',
+                font: { color: { argb: 'FF000000' } } // Черный
+              },
+              {
+                text: 'цисты кишечных патогенных простейших',
+                font: { color: { argb: 'FFFF0000' } } // Красный
+              }
+            ]
+          };
+        }
+        // Если цисты уже есть в тексте - ничего не делаем, оставляем как есть
       }
       
       // H-J: НД — уже в шаблоне
@@ -1609,6 +1986,9 @@ export class ExcelService {
    */
   async generateFullExcel(options: GenerateOptions): Promise<GeneratedExcelResult> {
     const { projectId } = options;
+
+    // Автоматически получаем метеоданные если их ещё нет
+    await this.ensureWeatherData(projectId);
 
     // Сначала генерируем заявку ИЛЦ
     const ilcResult = await this.generateIlcRequest(options);

@@ -24,6 +24,7 @@ import {
   Target,
   Loader2,
   Beaker,
+  Camera,
   ArrowRight,
 } from 'lucide-react';
 import { projectsApi, type GenerateExcelResult } from '@/api/projects';
@@ -40,8 +41,20 @@ export function ProjectDetailPage() {
   const [newOrderFile, setNewOrderFile] = useState<File | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     services: true,
+    dates: false,
   });
   const [excelResult, setExcelResult] = useState<GenerateExcelResult | null>(null);
+  
+  // Даты документов
+  const [documentDates, setDocumentDates] = useState<{
+    ilcRequestDate: string;
+    fmbaRequestDate: string;
+    samplingDate: string;
+  }>({
+    ilcRequestDate: '',
+    fmbaRequestDate: '',
+    samplingDate: '',
+  });
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', id],
@@ -88,10 +101,32 @@ export function ProjectDetailPage() {
   });
 
   const generateExcelMutation = useMutation({
-    mutationFn: () => projectsApi.generateExcel(id!),
+    mutationFn: async () => {
+      // Сначала сохраняем даты если они заполнены
+      const hasAnyDate = documentDates.ilcRequestDate || documentDates.fmbaRequestDate || documentDates.samplingDate;
+      if (hasAnyDate) {
+        console.log('Saving dates:', documentDates);
+        try {
+          await projectsApi.setDocumentDates(id!, {
+            ilcRequestDate: documentDates.ilcRequestDate || undefined,
+            fmbaRequestDate: documentDates.fmbaRequestDate || undefined,
+            samplingDate: documentDates.samplingDate || undefined,
+          });
+          console.log('Dates saved successfully');
+        } catch (err) {
+          console.error('Error saving dates:', err);
+          throw err;
+        }
+      }
+      // Затем генерируем Excel
+      return projectsApi.generateExcel(id!);
+    },
     onSuccess: (result) => {
       setExcelResult(result);
       queryClient.invalidateQueries({ queryKey: ['project', id] });
+    },
+    onError: (error) => {
+      console.error('Generate Excel error:', error);
     },
   });
 
@@ -363,6 +398,29 @@ export function ProjectDetailPage() {
         </Card>
       )}
 
+      {/* Фотоальбом — ссылка на отдельную страницу */}
+      <Card className="mb-6">
+        <CardContent className="py-4">
+          <Link
+            to={`/projects/${id}/photos`}
+            className="flex items-center justify-between p-4 bg-[var(--bg-tertiary)] rounded-lg hover:bg-[var(--bg-secondary)] transition-colors group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                <Camera className="w-5 h-5 text-amber-400" />
+              </div>
+              <div>
+                <p className="font-medium">Фотоальбом</p>
+                <p className="text-sm text-[var(--text-secondary)]">
+                  Фотографии с выезда
+                </p>
+              </div>
+            </div>
+            <ArrowRight className="w-5 h-5 text-[var(--text-secondary)] group-hover:text-amber-400 transition-colors" />
+          </Link>
+        </CardContent>
+      </Card>
+
       {/* Генерация Excel */}
       <Card className="mb-6">
         <CardHeader className="flex flex-row items-center justify-between">
@@ -380,6 +438,72 @@ export function ProjectDetailPage() {
             </p>
           ) : (
             <div className="space-y-4">
+              {/* Настройка дат */}
+              <div className="border border-[var(--border-primary)] rounded-lg overflow-hidden">
+                <button
+                  onClick={() => toggleSection('dates')}
+                  className="w-full flex items-center justify-between p-3 bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-primary-400" />
+                    <span className="font-medium">Даты документов</span>
+                    {(documentDates.ilcRequestDate || documentDates.fmbaRequestDate || documentDates.samplingDate) && (
+                      <span className="text-xs text-primary-400 bg-primary-500/20 px-2 py-0.5 rounded">
+                        настроено
+                      </span>
+                    )}
+                  </div>
+                  {expandedSections.dates ? (
+                    <ChevronDown className="w-4 h-4" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4" />
+                  )}
+                </button>
+                
+                {expandedSections.dates && (
+                  <div className="p-4 space-y-3 bg-[var(--bg-primary)]">
+                    <p className="text-xs text-[var(--text-secondary)]">
+                      Если не заполнено — используется завтрашняя дата. Если заполнена одна — применяется везде.
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs text-[var(--text-secondary)] mb-1">
+                          Дата заявки ИЛЦ
+                        </label>
+                        <input
+                          type="date"
+                          value={documentDates.ilcRequestDate}
+                          onChange={(e) => setDocumentDates(prev => ({ ...prev, ilcRequestDate: e.target.value }))}
+                          className="w-full px-3 py-1.5 text-sm rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] text-[var(--text-primary)]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-[var(--text-secondary)] mb-1">
+                          Дата заявки ФМБА
+                        </label>
+                        <input
+                          type="date"
+                          value={documentDates.fmbaRequestDate}
+                          onChange={(e) => setDocumentDates(prev => ({ ...prev, fmbaRequestDate: e.target.value }))}
+                          className="w-full px-3 py-1.5 text-sm rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] text-[var(--text-primary)]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-[var(--text-secondary)] mb-1">
+                          Дата отбора проб
+                        </label>
+                        <input
+                          type="date"
+                          value={documentDates.samplingDate}
+                          onChange={(e) => setDocumentDates(prev => ({ ...prev, samplingDate: e.target.value }))}
+                          className="w-full px-3 py-1.5 text-sm rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] text-[var(--text-primary)]"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Кнопка генерации */}
               <div className="flex items-center justify-between p-4 bg-[var(--bg-tertiary)] rounded-lg">
                 <div>

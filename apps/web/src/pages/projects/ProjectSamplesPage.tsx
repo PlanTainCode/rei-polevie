@@ -10,9 +10,48 @@ import {
   X,
   Check,
   Pencil,
+  ExternalLink,
 } from 'lucide-react';
 import { projectsApi, type Sample } from '@/api/projects';
 import { Button, Input, Card, CardHeader, CardTitle, CardContent } from '@/components/ui';
+
+/**
+ * Конвертирует координату из формата "55 50.792" или "55.84653" в десятичные градусы
+ */
+function parseCoordinate(coord: string): number | null {
+  if (!coord) return null;
+  
+  const trimmed = coord.trim();
+  
+  // Формат "55 50.792" (градусы минуты)
+  const dmMatch = trimmed.match(/^(\d+)\s+(\d+\.?\d*)$/);
+  if (dmMatch) {
+    const degrees = parseFloat(dmMatch[1]);
+    const minutes = parseFloat(dmMatch[2]);
+    return degrees + minutes / 60;
+  }
+  
+  // Формат "55.84653" или "055.84653" (десятичные градусы)
+  const decimalMatch = trimmed.match(/^0*(\d+\.?\d*)$/);
+  if (decimalMatch) {
+    return parseFloat(decimalMatch[1]);
+  }
+  
+  return null;
+}
+
+/**
+ * Формирует ссылку на Яндекс.Карты по координатам
+ */
+function getYandexMapsUrl(latitude: string, longitude: string): string | null {
+  const lat = parseCoordinate(latitude);
+  const lon = parseCoordinate(longitude);
+  
+  if (lat === null || lon === null) return null;
+  
+  // Яндекс.Карты: lon,lat (долгота, широта)
+  return `https://yandex.ru/maps/?pt=${lon},${lat}&z=17&l=map`;
+}
 
 // Типовые характеристики проб
 const SAMPLE_DESCRIPTIONS = [
@@ -292,10 +331,22 @@ export function ProjectSamplesPage() {
                           {sample.description && (
                             <span className="text-sm text-[var(--text-secondary)]">{sample.description}</span>
                           )}
-                          {(sample.latitude || sample.longitude) && (
+                          {(sample.latitude && sample.longitude) && (
                             <span className="text-xs text-[var(--text-tertiary)] flex items-center gap-1">
                               <MapPinned className="w-3 h-3" />
                               {sample.latitude}, {sample.longitude}
+                              {getYandexMapsUrl(sample.latitude, sample.longitude) && (
+                                <a
+                                  href={getYandexMapsUrl(sample.latitude, sample.longitude)!}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="ml-1 text-primary-400 hover:text-primary-300 transition-colors"
+                                  title="Открыть на Яндекс.Картах"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              )}
                             </span>
                           )}
                         </div>

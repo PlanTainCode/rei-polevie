@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
+import { Injectable, OnModuleInit, OnModuleDestroy, Logger, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Telegraf, Markup, Context } from 'telegraf';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -6,6 +6,7 @@ import { SampleStatus } from '@prisma/client';
 import * as exifr from 'exifr';
 import heicConvert from 'heic-convert';
 import { AiService } from '../ai/ai.service';
+import { PhotosService } from '../projects/photos.service';
 import * as bcrypt from 'bcrypt';
 
 interface BotContext extends Context {
@@ -22,6 +23,9 @@ interface BotContext extends Context {
     editingSampleId?: string;
     editingPlatformId?: string;
     awaitingInput?: 'description' | 'platform_lat' | 'platform_lon' | 'platform_photo' | 'platform_gps_photo';
+    // Режим загрузки фото
+    uploadingPhotos?: boolean;
+    uploadedPhotosCount?: number;
   };
 }
 
@@ -51,6 +55,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     private configService: ConfigService,
     private prisma: PrismaService,
     private aiService: AiService,
+    @Inject(forwardRef(() => PhotosService))
+    private photosService: PhotosService,
   ) {}
 
   async onModuleInit() {
@@ -354,6 +360,56 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       await ctx.answerCbQuery();
       await this.showProjects(ctx);
     });
+
+    // ============ ФОТОАЛЬБОМ ============
+
+    // Показать меню фотоальбома
+    this.bot.action(/^photos:(.+)$/, async (ctx) => {
+      const projectId = ctx.match[1];
+      await ctx.answerCbQuery();
+      await this.showPhotosMenu(ctx, projectId);
+    });
+
+    // Начать загрузку фото
+    this.bot.action(/^upload_photos:(.+)$/, async (ctx) => {
+      const projectId = ctx.match[1];
+      ctx.session = ctx.session || {};
+      ctx.session.selectedProjectId = projectId;
+      ctx.session.uploadingPhotos = true;
+      ctx.session.uploadedPhotosCount = 0;
+      await ctx.answerCbQuery();
+      await ctx.reply(
+        '📷 *Режим загрузки фото*\n\n' +
+        'Отправляйте фотографии *как файлы* (📎 → Файл)\n' +
+        'чтобы сохранить GPS-координаты и качество.\n\n' +
+        'Когда закончите — нажмите кнопку ниже.',
+        {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('✅ Закончить загрузку', `finish_upload:${projectId}`)],
+            [Markup.button.callback('❌ Отмена', `photos:${projectId}`)],
+          ]),
+        },
+      );
+    });
+
+    // Завершить загрузку фото
+    this.bot.action(/^finish_upload:(.+)$/, async (ctx) => {
+      const projectId = ctx.match[1];
+      const uploaded = ctx.session?.uploadedPhotosCount || 0;
+      
+      ctx.session = ctx.session || {};
+      ctx.session.uploadingPhotos = false;
+      ctx.session.uploadedPhotosCount = 0;
+      
+      await ctx.answerCbQuery();
+      
+      if (uploaded > 0) {
+        await ctx.reply(`✅ Загружено фото: ${uploaded}`);
+      }
+      
+      await this.showPhotosMenu(ctx, projectId);
+    });
   }
 
   private setupTextHandlers() {
@@ -467,11 +523,18 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       }
     });
 
-    // Обработка документов (файлов) — извлекаем GPS из EXIF или через AI
+    // Обработка документов (файлов) — извлекаем GPS из EXIF, загрузка в фотоальбом или через AI
     this.bot.on('document', async (ctx) => {
       const session = ctx.session;
       const awaitingPhoto = session?.awaitingInput === 'platform_photo';
       const awaitingGpsPhoto = session?.awaitingInput === 'platform_gps_photo';
+      const uploadingPhotos = session?.uploadingPhotos && session?.selectedProjectId;
+      
+      // Режим загрузки фото в фотоальбом
+      if (uploadingPhotos) {
+        await this.handlePhotoUpload(ctx);
+        return;
+      }
       
       if (!session?.editingPlatformId || (!awaitingPhoto && !awaitingGpsPhoto)) {
         return;
@@ -858,6 +921,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           select: {
             samples: true,
             platforms: true,
+            photos: true,
           },
         },
         samples: {
@@ -874,17 +938,20 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     const collectedCount = project.samples.length;
     const totalCount = project._count.samples;
     const progress = totalCount > 0 ? Math.round((collectedCount / totalCount) * 100) : 0;
+    const photosCount = project._count.photos;
 
     const text = 
       `📁 *${this.escapeMarkdown(project.name)}*\n\n` +
       `📍 ${project.objectAddress || 'Адрес не указан'}\n` +
       `📊 Прогресс: ${collectedCount}/${totalCount} проб (${progress}%)\n` +
-      `🏷️ Площадок: ${project._count.platforms}`;
+      `🏷️ Площадок: ${project._count.platforms}\n` +
+      `📷 Фото: ${photosCount}`;
 
     await ctx.editMessageText(text, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('📋 Площадки и пробы', `platforms:${projectId}`)],
+        [Markup.button.callback(`📷 Фотоальбом (${photosCount})`, `photos:${projectId}`)],
         [Markup.button.callback('◀️ К списку проектов', 'back_projects')],
       ]),
     }).catch(() => {
@@ -892,6 +959,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([
           [Markup.button.callback('📋 Площадки и пробы', `platforms:${projectId}`)],
+          [Markup.button.callback(`📷 Фотоальбом (${photosCount})`, `photos:${projectId}`)],
           [Markup.button.callback('◀️ К списку проектов', 'back_projects')],
         ]),
       });
@@ -1150,6 +1218,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Устанавливает характеристику пробы
+   * Для площадок ПП — распространяется на все пробы площадки (химия, микробиология, паразитология)
+   * Для СК и других — только на выбранную пробу
    */
   private async setDescription(ctx: BotContext, sampleId: string, descIndex: number) {
     const description = SOIL_DESCRIPTIONS[descIndex];
@@ -1159,12 +1229,41 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
-      await this.prisma.sample.update({
+      // Получаем пробу с информацией о площадке
+      const sample = await this.prisma.sample.findUnique({
         where: { id: sampleId },
-        data: { description },
+        include: {
+          platform: true,
+        },
       });
 
-      await ctx.reply(`✅ Характеристика "${description}" сохранена!`);
+      if (!sample) {
+        await ctx.reply('❌ Проба не найдена');
+        return;
+      }
+
+      // Для ПП — обновляем все пробы площадки (включая микробиологию и паразитологию)
+      if (sample.platform.type === 'PP') {
+        await this.prisma.sample.updateMany({
+          where: { platformId: sample.platformId },
+          data: { description },
+        });
+        
+        const count = await this.prisma.sample.count({
+          where: { platformId: sample.platformId },
+        });
+        
+        await ctx.reply(`✅ Характеристика "${description}" сохранена для всех ${count} проб площадки ${sample.platform.label}!`);
+      } else {
+        // Для СК и других — обновляем только выбранную пробу
+        await this.prisma.sample.update({
+          where: { id: sampleId },
+          data: { description },
+        });
+
+        await ctx.reply(`✅ Характеристика "${description}" сохранена!`);
+      }
+      
       await this.showSampleDetails(ctx, sampleId);
     } catch (error) {
       this.logger.error('Ошибка сохранения характеристики:', error);
@@ -1197,20 +1296,56 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /**
+   * Отмечает пробу как отобранную
+   * Для площадок ПП — отмечает все пробы площадки
+   * Для СК и других — только выбранную пробу
+   */
   private async collectSample(ctx: BotContext, sampleId: string) {
     try {
-      const sample = await this.prisma.sample.update({
+      // Сначала получаем пробу с информацией о площадке
+      const sample = await this.prisma.sample.findUnique({
         where: { id: sampleId },
-        data: {
-          status: SampleStatus.COLLECTED,
-          collectedAt: new Date(),
-        },
         include: {
           platform: true,
         },
       });
 
-      await ctx.reply(`✅ Проба ${sample.cipher} отмечена как отобранная!`);
+      if (!sample) {
+        await ctx.reply('❌ Проба не найдена');
+        return;
+      }
+
+      const now = new Date();
+
+      // Для ПП — отмечаем все пробы площадки
+      if (sample.platform.type === 'PP') {
+        await this.prisma.sample.updateMany({
+          where: { platformId: sample.platformId },
+          data: {
+            status: SampleStatus.COLLECTED,
+            collectedAt: now,
+          },
+        });
+
+        const count = await this.prisma.sample.count({
+          where: { platformId: sample.platformId },
+        });
+
+        await ctx.reply(`✅ Все ${count} проб площадки ${sample.platform.label} отмечены как отобранные!`);
+      } else {
+        // Для СК и других — только выбранную пробу
+        await this.prisma.sample.update({
+          where: { id: sampleId },
+          data: {
+            status: SampleStatus.COLLECTED,
+            collectedAt: now,
+          },
+        });
+
+        await ctx.reply(`✅ Проба ${sample.cipher} отмечена как отобранная!`);
+      }
+
       await this.showSampleDetails(ctx, sampleId);
     } catch (error) {
       this.logger.error('Ошибка отметки пробы:', error);
@@ -1275,6 +1410,119 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logger.error('Ошибка распознавания координат с GPS-трекера:', error);
       await ctx.reply('❌ Ошибка распознавания. Попробуйте снова.');
+    }
+  }
+
+  // ============ ФОТОАЛЬБОМ ============
+
+  /**
+   * Показывает меню фотоальбома
+   */
+  private async showPhotosMenu(ctx: BotContext, projectId: string) {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      include: {
+        _count: { select: { photos: true } },
+      },
+    });
+
+    if (!project) {
+      await ctx.reply('❌ Проект не найден');
+      return;
+    }
+
+    const photosCount = project._count.photos;
+
+    const text = 
+      `📷 *Фотоальбом*\n` +
+      `_${this.escapeMarkdown(project.name)}_\n\n` +
+      `📸 Фотографий: ${photosCount}`;
+
+    const buttons = [
+      [Markup.button.callback('➕ Добавить фото', `upload_photos:${projectId}`)],
+      [Markup.button.callback('◀️ К проекту', `project:${projectId}`)],
+    ];
+
+    await ctx.editMessageText(text, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard(buttons),
+    }).catch(() => {
+      ctx.reply(text, {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(buttons),
+      });
+    });
+  }
+
+  /**
+   * Обрабатывает загрузку фото в фотоальбом
+   */
+  private async handlePhotoUpload(ctx: BotContext) {
+    const session = ctx.session;
+    if (!session?.selectedProjectId) {
+      return;
+    }
+
+    const document = (ctx.message as { document: { file_id: string; file_name?: string; mime_type?: string } }).document;
+    const mimeType = document.mime_type || '';
+    const fileName = document.file_name || 'photo.jpg';
+
+    // Проверяем формат
+    const supportedMimes = [
+      'image/jpeg', 'image/jpg', 'image/png', 
+      'image/heic', 'image/heif', 'image/webp',
+    ];
+    const supportedExtensions = ['.jpg', '.jpeg', '.png', '.heic', '.heif', '.webp'];
+    const extension = fileName.toLowerCase().slice(fileName.lastIndexOf('.'));
+    
+    const isSupported = supportedMimes.includes(mimeType.toLowerCase()) || 
+                        supportedExtensions.includes(extension);
+
+    if (!isSupported) {
+      await ctx.reply(
+        '⚠️ Пропускаю файл: неподдерживаемый формат\n' +
+        'Поддерживаются: JPEG, PNG, HEIC, WebP',
+      );
+      return;
+    }
+
+    try {
+      // Получаем ссылку на файл
+      const fileLink = await ctx.telegram.getFileLink(document.file_id);
+      
+      // Скачиваем файл
+      const response = await fetch(fileLink.href);
+      const buffer = Buffer.from(await response.arrayBuffer());
+
+      this.logger.log(`Загрузка фото: ${fileName}, size: ${buffer.length}`);
+
+      // Загружаем через PhotosService
+      const photo = await this.photosService.uploadPhoto(
+        session.selectedProjectId,
+        {
+          buffer,
+          originalname: fileName,
+          mimetype: mimeType || 'image/jpeg',
+        },
+        session.userId,
+      );
+
+      // Увеличиваем счётчик
+      session.uploadedPhotosCount = (session.uploadedPhotosCount || 0) + 1;
+
+      // Формируем сообщение
+      let msg = `✅ Фото #${session.uploadedPhotosCount} загружено`;
+      if (photo.latitude && photo.longitude) {
+        msg += `\n📍 GPS: ${photo.latitude}, ${photo.longitude}`;
+      }
+      if (photo.photoDate) {
+        msg += `\n📅 ${new Date(photo.photoDate).toLocaleDateString('ru')}`;
+      }
+
+      await ctx.reply(msg);
+    } catch (error) {
+      this.logger.error('Ошибка загрузки фото:', error);
+      await ctx.reply(`❌ Ошибка загрузки: ${fileName}`);
     }
   }
 
