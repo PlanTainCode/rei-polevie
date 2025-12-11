@@ -38,6 +38,7 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      GROQ_API_KEY: ${GROQ_API_KEY}
     volumes:
       # Персистентное хранение файлов
       - api_uploads:/app/apps/api/uploads
