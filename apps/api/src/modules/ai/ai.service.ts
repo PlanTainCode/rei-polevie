@@ -218,43 +218,46 @@ export class AiService {
   }
 
   /**
-   * Расшифровывает аудиофайл через Groq Whisper API (бесплатно)
+   * Расшифровывает аудиофайл через Deepgram API (бесплатно 200 мин/мес)
    */
   async transcribeAudio(audioBuffer: Buffer): Promise<string> {
-    const groqApiKey = this.configService.get<string>('GROQ_API_KEY');
+    const deepgramApiKey = this.configService.get<string>('DEEPGRAM_API_KEY');
     
-    if (!groqApiKey) {
-      console.error('[AiService] GROQ_API_KEY не настроен');
+    if (!deepgramApiKey) {
+      console.error('[AiService] DEEPGRAM_API_KEY не настроен');
       return '';
     }
 
     try {
-      // Groq Whisper API использует multipart/form-data
-      const formData = new FormData();
-      // Конвертируем Buffer в Uint8Array для совместимости с Blob
-      const uint8Array = new Uint8Array(audioBuffer);
-      const blob = new Blob([uint8Array], { type: 'audio/ogg' });
-      formData.append('file', blob, 'voice.ogg');
-      formData.append('model', 'whisper-large-v3');
-      formData.append('language', 'ru');
-
-      const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${groqApiKey}`,
+      const response = await fetch(
+        'https://api.deepgram.com/v1/listen?model=nova-2&language=ru&smart_format=true',
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Token ${deepgramApiKey}`,
+            'Content-Type': 'audio/ogg',
+          },
+          body: audioBuffer,
         },
-        body: formData,
-      });
+      );
 
       if (!response.ok) {
         const error = await response.text();
-        console.error('[AiService] Groq Whisper API error:', error);
+        console.error('[AiService] Deepgram API error:', error);
         return '';
       }
 
-      const result = await response.json() as { text: string };
-      console.log('[AiService] Transcribed audio:', result.text);
-      return result.text.trim();
+      const result = await response.json() as {
+        results?: {
+          channels?: Array<{
+            alternatives?: Array<{ transcript?: string }>;
+          }>;
+        };
+      };
+      
+      const text = result.results?.channels?.[0]?.alternatives?.[0]?.transcript || '';
+      console.log('[AiService] Transcribed audio:', text);
+      return text.trim();
     } catch (error) {
       console.error('[AiService] Transcription error:', error);
       return '';
