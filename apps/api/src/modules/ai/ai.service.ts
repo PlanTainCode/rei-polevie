@@ -229,6 +229,9 @@ export class AiService {
     }
 
     try {
+      // Конвертируем Buffer в Uint8Array для совместимости с fetch
+      const uint8Array = new Uint8Array(audioBuffer);
+      
       const response = await fetch(
         'https://api.deepgram.com/v1/listen?model=nova-2&language=ru&smart_format=true',
         {
@@ -237,7 +240,7 @@ export class AiService {
             'Authorization': `Token ${deepgramApiKey}`,
             'Content-Type': 'audio/ogg',
           },
-          body: audioBuffer,
+          body: uint8Array,
         },
       );
 
