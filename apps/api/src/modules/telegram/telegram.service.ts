@@ -26,6 +26,7 @@ interface BotContext extends Context {
     // Режим загрузки фото
     uploadingPhotos?: boolean;
     uploadedPhotosCount?: number;
+    lastUploadedPhotoId?: string; // ID последнего загруженного фото для привязки голосового
   };
 }
 
@@ -723,6 +724,53 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       } catch (error) {
         this.logger.error('Ошибка распознавания координат с GPS-трекера:', error);
         await ctx.reply('❌ Ошибка распознавания. Попробуйте снова.');
+      }
+    });
+
+    // Обработка голосовых сообщений — расшифровка для описания фото
+    this.bot.on('voice', async (ctx) => {
+      const session = ctx.session;
+      
+      // Проверяем что мы в режиме загрузки фото и есть последнее загруженное фото
+      if (!session?.uploadingPhotos || !session?.lastUploadedPhotoId) {
+        return;
+      }
+
+      try {
+        await ctx.reply('🎤 Расшифровываю голосовое сообщение...');
+
+        const voice = ctx.message.voice;
+        
+        // Скачиваем голосовое сообщение
+        const fileLink = await ctx.telegram.getFileLink(voice.file_id);
+        const response = await fetch(fileLink.href);
+        const buffer = Buffer.from(await response.arrayBuffer());
+
+        this.logger.log(`Расшифровка голосового: ${buffer.length} bytes, duration: ${voice.duration}s`);
+
+        // Расшифровываем через AI
+        const transcription = await this.aiService.transcribeAudio(buffer);
+
+        if (!transcription) {
+          await ctx.reply('❌ Не удалось расшифровать голосовое сообщение');
+          return;
+        }
+
+        // Обновляем описание фото
+        await this.photosService.updatePhoto(session.lastUploadedPhotoId, {
+          description: transcription,
+        });
+
+        await ctx.reply(
+          `✅ Описание добавлено:\n\n_"${transcription}"_`,
+          { parse_mode: 'Markdown' },
+        );
+
+        // Сбрасываем lastUploadedPhotoId чтобы следующее голосовое не перезаписало
+        session.lastUploadedPhotoId = undefined;
+      } catch (error) {
+        this.logger.error('Ошибка расшифровки голосового:', error);
+        await ctx.reply('❌ Ошибка расшифровки. Попробуйте снова.');
       }
     });
   }
@@ -1547,8 +1595,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         session.userId,
       );
 
-      // Увеличиваем счётчик
+      // Увеличиваем счётчик и сохраняем ID последнего фото
       session.uploadedPhotosCount = (session.uploadedPhotosCount || 0) + 1;
+      session.lastUploadedPhotoId = photo.id;
 
       // Формируем сообщение
       let msg = `✅ Фото #${session.uploadedPhotosCount} загружено`;
@@ -1558,8 +1607,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       if (photo.photoDate) {
         msg += `\n📅 ${new Date(photo.photoDate).toLocaleDateString('ru')}`;
       }
+      msg += '\n\n🎤 _Отправьте голосовое для описания_';
 
-      await ctx.reply(msg);
+      await ctx.reply(msg, { parse_mode: 'Markdown' });
     } catch (error) {
       this.logger.error('Ошибка загрузки фото:', error);
       await ctx.reply(`❌ Ошибка загрузки: ${fileName}`);
