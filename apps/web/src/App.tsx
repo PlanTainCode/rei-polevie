@@ -15,6 +15,7 @@ import { ProjectDetailPage } from '@/pages/projects/ProjectDetailPage';
 import { ProjectSamplesPage } from '@/pages/projects/ProjectSamplesPage';
 import { ProjectPhotosPage } from '@/pages/projects/ProjectPhotosPage';
 import { ProgramIeiPage } from '@/pages/projects/ProgramIeiPage';
+import { InquiryRequestsPage } from '@/pages/projects/InquiryRequestsPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuthStore();
@@ -94,6 +95,7 @@ export default function App() {
         <Route path="/projects/:id/samples" element={<ProjectSamplesPage />} />
         <Route path="/projects/:id/photos" element={<ProjectPhotosPage />} />
         <Route path="/projects/:id/program-iei" element={<ProgramIeiPage />} />
+        <Route path="/projects/:id/inquiry-requests" element={<InquiryRequestsPage />} />
       </Route>
 
       {/* Редирект по умолчанию */}

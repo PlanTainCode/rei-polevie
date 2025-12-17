@@ -29,6 +29,7 @@ import {
   Plus,
   GitBranch,
   ExternalLink,
+  Send,
 } from 'lucide-react';
 import { projectsApi, type GenerateExcelResult } from '@/api/projects';
 import { Button, Input, Card, CardHeader, CardTitle, CardContent } from '@/components/ui';
@@ -555,6 +556,31 @@ export function ProjectDetailPage() {
                 </div>
               </div>
               <ArrowRight className="w-5 h-5 text-[var(--text-secondary)] group-hover:text-purple-400 transition-colors" />
+            </Link>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Запросы справок — ссылка на отдельную страницу (только для корневых проектов) */}
+      {!isChildProject && project.processedAt && (
+        <Card className="mb-6">
+          <CardContent className="py-4">
+            <Link
+              to={`/projects/${id}/inquiry-requests`}
+              className="flex items-center justify-between p-4 bg-[var(--bg-tertiary)] rounded-lg hover:bg-[var(--bg-secondary)] transition-colors group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-teal-500/20 flex items-center justify-center">
+                  <Send className="w-5 h-5 text-teal-400" />
+                </div>
+                <div>
+                  <p className="font-medium">Запросы справок</p>
+                  <p className="text-sm text-[var(--text-secondary)]">
+                    Генерация запросов в ведомства
+                  </p>
+                </div>
+              </div>
+              <ArrowRight className="w-5 h-5 text-[var(--text-secondary)] group-hover:text-teal-400 transition-colors" />
             </Link>
           </CardContent>
         </Card>

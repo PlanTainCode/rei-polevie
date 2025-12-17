@@ -103,6 +103,7 @@ model Project {
   // Извлечённые данные (из AI анализа)
   objectName       String?       // Название объекта из документов
   objectAddress    String?       // Адрес объекта
+  inquiryAddress   String?       // Адрес для справок (формат: район ОКРУГ г.Москвы, улица)
   objectPurpose    String?       // Назначение объекта
   documentNumber   String?       // Полный номер документа (801-110-25)
   clientName       String?       // Название заказчика
@@ -140,14 +141,15 @@ model Project {
   updatedAt        DateTime      @updatedAt
 
   // Отношения
-  company       Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  createdBy     User        @relation("CreatedBy", fields: [createdById], references: [id])
-  parentProject Project?    @relation("ParentChild", fields: [parentProjectId], references: [id], onDelete: Cascade)
-  childProjects Project[]   @relation("ParentChild")
-  platforms     Platform[]
-  samples       Sample[]
-  photos        Photo[]
-  programIei    ProgramIei?
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy      User            @relation("CreatedBy", fields: [createdById], references: [id])
+  parentProject  Project?        @relation("ParentChild", fields: [parentProjectId], references: [id], onDelete: Cascade)
+  childProjects  Project[]       @relation("ParentChild")
+  platforms      Platform[]
+  samples        Sample[]
+  photos         Photo[]
+  programIei     ProgramIei?
+  inquiryRequest InquiryRequest?
 
   @@map("projects")
 }
@@ -319,5 +321,39 @@ model Photo {
   uploadedBy   User?    @relation("UploadedPhotos", fields: [uploadedById], references: [id])
 
   @@map("photos")
+}
+
+// Запрос справки (генерация запросов в ведомства)
+model InquiryRequest {
+  id        String @id @default(cuid())
+  projectId String
+
+  // Регион (определяется автоматически по адресу)
+  region    InquiryRegion @default(MOSCOW)
+
+  // Выбранные справки (JSON массив ID справок)
+  selectedInquiries Json // ["CGMS", "DPOOS", ...] - массив строк
+
+  // Дополнительные данные для заполнения шаблонов
+  // (данные, которых нет в ТЗ и требуют ввода пользователем)
+  additionalData    Json? // { field1: "value1", ... }
+
+  // Сгенерированные файлы (JSON массив)
+  generatedFiles    Json? // [{ inquiryId: "CGMS", fileName: "...", fileUrl: "..." }]
+  generatedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Отношения
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId])
+  @@map("inquiry_requests")
+}
+
+enum InquiryRegion {
+  MOSCOW      // г. Москва
+  MOSCOW_OBLAST // Московская область
 }
 

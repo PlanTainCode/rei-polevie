@@ -127,6 +127,55 @@ export interface UpdateProgramIeiData {
   nearbyNorth?: string;
 }
 
+// Типы для запросов справок
+export type InquiryRegion = 'MOSCOW' | 'MOSCOW_OBLAST';
+
+export interface InquiryType {
+  id: string;
+  name: string;
+  shortName: string;
+  templateFile: string;
+  order: number;
+  description?: string;
+}
+
+export interface GeneratedInquiryFile {
+  inquiryId: string;
+  inquiryName: string;
+  fileName: string;
+  fileUrl: string;
+  generatedAt: string;
+}
+
+export interface InquiryRequest {
+  id: string;
+  projectId: string;
+  region: InquiryRegion;
+  selectedInquiries: string[];
+  additionalData?: Record<string, string>;
+  generatedFiles?: GeneratedInquiryFile[];
+  generatedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AvailableInquiriesResponse {
+  region: InquiryRegion;
+  regionName: string;
+  inquiries: InquiryType[];
+}
+
+export interface UpdateInquiryRequestData {
+  selectedInquiries?: string[];
+  additionalData?: Record<string, string>;
+}
+
+export interface GenerateInquiriesResult {
+  success: boolean;
+  generatedFiles: GeneratedInquiryFile[];
+  errors?: { inquiryId: string; error: string }[];
+}
+
 // Типы для проб
 export interface Platform {
   id: string;
@@ -542,6 +591,60 @@ export const projectsApi = {
 
   getOverviewImageUrl: (imageName: string): string => {
     return `/api/uploads/program-iei/${imageName}`;
+  },
+
+  // ========== ЗАПРОСЫ СПРАВОК ==========
+
+  getInquiryRequest: async (projectId: string): Promise<InquiryRequest> => {
+    const response = await apiClient.get<InquiryRequest>(
+      `/projects/${projectId}/inquiry-requests`,
+    );
+    return response.data;
+  },
+
+  getAvailableInquiries: async (projectId: string): Promise<AvailableInquiriesResponse> => {
+    const response = await apiClient.get<AvailableInquiriesResponse>(
+      `/projects/${projectId}/inquiry-requests/available`,
+    );
+    return response.data;
+  },
+
+  updateInquiryRequest: async (
+    projectId: string,
+    data: UpdateInquiryRequestData,
+  ): Promise<InquiryRequest> => {
+    const response = await apiClient.patch<InquiryRequest>(
+      `/projects/${projectId}/inquiry-requests`,
+      data,
+    );
+    return response.data;
+  },
+
+  generateInquiries: async (
+    projectId: string,
+    inquiryIds: string[],
+  ): Promise<GenerateInquiriesResult> => {
+    const response = await apiClient.post<GenerateInquiriesResult>(
+      `/projects/${projectId}/inquiry-requests/generate`,
+      { inquiryIds },
+    );
+    return response.data;
+  },
+
+  downloadInquiry: async (projectId: string, fileName: string): Promise<void> => {
+    const response = await apiClient.get(
+      `/projects/${projectId}/inquiry-requests/download/${fileName}`,
+      { responseType: 'blob' },
+    );
+
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
   },
 };
 

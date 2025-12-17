@@ -241,6 +241,16 @@ export class ProjectsService {
     const currentAddress = String(project.objectAddress || '').trim();
     if (nextAddress && (!currentAddress || nextAddress.length >= currentAddress.length)) {
       updateData.objectAddress = nextAddress;
+      
+      // Форматируем адрес для справок (район ОКРУГ г.Москвы, улица)
+      try {
+        const inquiryAddress = await this.aiService.formatAddressForInquiries(nextAddress);
+        if (inquiryAddress) {
+          updateData.inquiryAddress = inquiryAddress;
+        }
+      } catch (err) {
+        console.error('Error formatting inquiry address:', err);
+      }
     }
 
     // clientName/clientAddress: обновляем только если непустые (приоритет у данных из ТЗ)
@@ -667,6 +677,16 @@ export class ProjectsService {
     const nextAddress = String(objectAddress || '').trim();
     if (nextAddress) {
       updateData.objectAddress = nextAddress;
+      
+      // Форматируем адрес для справок (район ОКРУГ г.Москвы, улица)
+      try {
+        const inquiryAddress = await this.aiService.formatAddressForInquiries(nextAddress);
+        if (inquiryAddress) {
+          updateData.inquiryAddress = inquiryAddress;
+        }
+      } catch (err) {
+        console.error('Error formatting inquiry address:', err);
+      }
     }
 
     // clientName/clientAddress: обновляем только если непустые (данные из ТЗ через AI)

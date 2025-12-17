@@ -12,6 +12,7 @@ import { AiModule } from './modules/ai/ai.module';
 import { ExcelModule } from './modules/excel/excel.module';
 import { WordModule } from './modules/word/word.module';
 import { TelegramModule } from './modules/telegram/telegram.module';
+import { InquiryRequestsModule } from './modules/inquiry-requests/inquiry-requests.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { TelegramModule } from './modules/telegram/telegram.module';
     ExcelModule,
     WordModule,
     TelegramModule,
+    InquiryRequestsModule,
   ],
 })
 export class AppModule {}
