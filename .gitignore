@@ -41,6 +41,15 @@ prisma/*.db-journal
 *.tsbuildinfo
 .turbo
 
+# Vite cache
+.vite-cache
+
+# Temporary Word files
+.~*
+
+# Erroneous nested folder
+apps/api/apps/
+
 # Uploads (кроме .gitkeep)
 apps/api/uploads/*
 !apps/api/uploads/.gitkeep
