@@ -34,6 +34,16 @@ export interface Project {
     samples: number;
     platforms: number;
   };
+  // Связь родитель-дочерний (доотбор)
+  parentProjectId: string | null;
+  parentProject?: {
+    id: string;
+    name: string;
+  } | null;
+  childProjects?: {
+    id: string;
+    name: string;
+  }[];
 }
 
 export interface ParsedDocumentInfo {
@@ -79,6 +89,42 @@ export interface GenerateFmbaResult {
   fileName?: string;
   downloadUrl?: string;
   message?: string;
+}
+
+export interface GenerateProgramIeiResult {
+  success: boolean;
+  fileName: string;
+  downloadUrl: string;
+}
+
+// Программа ИЭИ
+export interface ProgramIei {
+  id: string;
+  projectId: string;
+  overviewImageName: string | null;
+  overviewImageUrl: string | null;
+  cadastralNumber: string | null;
+  egrnDescription: string | null;
+  coordinatesLat: string | null;
+  coordinatesLon: string | null;
+  nearbySouth: string | null;
+  nearbyEast: string | null;
+  nearbyWest: string | null;
+  nearbyNorth: string | null;
+  generatedFileName: string | null;
+  generatedFileUrl: string | null;
+  generatedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpdateProgramIeiData {
+  cadastralNumber?: string;
+  egrnDescription?: string;
+  nearbySouth?: string;
+  nearbyEast?: string;
+  nearbyWest?: string;
+  nearbyNorth?: string;
 }
 
 // Типы для проб
@@ -198,6 +244,44 @@ export const projectsApi = {
     return response.data;
   },
 
+  regenerateFromTz: async (id: string, tzFile: File): Promise<Project> => {
+    const formData = new FormData();
+    formData.append('tz', tzFile);
+    const response = await apiClient.post<Project>(
+      `/projects/${id}/regenerate-from-tz`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      },
+    );
+    return response.data;
+  },
+
+  // Создать дочерний проект (доотбор)
+  createChildProject: async (parentId: string, name: string, orderFile: File): Promise<Project> => {
+    const formData = new FormData();
+    formData.append('name', name);
+    formData.append('order', orderFile);
+    const response = await apiClient.post<Project>(
+      `/projects/${parentId}/create-child`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      },
+    );
+    return response.data;
+  },
+
+  // Получить список дочерних проектов (доотборов)
+  getChildProjects: async (parentId: string): Promise<Project[]> => {
+    const response = await apiClient.get<Project[]>(`/projects/${parentId}/children`);
+    return response.data;
+  },
+
   setDocumentDates: async (
     id: string, 
     dates: { ilcRequestDate?: string; fmbaRequestDate?: string; samplingDate?: string }
@@ -263,6 +347,13 @@ export const projectsApi = {
   generateFmba: async (projectId: string): Promise<GenerateFmbaResult> => {
     const response = await apiClient.post<GenerateFmbaResult>(
       `/projects/${projectId}/generate-fmba`,
+    );
+    return response.data;
+  },
+
+  generateProgramIei: async (projectId: string): Promise<GenerateProgramIeiResult> => {
+    const response = await apiClient.post<GenerateProgramIeiResult>(
+      `/projects/${projectId}/generate-program-iei`,
     );
     return response.data;
   },
@@ -415,6 +506,42 @@ export const projectsApi = {
     link.click();
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
+  },
+
+  // ========== ПРОГРАММА ИЭИ ==========
+
+  getProgramIei: async (projectId: string): Promise<ProgramIei> => {
+    const response = await apiClient.get<ProgramIei>(`/projects/${projectId}/program-iei`);
+    return response.data;
+  },
+
+  updateProgramIei: async (projectId: string, data: UpdateProgramIeiData): Promise<ProgramIei> => {
+    const response = await apiClient.patch<ProgramIei>(`/projects/${projectId}/program-iei`, data);
+    return response.data;
+  },
+
+  uploadOverviewImage: async (projectId: string, file: File): Promise<ProgramIei> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await apiClient.post<ProgramIei>(
+      `/projects/${projectId}/program-iei/overview-image`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      },
+    );
+    return response.data;
+  },
+
+  deleteOverviewImage: async (projectId: string): Promise<ProgramIei> => {
+    const response = await apiClient.delete<ProgramIei>(`/projects/${projectId}/program-iei/overview-image`);
+    return response.data;
+  },
+
+  getOverviewImageUrl: (imageName: string): string => {
+    return `/api/uploads/program-iei/${imageName}`;
   },
 };
 

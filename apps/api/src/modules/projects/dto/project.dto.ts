@@ -60,3 +60,35 @@ export class GenerateAlbumDto {
   crewMembers: string;
 }
 
+export class UpdateProgramIeiDto {
+  @IsString()
+  @IsOptional()
+  cadastralNumber?: string;
+
+  @IsString()
+  @IsOptional()
+  egrnDescription?: string;
+
+  // 3.2 - окружение участка
+  @IsString()
+  @IsOptional()
+  nearbySouth?: string;
+
+  @IsString()
+  @IsOptional()
+  nearbyEast?: string;
+
+  @IsString()
+  @IsOptional()
+  nearbyWest?: string;
+
+  @IsString()
+  @IsOptional()
+  nearbyNorth?: string;
+
+  // 8.2 - Обоснование границ изучаемой территории
+  @IsString()
+  @IsOptional()
+  section82Text?: string;
+}
+

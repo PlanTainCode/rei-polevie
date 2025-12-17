@@ -13,6 +13,7 @@ import {
   UploadedFile,
   Res,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { FileFieldsInterceptor, FilesInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
@@ -25,10 +26,11 @@ import { WordParserService } from './word-parser.service';
 import { SamplesService } from './samples.service';
 import { PhotosService } from './photos.service';
 import { PresentationService } from './presentation.service';
+import { ProgramIeiService } from './program-iei.service';
 import { ExcelService } from '../excel/excel.service';
 import { WordService } from '../word/word.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { CreateProjectDto, UpdateSampleDto, UpdatePhotoDto, ReorderPhotosDto, GenerateAlbumDto } from './dto/project.dto';
+import { CreateProjectDto, UpdateSampleDto, UpdatePhotoDto, ReorderPhotosDto, GenerateAlbumDto, UpdateProgramIeiDto } from './dto/project.dto';
 
 // Multer config для документов Word
 const documentsStorage = diskStorage({
@@ -60,6 +62,7 @@ export class ProjectsController {
     private samplesService: SamplesService,
     private photosService: PhotosService,
     private presentationService: PresentationService,
+    private programIeiService: ProgramIeiService,
     private excelService: ExcelService,
     private wordService: WordService,
   ) {}
@@ -186,6 +189,67 @@ export class ProjectsController {
     return this.projectsService.reprocessDocuments(id, req.user.userId);
   }
 
+  // Перегенерация проекта из обновленного ТЗ (без перегенерации проб)
+  @Post(':id/regenerate-from-tz')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [{ name: 'tz', maxCount: 1 }],
+      {
+        storage: documentsStorage,
+        fileFilter: documentsFilter,
+      },
+    ),
+  )
+  async regenerateFromTz(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @UploadedFiles()
+    files: { tz?: Express.Multer.File[] },
+  ) {
+    const tzFile = files?.tz?.[0];
+    if (!tzFile) {
+      throw new NotFoundException('Файл ТЗ не загружен');
+    }
+    return this.projectsService.regenerateFromTz(id, tzFile, req.user.userId);
+  }
+
+  // Создание дочернего проекта (доотбор)
+  @Post(':id/create-child')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [{ name: 'order', maxCount: 1 }],
+      {
+        storage: documentsStorage,
+        fileFilter: documentsFilter,
+      },
+    ),
+  )
+  async createChildProject(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @Body() dto: { name: string },
+    @UploadedFiles()
+    files: { order?: Express.Multer.File[] },
+  ) {
+    const orderFile = files?.order?.[0];
+    if (!orderFile) {
+      throw new NotFoundException('Файл поручения не загружен');
+    }
+    if (!dto.name) {
+      throw new NotFoundException('Название проекта не указано');
+    }
+    return this.projectsService.createChildProject(id, dto.name, orderFile, req.user.userId);
+  }
+
+  // Получить список дочерних проектов (доотборов)
+  @Get(':id/children')
+  async getChildProjects(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    return this.projectsService.getChildProjects(id, req.user.userId);
+  }
+
   // Установить даты документов
   @Post(':id/document-dates')
   async setDocumentDates(
@@ -284,6 +348,34 @@ export class ProjectsController {
         message: 'Нет проб микробиологии для генерации заявки ФМБА',
       };
     }
+
+    return {
+      success: true,
+      fileName: result.fileName,
+      downloadUrl: `/generated/${result.fileName}`,
+    };
+  }
+
+  // Генерация программы ИЭИ (Word)
+  @Post(':id/generate-program-iei')
+  async generateProgramIei(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    // Проверяем доступ к проекту
+    const project = await this.projectsService.findById(id, req.user.userId);
+
+    // Запрещаем генерацию программы ИЭИ для доотборов — она общая с родительским проектом
+    if (project.parentProjectId) {
+      throw new BadRequestException(
+        'Программа ИЭИ генерируется только для основного проекта. Для доотбора используйте программу родительского проекта.',
+      );
+    }
+
+    const result = await this.wordService.generateProgramIei({
+      projectId: id,
+      userId: req.user.userId,
+    });
 
     return {
       success: true,
@@ -579,6 +671,51 @@ export class ProjectsController {
     });
 
     res.send(buffer);
+  }
+
+  // ============ ПРОГРАММА ИЭИ ============
+
+  // Получить данные программы ИЭИ
+  @Get(':id/program-iei')
+  async getProgramIei(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    await this.projectsService.findById(id, req.user.userId);
+    return this.programIeiService.get(id);
+  }
+
+  // Обновить данные программы ИЭИ (кадастр, описание ЕГРН)
+  @Patch(':id/program-iei')
+  async updateProgramIei(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @Body() dto: UpdateProgramIeiDto,
+  ) {
+    await this.projectsService.findById(id, req.user.userId);
+    return this.programIeiService.update(id, dto);
+  }
+
+  // Загрузить обзорную схему (п.1.9.4)
+  @Post(':id/program-iei/overview-image')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadOverviewImage(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    await this.projectsService.findById(id, req.user.userId);
+    return this.programIeiService.uploadOverviewImage(id, file);
+  }
+
+  // Удалить обзорную схему
+  @Delete(':id/program-iei/overview-image')
+  async deleteOverviewImage(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    await this.projectsService.findById(id, req.user.userId);
+    return this.programIeiService.deleteOverviewImage(id);
   }
 }
 

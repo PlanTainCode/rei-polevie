@@ -9,6 +9,7 @@ import { WordParserService } from './word-parser.service';
 import { SamplesService } from './samples.service';
 import { PhotosService } from './photos.service';
 import { PresentationService } from './presentation.service';
+import { ProgramIeiService } from './program-iei.service';
 import { CompaniesModule } from '../companies/companies.module';
 import { ExcelModule } from '../excel/excel.module';
 import { WordModule } from '../word/word.module';
@@ -53,8 +54,8 @@ const documentsFilter = (req: Express.Request, file: Express.Multer.File, callba
     }),
   ],
   controllers: [ProjectsController],
-  providers: [ProjectsService, WordParserService, SamplesService, PhotosService, PresentationService],
-  exports: [ProjectsService, WordParserService, SamplesService, PhotosService, PresentationService],
+  providers: [ProjectsService, WordParserService, SamplesService, PhotosService, PresentationService, ProgramIeiService],
+  exports: [ProjectsService, WordParserService, SamplesService, PhotosService, PresentationService, ProgramIeiService],
 })
 export class ProjectsModule {}
 

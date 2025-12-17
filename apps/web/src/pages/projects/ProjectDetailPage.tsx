@@ -26,6 +26,9 @@ import {
   Beaker,
   Camera,
   ArrowRight,
+  Plus,
+  GitBranch,
+  ExternalLink,
 } from 'lucide-react';
 import { projectsApi, type GenerateExcelResult } from '@/api/projects';
 import { Button, Input, Card, CardHeader, CardTitle, CardContent } from '@/components/ui';
@@ -130,10 +133,38 @@ export function ProjectDetailPage() {
     },
   });
 
-  const reprocessMutation = useMutation({
-    mutationFn: () => projectsApi.reprocess(id!),
+  // Перегенерация из обновленного ТЗ
+  const [regenerateTzFile, setRegenerateTzFile] = useState<File | null>(null);
+  const regenerateTzInputRef = useRef<HTMLInputElement>(null);
+
+  const regenerateFromTzMutation = useMutation({
+    mutationFn: async () => {
+      if (!regenerateTzFile) throw new Error('Файл не выбран');
+      return projectsApi.regenerateFromTz(id!, regenerateTzFile);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', id] });
+      setRegenerateTzFile(null);
+    },
+  });
+
+  // Создание доотбора
+  const [showCreateChildModal, setShowCreateChildModal] = useState(false);
+  const [childProjectName, setChildProjectName] = useState('');
+  const [childOrderFile, setChildOrderFile] = useState<File | null>(null);
+  const childOrderInputRef = useRef<HTMLInputElement>(null);
+
+  const createChildMutation = useMutation({
+    mutationFn: async () => {
+      if (!childOrderFile || !childProjectName) throw new Error('Заполните все поля');
+      return projectsApi.createChildProject(id!, childProjectName, childOrderFile);
+    },
+    onSuccess: (newProject) => {
+      queryClient.invalidateQueries({ queryKey: ['project', id] });
+      setShowCreateChildModal(false);
+      setChildProjectName('');
+      setChildOrderFile(null);
+      navigate(`/projects/${newProject.id}`);
     },
   });
 
@@ -171,9 +202,33 @@ export function ProjectDetailPage() {
 
   const isProcessing = !project.processedAt && (project.tzFileUrl || project.orderFileUrl);
   const services = project.services || [];
+  const isChildProject = !!project.parentProjectId;
+  const hasChildren = project.childProjects && project.childProjects.length > 0;
 
   return (
     <div className="max-w-4xl animate-fade-in">
+      {/* Индикатор доотбора (если это дочерний проект) */}
+      {isChildProject && project.parentProject && (
+        <div className="mb-4 p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg flex items-center gap-3">
+          <GitBranch className="w-5 h-5 text-purple-400" />
+          <div className="flex-1">
+            <span className="text-sm text-purple-400">Доотбор от объекта:</span>{' '}
+            <Link
+              to={`/projects/${project.parentProject.id}`}
+              className="text-sm font-medium text-purple-400 hover:underline"
+            >
+              {project.parentProject.name}
+            </Link>
+          </div>
+          <Link
+            to={`/projects/${project.parentProject.id}`}
+            className="text-purple-400 hover:text-purple-300"
+          >
+            <ExternalLink className="w-4 h-4" />
+          </Link>
+        </div>
+      )}
+
       {/* Заголовок */}
       <div className="flex items-start justify-between mb-8">
         <div className="flex items-center gap-4">
@@ -264,17 +319,20 @@ export function ProjectDetailPage() {
           <CardTitle>Документы</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <FileItem
-            label="Техническое задание"
-            fileName={project.tzFileName}
-            onDownload={() =>
-              window.open(projectsApi.getFileUrl(project.id, 'tz'), '_blank')
-            }
-            isEditing={isEditing}
-            newFile={newTzFile}
-            onFileSelect={(file) => setNewTzFile(file)}
-            onClearFile={() => setNewTzFile(null)}
-          />
+          {/* ТЗ — не показываем для доотборов (наследуется от родителя) */}
+          {!isChildProject && (
+            <FileItem
+              label="Техническое задание"
+              fileName={project.tzFileName}
+              onDownload={() =>
+                window.open(projectsApi.getFileUrl(project.id, 'tz'), '_blank')
+              }
+              isEditing={isEditing}
+              newFile={newTzFile}
+              onFileSelect={(file) => setNewTzFile(file)}
+              onClearFile={() => setNewTzFile(null)}
+            />
+          )}
           <FileItem
             label="Поручение"
             fileName={project.orderFileName}
@@ -286,23 +344,79 @@ export function ProjectDetailPage() {
             onFileSelect={(file) => setNewOrderFile(file)}
             onClearFile={() => setNewOrderFile(null)}
           />
+
+          {/* Перегенерация из обновленного ТЗ (только для корневых проектов, не для доотборов) */}
+          {!isChildProject && project.processedAt && project.canEdit && (
+            <div className="mt-4 pt-4 border-t border-[var(--border-primary)]">
+              <div className="flex items-start gap-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                <RefreshCw className="w-5 h-5 text-amber-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="font-medium text-amber-400">Обновить данные из ТЗ</p>
+                  <p className="text-sm text-[var(--text-secondary)] mt-1">
+                    Загрузите обновленное ТЗ для перегенерации данных объекта. Пробы останутся без изменений.
+                  </p>
+                  <div className="flex items-center gap-2 mt-3">
+                    <input
+                      ref={regenerateTzInputRef}
+                      type="file"
+                      accept=".doc,.docx"
+                      onChange={(e) => setRegenerateTzFile(e.target.files?.[0] || null)}
+                      className="hidden"
+                    />
+                    {regenerateTzFile ? (
+                      <>
+                        <span className="text-sm text-primary-400 flex-1 truncate">
+                          {regenerateTzFile.name}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setRegenerateTzFile(null)}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => regenerateFromTzMutation.mutate()}
+                          isLoading={regenerateFromTzMutation.isPending}
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                          Применить
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => regenerateTzInputRef.current?.click()}
+                      >
+                        <Upload className="w-4 h-4" />
+                        Выбрать файл ТЗ
+                      </Button>
+                    )}
+                  </div>
+                  {regenerateFromTzMutation.isError && (
+                    <p className="text-sm text-red-400 mt-2">
+                      Ошибка при обновлении. Попробуйте снова.
+                    </p>
+                  )}
+                  {regenerateFromTzMutation.isSuccess && (
+                    <p className="text-sm text-primary-400 mt-2">
+                      Данные успешно обновлены!
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
       {/* Извлечённые данные */}
       {project.processedAt && (
         <Card className="mb-6">
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader>
             <CardTitle>Данные объекта</CardTitle>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => reprocessMutation.mutate()}
-              isLoading={reprocessMutation.isPending}
-            >
-              <RefreshCw className="w-4 h-4" />
-              Обновить
-            </Button>
           </CardHeader>
           <CardContent>
             <div className="grid gap-4 md:grid-cols-2">
@@ -420,6 +534,31 @@ export function ProjectDetailPage() {
           </Link>
         </CardContent>
       </Card>
+
+      {/* Программа ИЭИ — ссылка на отдельную страницу (только для корневых проектов) */}
+      {!isChildProject && (
+        <Card className="mb-6">
+          <CardContent className="py-4">
+            <Link
+              to={`/projects/${id}/program-iei`}
+              className="flex items-center justify-between p-4 bg-[var(--bg-tertiary)] rounded-lg hover:bg-[var(--bg-secondary)] transition-colors group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                  <FileText className="w-5 h-5 text-purple-400" />
+                </div>
+                <div>
+                  <p className="font-medium">Программа ИЭИ</p>
+                  <p className="text-sm text-[var(--text-secondary)]">
+                    Программа инженерно-экологических изысканий
+                  </p>
+                </div>
+              </div>
+              <ArrowRight className="w-5 h-5 text-[var(--text-secondary)] group-hover:text-purple-400 transition-colors" />
+            </Link>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Генерация Excel */}
       <Card className="mb-6">
@@ -562,10 +701,145 @@ export function ProjectDetailPage() {
                   </Button>
                 </div>
               )}
+
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Доотборы — только для корневых проектов (не для дочерних) */}
+      {!isChildProject && project.processedAt && (
+        <Card className="mb-6">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div className="flex items-center gap-2">
+              <GitBranch className="w-5 h-5 text-purple-400" />
+              <CardTitle>Доотборы</CardTitle>
+              {hasChildren && (
+                <span className="text-xs text-purple-400 bg-purple-500/20 px-2 py-0.5 rounded">
+                  {project.childProjects!.length}
+                </span>
+              )}
+            </div>
+            {project.canEdit && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setShowCreateChildModal(true)}
+              >
+                <Plus className="w-4 h-4" />
+                Создать доотбор
+              </Button>
+            )}
+          </CardHeader>
+          <CardContent>
+            {hasChildren ? (
+              <div className="space-y-2">
+                {project.childProjects!.map((child) => (
+                  <Link
+                    key={child.id}
+                    to={`/projects/${child.id}`}
+                    className="flex items-center justify-between p-3 bg-[var(--bg-tertiary)] rounded-lg hover:bg-[var(--bg-secondary)] transition-colors group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <GitBranch className="w-4 h-4 text-purple-400" />
+                      <span className="font-medium">{child.name}</span>
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-[var(--text-secondary)] group-hover:text-purple-400 transition-colors" />
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-[var(--text-secondary)] text-center py-4">
+                Доотборов пока нет. Создайте доотбор для дополнительного отбора проб.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Модальное окно создания доотбора */}
+      {showCreateChildModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-[var(--bg-secondary)] rounded-xl p-6 w-full max-w-md mx-4 shadow-xl">
+            <h3 className="text-lg font-bold mb-4">Создать доотбор</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-[var(--text-secondary)] mb-1">
+                  Название проекта
+                </label>
+                <Input
+                  value={childProjectName}
+                  onChange={(e) => setChildProjectName(e.target.value)}
+                  placeholder={`${project.name} (доотбор)`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-[var(--text-secondary)] mb-1">
+                  Поручение (Word)
+                </label>
+                <input
+                  ref={childOrderInputRef}
+                  type="file"
+                  accept=".doc,.docx"
+                  onChange={(e) => setChildOrderFile(e.target.files?.[0] || null)}
+                  className="hidden"
+                />
+                {childOrderFile ? (
+                  <div className="flex items-center gap-2 p-3 bg-[var(--bg-tertiary)] rounded-lg">
+                    <FileText className="w-4 h-4 text-primary-400" />
+                    <span className="text-sm flex-1 truncate">{childOrderFile.name}</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setChildOrderFile(null)}
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    className="w-full"
+                    onClick={() => childOrderInputRef.current?.click()}
+                  >
+                    <Upload className="w-4 h-4" />
+                    Выбрать файл
+                  </Button>
+                )}
+              </div>
+
+              {createChildMutation.isError && (
+                <p className="text-sm text-red-400">
+                  Ошибка при создании доотбора. Проверьте данные и попробуйте снова.
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 mt-6">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setShowCreateChildModal(false);
+                  setChildProjectName('');
+                  setChildOrderFile(null);
+                }}
+              >
+                Отмена
+              </Button>
+              <Button
+                onClick={() => createChildMutation.mutate()}
+                isLoading={createChildMutation.isPending}
+                disabled={!childProjectName || !childOrderFile}
+              >
+                <Plus className="w-4 h-4" />
+                Создать
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

@@ -859,7 +859,10 @@ export class ExcelService {
       include: {
         samples: {
           include: { platform: true },
-          orderBy: { sampleNumber: 'asc' },
+          orderBy: [
+            { layerNumber: 'asc' },    // Сначала по слою
+            { sampleNumber: 'asc' },   // Потом по точке отбора (ДО1, ДО2, ДО3)
+          ],
         },
       },
     });
@@ -1340,7 +1343,10 @@ export class ExcelService {
       include: {
         samples: {
           include: { platform: true },
-          orderBy: { sampleNumber: 'asc' },
+          orderBy: [
+            { layerNumber: 'asc' },    // Сначала по слою
+            { sampleNumber: 'asc' },   // Потом по точке отбора
+          ],
         },
       },
     });

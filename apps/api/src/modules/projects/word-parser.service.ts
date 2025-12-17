@@ -10,6 +10,7 @@ export interface SamplingLayer {
   label: string; // "0,0-0,2"
   count: number;
   isPP: boolean; // true если это слой 0,0-0,2 (пробная площадка)
+  platformNumbers?: number[]; // номера площадок, у которых есть этот слой (например [1,2,3,4,5] или [4,5])
 }
 
 // Данные отбора проб по типам
@@ -43,6 +44,8 @@ export interface ParsedDocumentInfo {
     aiSamplingData?: AiSamplingData; // Данные от AI
     microbiologyCount?: number; // Кол-во микробиологических проб (для определения кол-ва ПП/СК)
     contractNumber?: string; // Номер договора (801-110-25)
+    // Координаты из ТЗ (таблица "№ точки ... широта, долгота")
+    coordinates?: { lat: string; lon: string };
   };
 }
 
@@ -142,18 +145,54 @@ export class WordParserService {
       }
     }
 
-    // Ищем адрес
+    // Ищем адрес / местоположение объекта
+    // 1) Паттерны в самих параграфах: "Местоположение объекта: ...", "Адрес объекта: ..."
+    for (const p of paragraphs) {
+      const m =
+        p.match(/^(?:местоположение\s+объекта|адрес\s+объекта)\s*[:\-–]\s*(.+)$/i) ||
+        p.match(/^(?:адрес|местоположение)\s*[:\-–]\s*(.+)$/i);
+      if (m?.[1]) {
+        data.address = m[1].trim();
+        break;
+      }
+    }
+
+    // 2) Формат ТЗ: строка-заголовок "Местоположение объекта" → следующая строка содержит адрес
+    if (!data.address) {
+      const idx = paragraphs.findIndex((p) =>
+        /^(?:местоположение\s+объекта|адрес\s+объекта)\s*$/i.test(p),
+      );
+      if (idx >= 0) {
+        for (let j = idx + 1; j < Math.min(paragraphs.length, idx + 4); j += 1) {
+          const cand = String(paragraphs[j] || '').trim();
+          if (!cand) continue;
+          if (
+            /(?:г\.|город|москва|область|р-н|район|ул\.|улица|пр-кт|проспект|ш\.|шоссе|д\.|дом|км|тер\.|территория)/i.test(cand)
+          ) {
+            data.address = cand;
+            break;
+          }
+        }
+      }
+    }
+
+    // 3) Фоллбэк по сырым паттернам в тексте
+    if (!data.address) {
     const addressPatterns = [
-      /(?:адрес|местоположение)[:\s]+([^\n]+)/i,
+        /(?:адрес|местоположение)\s*[:\s]+([^\n]+)/i,
       /(?:г\.|город)\s+[^\n]+/i,
     ];
     for (const pattern of addressPatterns) {
       const match = rawText.match(pattern);
       if (match) {
-        data.address = match[0].trim();
+          data.address = (match[1] || match[0]).trim();
         break;
+        }
       }
     }
+
+    // Ищем координаты (в том числе в таблице в конце ТЗ)
+    data.coordinates = this.extractFirstCoordinatesPair(rawText) || undefined;
 
     // Ищем количество проб
     const samplePatterns = [
@@ -512,6 +551,40 @@ export class WordParserService {
       }
     }
     return undefined;
+  }
+
+  private extractFirstCoordinatesPair(rawText: string): { lat: string; lon: string } | null {
+    const text = String(rawText || '');
+    const toNum = (s: string) => Number(String(s).replace(',', '.'));
+
+    const isLat = (n: number) => Number.isFinite(n) && n >= 40 && n <= 70;
+    const isLon = (n: number) => Number.isFinite(n) && n >= 20 && n <= 60;
+
+    // Табличный формат: "№ точки <tab/space> 55.xxxxx, 37.xxxxx"
+    {
+      const re = /(?:^|\n)\s*\d+\s+(\d{2}[.,]\d{3,})\s*,\s*(\d{2}[.,]\d{3,})/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(text)) !== null) {
+        const lat = toNum(m[1]);
+        const lon = toNum(m[2]);
+        if (isLat(lat) && isLon(lon)) return { lat: String(lat), lon: String(lon) };
+      }
+    }
+
+    // Координаты рядом
+    {
+      const re = /(?<!\d)(\d{2}[.,]\d{3,})(?:\s*[,;]\s*|\s+)(\d{2}[.,]\d{3,})(?!\d)/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(text)) !== null) {
+        const a = toNum(m[1]);
+        const b = toNum(m[2]);
+        if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+        if (isLat(a) && isLon(b)) return { lat: String(a), lon: String(b) };
+        if (isLon(a) && isLat(b)) return { lat: String(b), lon: String(a) };
+      }
+    }
+
+    return null;
   }
 }
 

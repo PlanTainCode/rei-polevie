@@ -91,6 +91,9 @@ model Project {
   companyId        String
   name             String        // Название проекта
   
+  // Связь родитель-дочерний (для доотбора)
+  parentProjectId  String?       // ID родительского проекта (если это доотбор)
+  
   // Файлы
   tzFileName       String?       // Имя файла ТЗ
   tzFileUrl        String?       // Путь к файлу ТЗ
@@ -137,11 +140,14 @@ model Project {
   updatedAt        DateTime      @updatedAt
 
   // Отношения
-  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  createdBy User       @relation("CreatedBy", fields: [createdById], references: [id])
-  platforms Platform[]
-  samples   Sample[]
-  photos    Photo[]
+  company       Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy     User        @relation("CreatedBy", fields: [createdById], references: [id])
+  parentProject Project?    @relation("ParentChild", fields: [parentProjectId], references: [id], onDelete: Cascade)
+  childProjects Project[]   @relation("ParentChild")
+  platforms     Platform[]
+  samples       Sample[]
+  photos        Photo[]
+  programIei    ProgramIei?
 
   @@map("projects")
 }
@@ -241,6 +247,44 @@ enum SampleStatus {
   DELIVERED
   ANALYZED
   COMPLETED
+}
+
+// Программа ИЭИ (данные для генерации документа)
+model ProgramIei {
+  id        String @id @default(cuid())
+  projectId String @unique
+
+  // 1.9.4 Обзорная схема размещения объекта
+  overviewImageName String?   // Имя файла изображения
+  overviewImageUrl  String?   // URL/путь к изображению
+
+  // 1.10 Общие сведения о категориях земель (ЕГРН)
+  cadastralNumber   String?   // Кадастровый номер участка
+  egrnDescription   String?   // Описание из ЕГРН (категория, разрешённое использование и т.д.)
+
+  // 3.2 Характеристика природных условий (для заполнения вручную в UI)
+  coordinatesLat    String?   // Координаты (широта) в десятичном формате, напр. "55.64433"
+  coordinatesLon    String?   // Координаты (долгота) в десятичном формате, напр. "37.49028"
+  nearbySouth       String?   // "К югу: ..." (только правая часть без префикса)
+  nearbyEast        String?   // "К востоку: ..."
+  nearbyWest        String?   // "К западу: ..."
+  nearbyNorth       String?   // "К северу: ..."
+
+  // 8.2 Обоснование границ изучаемой территории
+  section82Text     String?   // Текст пункта 8.2 (редактируемый)
+
+  // Сгенерированный файл
+  generatedFileName String?
+  generatedFileUrl  String?
+  generatedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Отношения
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("program_iei")
 }
 
 // Фотография объекта (фотоальбом)

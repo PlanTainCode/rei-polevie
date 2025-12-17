@@ -171,6 +171,7 @@ export class SamplesService {
    * Второй номер (.01, .02) — номер слоя
    * 
    * Количество проб для каждого слоя берётся из layer.count
+   * Если есть platformNumbers — создаём пробы только для указанных площадок
    */
   private generateSamples(
     samplingLayers: SamplingLayer[],
@@ -185,11 +186,14 @@ export class SamplesService {
     );
 
     for (const layer of sortedLayers) {
-      // Количество проб для данного слоя (из таблицы или fallback)
-      const layerCount = layer.count > 0 ? layer.count : platformCount;
+      // Определяем номера площадок для данного слоя
+      // Если есть platformNumbers — используем их, иначе генерируем от 1 до count
+      const platformNumbers = layer.platformNumbers && layer.platformNumbers.length > 0
+        ? layer.platformNumbers
+        : Array.from({ length: layer.count > 0 ? layer.count : platformCount }, (_, i) => i + 1);
       
       // Для каждой площадки создаём пробу в данном слое
-      for (let pNum = 1; pNum <= layerCount; pNum++) {
+      for (const pNum of platformNumbers) {
         // Определяем тип площадки
         // Слой 0,0-0,2 = ПП, остальные = СК
         const platformType: PlatformType = layer.isPP ? 'PP' : 'SK';
