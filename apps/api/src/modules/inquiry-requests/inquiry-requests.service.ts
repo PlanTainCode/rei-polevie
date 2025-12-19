@@ -22,6 +22,7 @@ import { generateTradeInquiry } from './generators/trade-generator';
 import { generateZhkhInquiry } from './generators/zhkh-generator';
 import { generateUpravaInquiry } from './generators/uprava-generator';
 import { generateMinprirodaInquiry } from './generators/minprirody-generator';
+import { generateGuKnMoInquiry } from './generators/gu-kn-mo-generator';
 
 @Injectable()
 export class InquiryRequestsService {
@@ -452,6 +453,27 @@ export class InquiryRequestsService {
         year,
         objectName: project.objectName || project.name || 'Объект',
         objectAddress: project.inquiryAddress || project.objectAddress || '',
+        executors,
+      });
+
+      return {
+        inquiryId: inquiry.id,
+        inquiryName: inquiry.shortName,
+        fileName: result.fileName,
+        fileUrl: `/generated/inquiries/${result.fileName}`,
+        generatedAt: new Date().toISOString(),
+      };
+    }
+
+    // Используем специализированный генератор для ГУ КН МО (культурное наследие МО)
+    if (inquiry.id === 'GU_KN_MO') {
+      const result = await generateGuKnMoInquiry(templatePath, this.outputDir, {
+        date: formattedDate,
+        numberMiddle: additionalData.requestNumberMiddle || '000',
+        year,
+        objectName: project.objectName || project.name || 'Объект',
+        objectAddress: project.inquiryAddress || project.objectAddress || '',
+        cadastralNumbers: additionalData.cadastralNumbers,
         executors,
       });
 

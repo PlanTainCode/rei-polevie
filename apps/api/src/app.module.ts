@@ -13,6 +13,7 @@ import { ExcelModule } from './modules/excel/excel.module';
 import { WordModule } from './modules/word/word.module';
 import { TelegramModule } from './modules/telegram/telegram.module';
 import { InquiryRequestsModule } from './modules/inquiry-requests/inquiry-requests.module';
+import { TechnicalTasksModule } from './modules/technical-tasks/technical-tasks.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { InquiryRequestsModule } from './modules/inquiry-requests/inquiry-reques
     WordModule,
     TelegramModule,
     InquiryRequestsModule,
+    TechnicalTasksModule,
   ],
 })
 export class AppModule {}

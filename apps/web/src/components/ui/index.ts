@@ -3,4 +3,5 @@ export { Input } from './Input';
 export { Select } from './Select';
 export { Card, CardHeader, CardTitle, CardContent } from './Card';
 export { AuthImage } from './AuthImage';
+export { MirrorButton } from './MirrorButton';
 

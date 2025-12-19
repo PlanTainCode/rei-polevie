@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   Building2,
   FileText,
+  ClipboardList,
   Menu,
   X,
   LogOut,
@@ -17,6 +18,7 @@ const navigation = [
   { name: 'Главная', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Компания', href: '/company', icon: Building2 },
   { name: 'Объекты', href: '/projects', icon: FileText },
+  { name: 'ТЗ', href: '/technical-tasks', icon: ClipboardList },
 ];
 
 export function DashboardLayout() {

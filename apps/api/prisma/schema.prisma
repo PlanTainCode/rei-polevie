@@ -20,10 +20,11 @@ model User {
   updatedAt    DateTime @updatedAt
 
   // Отношения
-  companyMemberships CompanyMember[]
-  collectedSamples   Sample[]        @relation("CollectedBy")
-  createdProjects    Project[]       @relation("CreatedBy")
-  uploadedPhotos     Photo[]         @relation("UploadedPhotos")
+  companyMemberships   CompanyMember[]
+  collectedSamples     Sample[]        @relation("CollectedBy")
+  createdProjects      Project[]       @relation("CreatedBy")
+  uploadedPhotos       Photo[]         @relation("UploadedPhotos")
+  createdTechnicalTasks TechnicalTask[] @relation("CreatedTechnicalTasks")
 
   @@map("users")
 }
@@ -37,9 +38,10 @@ model Company {
   updatedAt DateTime @updatedAt
 
   // Отношения
-  members     CompanyMember[]
-  invitations Invitation[]
-  projects    Project[]
+  members        CompanyMember[]
+  invitations    Invitation[]
+  projects       Project[]
+  technicalTasks TechnicalTask[]
 
   @@map("companies")
 }
@@ -355,5 +357,46 @@ model InquiryRequest {
 enum InquiryRegion {
   MOSCOW      // г. Москва
   MOSCOW_OBLAST // Московская область
+}
+
+// Техническое задание (ТЗ)
+model TechnicalTask {
+  id        String @id @default(cuid())
+  companyId String
+
+  // Основная информация
+  name      String    // Название ТЗ
+  status    TechnicalTaskStatus @default(DRAFT)
+
+  // Загруженный файл ТЗ от заказчика
+  sourceFileName    String?   // Имя исходного файла
+  sourceFileUrl     String?   // Путь к исходному файлу
+  sourceFileType    String?   // Тип файла (docx/pdf)
+
+  // Извлечённые данные из ТЗ заказчика (JSON)
+  extractedData     Json?     // Распарсенные данные
+
+  // Сгенерированный файл в нашем формате
+  generatedFileName String?
+  generatedFileUrl  String?
+  generatedAt       DateTime?
+
+  // Метаданные
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Отношения
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy User    @relation("CreatedTechnicalTasks", fields: [createdById], references: [id])
+
+  @@map("technical_tasks")
+}
+
+enum TechnicalTaskStatus {
+  DRAFT       // Черновик
+  PROCESSING  // В обработке
+  COMPLETED   // Готов
+  ERROR       // Ошибка
 }
 
