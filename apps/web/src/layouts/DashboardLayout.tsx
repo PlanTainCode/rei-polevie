@@ -18,7 +18,7 @@ const navigation = [
   { name: 'Главная', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Компания', href: '/company', icon: Building2 },
   { name: 'Объекты', href: '/projects', icon: FileText },
-  { name: 'ТЗ', href: '/technical-tasks', icon: ClipboardList },
+  { name: 'ТЗ', href: '/technical-tasks', icon: ClipboardList, beta: true },
 ];
 
 export function DashboardLayout() {
@@ -85,6 +85,11 @@ export function DashboardLayout() {
               >
                 <item.icon className="w-5 h-5" />
                 <span className="font-medium">{item.name}</span>
+                {item.beta && (
+                  <span className="ml-auto px-1.5 py-0.5 text-[10px] font-semibold uppercase bg-amber-500/20 text-amber-400 rounded">
+                    beta
+                  </span>
+                )}
               </NavLink>
             ))}
           </nav>

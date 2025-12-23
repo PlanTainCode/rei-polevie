@@ -549,7 +549,12 @@ export function ProjectDetailPage() {
                   <FileText className="w-5 h-5 text-purple-400" />
                 </div>
                 <div>
-                  <p className="font-medium">Программа ИЭИ</p>
+                  <p className="font-medium flex items-center gap-2">
+                    Программа ИЭИ
+                    <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase bg-amber-500/20 text-amber-400 rounded">
+                      beta
+                    </span>
+                  </p>
                   <p className="text-sm text-[var(--text-secondary)]">
                     Программа инженерно-экологических изысканий
                   </p>
