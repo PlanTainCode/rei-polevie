@@ -111,6 +111,7 @@ export interface ProgramIei {
   nearbyEast: string | null;
   nearbyWest: string | null;
   nearbyNorth: string | null;
+  section82Text: string | null;
   generatedFileName: string | null;
   generatedFileUrl: string | null;
   generatedAt: string | null;
@@ -125,6 +126,7 @@ export interface UpdateProgramIeiData {
   nearbyEast?: string;
   nearbyWest?: string;
   nearbyNorth?: string;
+  section82Text?: string;
 }
 
 // Типы для запросов справок
