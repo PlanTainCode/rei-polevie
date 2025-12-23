@@ -23,6 +23,14 @@ import { generateZhkhInquiry } from './generators/zhkh-generator';
 import { generateUpravaInquiry } from './generators/uprava-generator';
 import { generateMinprirodaInquiry } from './generators/minprirody-generator';
 import { generateGuKnMoInquiry } from './generators/gu-kn-mo-generator';
+import { generateMshMoInquiry } from './generators/msh-mo-generator';
+import { generateVodokanalInquiry } from './generators/vodokanal-generator';
+import { generateMvkMoInquiry } from './generators/mvk-mo-generator';
+import { generateAdministrationInquiry } from './generators/administration-generator';
+import { generateKlhInquiry } from './generators/klh-generator';
+import { generateCgmsMoInquiry } from './generators/cgms-mo-generator';
+import { generateMinEcologyInquiry } from './generators/min-ecology-generator';
+import { generateMinprirodaMoInquiry } from './generators/minpriroda-mo-generator';
 
 @Injectable()
 export class InquiryRequestsService {
@@ -284,9 +292,30 @@ export class InquiryRequestsService {
     // Год (2 цифры)
     const year = new Date().getFullYear().toString().slice(-2);
 
-    // Используем специализированный генератор для ЦГМС
-    if (inquiry.id === 'CGMS_CLIMATE' || inquiry.id === 'CGMS_CLIMATE_MO') {
+    // Используем специализированный генератор для ЦГМС (Москва)
+    if (inquiry.id === 'CGMS_CLIMATE') {
       const result = await generateCgmsInquiry(templatePath, this.outputDir, {
+        date: formattedDate,
+        numberMiddle: additionalData.requestNumberMiddle || '000',
+        year,
+        chemicals: additionalData.chemicals || 'диоксид серы, оксид углерода, диоксид азота, взвешенные вещества',
+        objectName: project.objectName || project.name || 'Объект',
+        objectAddress: project.inquiryAddress || project.objectAddress || '',
+        executors,
+      });
+
+      return {
+        inquiryId: inquiry.id,
+        inquiryName: inquiry.shortName,
+        fileName: result.fileName,
+        fileUrl: `/generated/inquiries/${result.fileName}`,
+        generatedAt: new Date().toISOString(),
+      };
+    }
+
+    // Используем специализированный генератор для ЦГМС (МО)
+    if (inquiry.id === 'CGMS_CLIMATE_MO') {
+      const result = await generateCgmsMoInquiry(templatePath, this.outputDir, {
         date: formattedDate,
         numberMiddle: additionalData.requestNumberMiddle || '000',
         year,
@@ -474,6 +503,153 @@ export class InquiryRequestsService {
         objectName: project.objectName || project.name || 'Объект',
         objectAddress: project.inquiryAddress || project.objectAddress || '',
         cadastralNumbers: additionalData.cadastralNumbers,
+        executors,
+      });
+
+      return {
+        inquiryId: inquiry.id,
+        inquiryName: inquiry.shortName,
+        fileName: result.fileName,
+        fileUrl: `/generated/inquiries/${result.fileName}`,
+        generatedAt: new Date().toISOString(),
+      };
+    }
+
+    // Используем специализированный генератор для МСХ МО (ветеринария)
+    if (inquiry.id === 'MSH_VETERINARY') {
+      const result = await generateMshMoInquiry(templatePath, this.outputDir, {
+        date: formattedDate,
+        numberMiddle: additionalData.requestNumberMiddle || '000',
+        year,
+        objectName: project.objectName || project.name || 'Объект',
+        objectAddress: project.inquiryAddress || project.objectAddress || '',
+        cadastralNumbers: additionalData.cadastralNumbers,
+        executors,
+      });
+
+      return {
+        inquiryId: inquiry.id,
+        inquiryName: inquiry.shortName,
+        fileName: result.fileName,
+        fileUrl: `/generated/inquiries/${result.fileName}`,
+        generatedAt: new Date().toISOString(),
+      };
+    }
+
+    // Используем специализированный генератор для Водоканала
+    if (inquiry.id === 'VODOKANAL') {
+      const result = await generateVodokanalInquiry(templatePath, this.outputDir, {
+        date: formattedDate,
+        numberMiddle: additionalData.requestNumberMiddle || '000',
+        year,
+        objectName: project.objectName || project.name || 'Объект',
+        objectAddress: project.inquiryAddress || project.objectAddress || '',
+        cadastralNumbers: additionalData.cadastralNumbers,
+        executors,
+      });
+
+      return {
+        inquiryId: inquiry.id,
+        inquiryName: inquiry.shortName,
+        fileName: result.fileName,
+        fileUrl: `/generated/inquiries/${result.fileName}`,
+        generatedAt: new Date().toISOString(),
+      };
+    }
+
+    // Используем специализированный генератор для МВК ЗСО (МО)
+    if (inquiry.id === 'MVK_ZSO_MO') {
+      const result = await generateMvkMoInquiry(templatePath, this.outputDir, {
+        date: formattedDate,
+        numberMiddle: additionalData.requestNumberMiddle || '000',
+        year,
+        objectName: project.objectName || project.name || 'Объект',
+        objectAddress: project.inquiryAddress || project.objectAddress || '',
+        cadastralNumbers: additionalData.cadastralNumbers,
+        executors,
+      });
+
+      return {
+        inquiryId: inquiry.id,
+        inquiryName: inquiry.shortName,
+        fileName: result.fileName,
+        fileUrl: `/generated/inquiries/${result.fileName}`,
+        generatedAt: new Date().toISOString(),
+      };
+    }
+
+    // Используем специализированный генератор для Администрации (МО)
+    if (inquiry.id === 'ADMINISTRATION') {
+      const result = await generateAdministrationInquiry(templatePath, this.outputDir, {
+        date: formattedDate,
+        numberMiddle: additionalData.requestNumberMiddle || '000',
+        year,
+        objectName: project.objectName || project.name || 'Объект',
+        objectAddress: project.inquiryAddress || project.objectAddress || '',
+        cadastralNumbers: additionalData.cadastralNumbers,
+        administrationName: additionalData.administrationName,
+        executors,
+      });
+
+      return {
+        inquiryId: inquiry.id,
+        inquiryName: inquiry.shortName,
+        fileName: result.fileName,
+        fileUrl: `/generated/inquiries/${result.fileName}`,
+        generatedAt: new Date().toISOString(),
+      };
+    }
+
+    // Используем специализированный генератор для КЛХ (МО)
+    if (inquiry.id === 'KLH') {
+      const result = await generateKlhInquiry(templatePath, this.outputDir, {
+        date: formattedDate,
+        numberMiddle: additionalData.requestNumberMiddle || '000',
+        year,
+        objectName: project.objectName || project.name || 'Объект',
+        objectAddress: project.inquiryAddress || project.objectAddress || '',
+        cadastralNumbers: additionalData.cadastralNumbers,
+        executors,
+      });
+
+      return {
+        inquiryId: inquiry.id,
+        inquiryName: inquiry.shortName,
+        fileName: result.fileName,
+        fileUrl: `/generated/inquiries/${result.fileName}`,
+        generatedAt: new Date().toISOString(),
+      };
+    }
+
+    // Используем специализированный генератор для Мин Экологии ЗСО (МО)
+    if (inquiry.id === 'MIN_ECOLOGY_ZSO') {
+      const result = await generateMinEcologyInquiry(templatePath, this.outputDir, {
+        date: formattedDate,
+        numberMiddle: additionalData.requestNumberMiddle || '000',
+        year,
+        objectName: project.objectName || project.name || 'Объект',
+        objectAddress: project.inquiryAddress || project.objectAddress || '',
+        cadastralNumbers: additionalData.cadastralNumbers,
+        executors,
+      });
+
+      return {
+        inquiryId: inquiry.id,
+        inquiryName: inquiry.shortName,
+        fileName: result.fileName,
+        fileUrl: `/generated/inquiries/${result.fileName}`,
+        generatedAt: new Date().toISOString(),
+      };
+    }
+
+    // Используем специализированный генератор для МинПрироды РФ (МО)
+    if (inquiry.id === 'MINPRIRODY_MO') {
+      const result = await generateMinprirodaMoInquiry(templatePath, this.outputDir, {
+        date: formattedDate,
+        numberMiddle: additionalData.requestNumberMiddle || '000',
+        year,
+        objectName: project.objectName || project.name || 'Объект',
+        objectAddress: project.inquiryAddress || project.objectAddress || '',
         executors,
       });
 

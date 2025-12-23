@@ -9,6 +9,14 @@ import { AiService } from '../ai/ai.service';
 import { PhotosService } from '../projects/photos.service';
 import * as bcrypt from 'bcrypt';
 
+interface PendingPhoto {
+  fileName: string;
+  fileId: string;
+  mimeType: string;
+  mediaGroupId?: string;
+  messageId: number; // Для сохранения порядка отправки
+}
+
 interface BotContext extends Context {
   session?: {
     // Авторизация
@@ -26,12 +34,19 @@ interface BotContext extends Context {
     // Режим загрузки фото
     uploadingPhotos?: boolean;
     uploadedPhotosCount?: number;
-    lastUploadedPhotoId?: string; // ID последнего загруженного фото для привязки голосового
+    uploadedPhotoIds?: string[]; // ID загруженных фото в порядке загрузки
+    pendingPhotos?: PendingPhoto[]; // Буфер фото группы до обработки
+    // Режим описания фото
+    describingPhotos?: boolean;
+    currentDescriptionIndex?: number; // Индекс фото для следующего описания
   };
 }
 
 // Временное хранилище сессий (в памяти)
 const sessions = new Map<number, BotContext['session']>();
+
+// Таймеры для обработки групп фото (debounce)
+const photoGroupTimers = new Map<number, NodeJS.Timeout>();
 
 // Список характеристик проб
 const SOIL_DESCRIPTIONS = [
@@ -367,6 +382,22 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     // Показать меню фотоальбома
     this.bot.action(/^photos:(.+)$/, async (ctx) => {
       const projectId = ctx.match[1];
+      const chatId = ctx.chat?.id;
+      
+      // Очищаем буфер и таймер при выходе из режима загрузки
+      if (chatId) {
+        const timer = photoGroupTimers.get(chatId);
+        if (timer) {
+          clearTimeout(timer);
+          photoGroupTimers.delete(chatId);
+        }
+      }
+      
+      ctx.session = ctx.session || {};
+      ctx.session.uploadingPhotos = false;
+      ctx.session.pendingPhotos = [];
+      ctx.session.describingPhotos = false;
+      
       await ctx.answerCbQuery();
       await this.showPhotosMenu(ctx, projectId);
     });
@@ -377,38 +408,112 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       ctx.session = ctx.session || {};
       ctx.session.selectedProjectId = projectId;
       ctx.session.uploadingPhotos = true;
-      ctx.session.uploadedPhotosCount = 0;
+      ctx.session.pendingPhotos = [];
+      ctx.session.describingPhotos = false;
+      
+      // НЕ сбрасываем uploadedPhotoIds и uploadedPhotosCount — позволяем добавлять ещё фото
+      if (!ctx.session.uploadedPhotoIds) {
+        ctx.session.uploadedPhotoIds = [];
+        ctx.session.uploadedPhotosCount = 0;
+      }
+      
+      const alreadyUploaded = ctx.session.uploadedPhotosCount || 0;
+      let msg = '📷 <b>Режим загрузки фото</b>\n\n' +
+        'Отправляйте фотографии <b>как файлы</b> (📎 → Файл)\n' +
+        'чтобы сохранить GPS-координаты и качество.\n\n' +
+        '💡 Можно отправить группу фото — порядок сохранится.\n\n' +
+        'После загрузки подождите 2 сек — фото обработаются автоматически.';
+      
+      if (alreadyUploaded > 0) {
+        msg += `\n\n📊 Уже загружено: ${alreadyUploaded} фото`;
+      }
+      
+      await ctx.answerCbQuery();
+      await ctx.reply(msg, {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('❌ Отмена', `photos:${projectId}`)],
+        ]),
+      });
+    });
+
+
+    // Режим добавления описаний к фото
+    this.bot.action(/^describe_photos:(.+)$/, async (ctx) => {
+      const projectId = ctx.match[1];
+      const session = ctx.session || {};
+      const photoIds = session.uploadedPhotoIds || [];
+      
+      if (photoIds.length === 0) {
+        await ctx.answerCbQuery('Нет фото для описания');
+        await this.showPhotosMenu(ctx, projectId);
+        return;
+      }
+
+      ctx.session = ctx.session || {};
+      ctx.session.describingPhotos = true;
+      ctx.session.currentDescriptionIndex = 0;
+      
       await ctx.answerCbQuery();
       await ctx.reply(
-        '📷 *Режим загрузки фото*\n\n' +
-        'Отправляйте фотографии *как файлы* (📎 → Файл)\n' +
-        'чтобы сохранить GPS-координаты и качество.\n\n' +
-        'Когда закончите — нажмите кнопку ниже.',
+        `🎤 <b>Режим описания фото</b>\n\n` +
+        `Отправляйте голосовые сообщения по порядку.\n` +
+        `Каждое голосовое будет применено к следующему фото.\n\n` +
+        `📸 Фото для описания: <b>1 из ${photoIds.length}</b>\n\n` +
+        `Можно пропустить фото кнопкой ниже.`,
         {
-          parse_mode: 'Markdown',
+          parse_mode: 'HTML',
           ...Markup.inlineKeyboard([
-            [Markup.button.callback('✅ Закончить загрузку', `finish_upload:${projectId}`)],
-            [Markup.button.callback('❌ Отмена', `photos:${projectId}`)],
+            [Markup.button.callback('⏭️ Пропустить это фото', `skip_description:${projectId}`)],
+            [Markup.button.callback('✅ Закончить описания', `finish_descriptions:${projectId}`)],
           ]),
         },
       );
     });
 
-    // Завершить загрузку фото
-    this.bot.action(/^finish_upload:(.+)$/, async (ctx) => {
+    // Пропустить описание для текущего фото
+    this.bot.action(/^skip_description:(.+)$/, async (ctx) => {
       const projectId = ctx.match[1];
-      const uploaded = ctx.session?.uploadedPhotosCount || 0;
-      
-      ctx.session = ctx.session || {};
-      ctx.session.uploadingPhotos = false;
-      ctx.session.uploadedPhotosCount = 0;
+      const session = ctx.session || {};
+      const photoIds = session.uploadedPhotoIds || [];
+      const currentIndex = session.currentDescriptionIndex || 0;
       
       await ctx.answerCbQuery();
       
-      if (uploaded > 0) {
-        await ctx.reply(`✅ Загружено фото: ${uploaded}`);
+      const nextIndex = currentIndex + 1;
+      if (nextIndex >= photoIds.length) {
+        // Все фото обработаны
+        ctx.session!.describingPhotos = false;
+        await ctx.reply('✅ Все фото обработаны!');
+        await this.showPhotosMenu(ctx, projectId);
+      } else {
+        ctx.session!.currentDescriptionIndex = nextIndex;
+        await ctx.editMessageText(
+          `🎤 <b>Режим описания фото</b>\n\n` +
+          `Отправляйте голосовые сообщения по порядку.\n\n` +
+          `📸 Фото для описания: <b>${nextIndex + 1} из ${photoIds.length}</b>\n\n` +
+          `Можно пропустить фото кнопкой ниже.`,
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [Markup.button.callback('⏭️ Пропустить это фото', `skip_description:${projectId}`)],
+              [Markup.button.callback('✅ Закончить описания', `finish_descriptions:${projectId}`)],
+            ]),
+          },
+        );
       }
+    });
+
+    // Закончить режим описаний
+    this.bot.action(/^finish_descriptions:(.+)$/, async (ctx) => {
+      const projectId = ctx.match[1];
       
+      ctx.session = ctx.session || {};
+      ctx.session.describingPhotos = false;
+      ctx.session.uploadedPhotoIds = [];
+      ctx.session.currentDescriptionIndex = 0;
+      
+      await ctx.answerCbQuery();
       await this.showPhotosMenu(ctx, projectId);
     });
   }
@@ -731,13 +836,23 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     this.bot.on('voice', async (ctx) => {
       const session = ctx.session;
       
-      // Проверяем что мы в режиме загрузки фото и есть последнее загруженное фото
-      if (!session?.uploadingPhotos || !session?.lastUploadedPhotoId) {
+      // Проверяем что мы в режиме описания фото
+      if (!session?.describingPhotos) {
         return;
       }
 
+      const photoIds = session.uploadedPhotoIds || [];
+      const currentIndex = session.currentDescriptionIndex || 0;
+      const projectId = session.selectedProjectId;
+
+      if (currentIndex >= photoIds.length || !projectId) {
+        return;
+      }
+
+      const photoId = photoIds[currentIndex];
+
       try {
-        await ctx.reply('🎤 Расшифровываю голосовое сообщение...');
+        await ctx.reply(`🎤 Расшифровываю описание для фото #${currentIndex + 1}...`);
 
         const voice = ctx.message.voice;
         
@@ -752,22 +867,42 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         const transcription = await this.aiService.transcribeAudio(buffer);
 
         if (!transcription) {
-          await ctx.reply('❌ Не удалось расшифровать голосовое сообщение');
+          await ctx.reply('❌ Не удалось расшифровать голосовое сообщение. Попробуйте ещё раз.');
           return;
         }
 
         // Обновляем описание фото
-        await this.photosService.updatePhoto(session.lastUploadedPhotoId, {
+        await this.photosService.updatePhoto(photoId, {
           description: transcription,
         });
 
-        await ctx.reply(
-          `✅ Описание добавлено:\n\n_"${transcription}"_`,
-          { parse_mode: 'Markdown' },
-        );
+        // Переходим к следующему фото
+        const nextIndex = currentIndex + 1;
+        session.currentDescriptionIndex = nextIndex;
 
-        // Сбрасываем lastUploadedPhotoId чтобы следующее голосовое не перезаписало
-        session.lastUploadedPhotoId = undefined;
+        if (nextIndex >= photoIds.length) {
+          // Все фото описаны
+          session.describingPhotos = false;
+          await ctx.reply(
+            `✅ Описание для фото #${currentIndex + 1}:\n<i>"${this.escapeHtml(transcription)}"</i>\n\n` +
+            `🎉 Все ${photoIds.length} фото описаны!`,
+            { parse_mode: 'HTML' },
+          );
+          await this.showPhotosMenu(ctx, projectId);
+        } else {
+          await ctx.reply(
+            `✅ Описание для фото #${currentIndex + 1}:\n<i>"${this.escapeHtml(transcription)}"</i>\n\n` +
+            `📸 Следующее фото: <b>${nextIndex + 1} из ${photoIds.length}</b>\n` +
+            `🎤 Отправьте голосовое или нажмите кнопку ниже.`,
+            {
+              parse_mode: 'HTML',
+              ...Markup.inlineKeyboard([
+                [Markup.button.callback('⏭️ Пропустить это фото', `skip_description:${projectId}`)],
+                [Markup.button.callback('✅ Закончить описания', `finish_descriptions:${projectId}`)],
+              ]),
+            },
+          );
+        }
       } catch (error) {
         this.logger.error('Ошибка расшифровки голосового:', error);
         await ctx.reply('❌ Ошибка расшифровки. Попробуйте снова.');
@@ -989,14 +1124,14 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     const photosCount = project._count.photos;
 
     const text = 
-      `📁 *${this.escapeMarkdown(project.name)}*\n\n` +
-      `📍 ${project.objectAddress || 'Адрес не указан'}\n` +
+      `📁 <b>${this.escapeHtml(project.name)}</b>\n\n` +
+      `📍 ${this.escapeHtml(project.objectAddress || 'Адрес не указан')}\n` +
       `📊 Прогресс: ${collectedCount}/${totalCount} проб (${progress}%)\n` +
       `🏷️ Площадок: ${project._count.platforms}\n` +
       `📷 Фото: ${photosCount}`;
 
     await ctx.editMessageText(text, {
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('📋 Площадки и пробы', `platforms:${projectId}`)],
         [Markup.button.callback(`📷 Фотоальбом (${photosCount})`, `photos:${projectId}`)],
@@ -1004,7 +1139,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       ]),
     }).catch(() => {
       ctx.reply(text, {
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
           [Markup.button.callback('📋 Площадки и пробы', `platforms:${projectId}`)],
           [Markup.button.callback(`📷 Фотоальбом (${photosCount})`, `photos:${projectId}`)],
@@ -1092,10 +1227,10 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     const coordsIcon = hasCoords ? '✅' : '❌';
     const text = 
-      `📍 *Площадка ${platform.label}*\n` +
-      `_${this.escapeMarkdown(platform.project.name)}_\n\n` +
+      `📍 <b>Площадка ${platform.label}</b>\n` +
+      `<i>${this.escapeHtml(platform.project.name)}</i>\n\n` +
       `🧪 Проб: ${collectedSamples}/${platform._count.samples} собрано\n\n` +
-      `🌐 *Координаты* ${coordsIcon}\n` +
+      `🌐 <b>Координаты</b> ${coordsIcon}\n` +
       `  Широта: ${latitude}\n` +
       `  Долгота: ${longitude}`;
 
@@ -1116,11 +1251,11 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
 
     await ctx.editMessageText(text, {
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       ...Markup.inlineKeyboard(buttons),
     }).catch(() => {
       ctx.reply(text, {
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         ...Markup.inlineKeyboard(buttons),
       });
     });
@@ -1167,18 +1302,18 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     ]);
 
     await ctx.editMessageText(
-      `🧪 *${platform.label}* — пробы:\n` +
-      `_${this.escapeMarkdown(platform.project.name)}_`,
+      `🧪 <b>${platform.label}</b> — пробы:\n` +
+      `<i>${this.escapeHtml(platform.project.name)}</i>`,
       {
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         ...Markup.inlineKeyboard(buttons),
       },
     ).catch(() => {
       ctx.reply(
-        `🧪 *${platform.label}* — пробы:\n` +
-        `_${this.escapeMarkdown(platform.project.name)}_`,
+        `🧪 <b>${platform.label}</b> — пробы:\n` +
+        `<i>${this.escapeHtml(platform.project.name)}</i>`,
         {
-          parse_mode: 'Markdown',
+          parse_mode: 'HTML',
           ...Markup.inlineKeyboard(buttons),
         },
       );
@@ -1204,11 +1339,11 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     const statusIcon = sample.status === 'COLLECTED' ? '✅' : '⬜';
     const text =
-      `🏷️ *Проба ${this.escapeMarkdown(sample.cipher)}*\n\n` +
+      `🏷️ <b>Проба ${this.escapeHtml(sample.cipher)}</b>\n\n` +
       `📍 Площадка: ${sample.platform.label}\n` +
       `📏 Глубина: ${sample.depthLabel}\n` +
       `⚖️ Масса: ${sample.mass}\n` +
-      `📝 Характеристика: ${sample.description || '—'}\n\n` +
+      `📝 Характеристика: ${this.escapeHtml(sample.description || '—')}\n\n` +
       `Статус: ${statusIcon} ${sample.status === 'COLLECTED' ? 'Отобрана' : 'Ожидает'}`;
 
     const buttons = [
@@ -1227,12 +1362,12 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     try {
       await ctx.editMessageText(text, {
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         ...replyMarkup,
       });
     } catch {
       await ctx.reply(text, {
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         ...replyMarkup,
       });
     }
@@ -1522,8 +1657,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     const photosCount = project._count.photos;
 
     const text = 
-      `📷 *Фотоальбом*\n` +
-      `_${this.escapeMarkdown(project.name)}_\n\n` +
+      `📷 <b>Фотоальбом</b>\n` +
+      `<i>${this.escapeHtml(project.name)}</i>\n\n` +
       `📸 Фотографий: ${photosCount}`;
 
     const buttons = [
@@ -1532,11 +1667,11 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     ];
 
     await ctx.editMessageText(text, {
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       ...Markup.inlineKeyboard(buttons),
     }).catch(() => {
       ctx.reply(text, {
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         ...Markup.inlineKeyboard(buttons),
       });
     });
@@ -1544,6 +1679,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Обрабатывает загрузку фото в фотоальбом
+   * Буферизирует группу фото и обрабатывает после таймаута
    */
   private async handlePhotoUpload(ctx: BotContext) {
     const session = ctx.session;
@@ -1551,7 +1687,17 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const document = (ctx.message as { document: { file_id: string; file_name?: string; mime_type?: string } }).document;
+    const chatId = ctx.chat?.id;
+    if (!chatId) return;
+
+    const message = ctx.message as { 
+      message_id: number;
+      document: { file_id: string; file_name?: string; mime_type?: string };
+      media_group_id?: string;
+    };
+    const document = message.document;
+    const mediaGroupId = message.media_group_id;
+    const messageId = message.message_id;
     const mimeType = document.mime_type || '';
     const fileName = document.file_name || 'photo.jpg';
 
@@ -1574,50 +1720,155 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    try {
-      // Получаем ссылку на файл
-      const fileLink = await ctx.telegram.getFileLink(document.file_id);
+    // Добавляем фото в буфер
+    if (!session.pendingPhotos) {
+      session.pendingPhotos = [];
+    }
+    session.pendingPhotos.push({
+      fileName,
+      fileId: document.file_id,
+      mimeType: mimeType || 'image/jpeg',
+      mediaGroupId,
+      messageId,
+    });
+
+    this.logger.log(`Фото добавлено в буфер: ${fileName}, msgId: ${messageId}, группа: ${mediaGroupId || 'нет'}, всего в буфере: ${session.pendingPhotos.length}`);
+
+    // Сбрасываем предыдущий таймер
+    const existingTimer = photoGroupTimers.get(chatId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    // Устанавливаем новый таймер на обработку группы (2 секунды)
+    const timer = setTimeout(async () => {
+      photoGroupTimers.delete(chatId);
+      await this.processPhotoGroup(ctx, chatId);
+    }, 2000);
+
+    photoGroupTimers.set(chatId, timer);
+  }
+
+  /**
+   * Обрабатывает накопленную группу фото
+   */
+  private async processPhotoGroup(ctx: BotContext, chatId: number) {
+    const session = sessions.get(chatId);
+    if (!session?.selectedProjectId || !session.pendingPhotos?.length) {
+      return;
+    }
+
+    const projectId = session.selectedProjectId;
+    const pendingPhotos = [...session.pendingPhotos];
+    session.pendingPhotos = [];
+
+    // Сортируем по message_id — это сохраняет порядок отправки (порядок выбора в галерее)
+    pendingPhotos.sort((a, b) => a.messageId - b.messageId);
+
+    // Определяем начальный номер (если уже есть загруженные фото)
+    const startNum = (session.uploadedPhotosCount || 0) + 1;
+
+    this.logger.log(`Обработка группы из ${pendingPhotos.length} фото, начиная с #${startNum}`);
+
+    // Отправляем сообщение о начале обработки
+    await ctx.telegram.sendMessage(chatId, `⏳ Обрабатываю ${pendingPhotos.length} фото...`);
+
+    const newUploadedIds: string[] = [];
+    const results: { num: number; fileName: string; gps?: string; date?: string }[] = [];
+
+    for (let i = 0; i < pendingPhotos.length; i++) {
+      const pending = pendingPhotos[i];
+      const photoNum = startNum + i;
       
-      // Скачиваем файл
-      const response = await fetch(fileLink.href);
-      const buffer = Buffer.from(await response.arrayBuffer());
+      try {
+        // Получаем ссылку на файл
+        const fileLink = await ctx.telegram.getFileLink(pending.fileId);
+        
+        // Скачиваем файл
+        const response = await fetch(fileLink.href);
+        const buffer = Buffer.from(await response.arrayBuffer());
 
-      this.logger.log(`Загрузка фото: ${fileName}, size: ${buffer.length}`);
+        this.logger.log(`Загрузка фото #${photoNum} (${i + 1}/${pendingPhotos.length}): ${pending.fileName}, msgId: ${pending.messageId}`);
 
-      // Загружаем через PhotosService
-      const photo = await this.photosService.uploadPhoto(
-        session.selectedProjectId,
-        {
-          buffer,
-          originalname: fileName,
-          mimetype: mimeType || 'image/jpeg',
-        },
-        session.userId,
-      );
+        // Загружаем через PhotosService
+        const photo = await this.photosService.uploadPhoto(
+          projectId,
+          {
+            buffer,
+            originalname: pending.fileName,
+            mimetype: pending.mimeType,
+          },
+          session.userId,
+        );
 
-      // Увеличиваем счётчик и сохраняем ID последнего фото
-      session.uploadedPhotosCount = (session.uploadedPhotosCount || 0) + 1;
-      session.lastUploadedPhotoId = photo.id;
-
-      // Формируем сообщение
-      let msg = `✅ Фото #${session.uploadedPhotosCount} загружено`;
-      if (photo.latitude && photo.longitude) {
-        msg += `\n📍 GPS: ${photo.latitude}, ${photo.longitude}`;
+        newUploadedIds.push(photo.id);
+        
+        const result: { num: number; fileName: string; gps?: string; date?: string } = { 
+          num: photoNum,
+          fileName: pending.fileName,
+        };
+        if (photo.latitude && photo.longitude) {
+          result.gps = `${photo.latitude}, ${photo.longitude}`;
+        }
+        if (photo.photoDate) {
+          result.date = new Date(photo.photoDate).toLocaleDateString('ru');
+        }
+        results.push(result);
+      } catch (error) {
+        this.logger.error(`Ошибка загрузки фото ${pending.fileName}:`, error);
       }
-      if (photo.photoDate) {
-        msg += `\n📅 ${new Date(photo.photoDate).toLocaleDateString('ru')}`;
-      }
-      msg += '\n\n🎤 _Отправьте голосовое для описания_';
+    }
 
-      await ctx.reply(msg, { parse_mode: 'Markdown' });
-    } catch (error) {
-      this.logger.error('Ошибка загрузки фото:', error);
-      await ctx.reply(`❌ Ошибка загрузки: ${fileName}`);
+    // Добавляем новые ID к уже существующим
+    if (!session.uploadedPhotoIds) {
+      session.uploadedPhotoIds = [];
+    }
+    session.uploadedPhotoIds.push(...newUploadedIds);
+    session.uploadedPhotosCount = session.uploadedPhotoIds.length;
+    session.uploadingPhotos = false;
+
+    // Формируем итоговое сообщение
+    let msg = `✅ <b>Загружено ${newUploadedIds.length} фото</b>\n\n`;
+    for (const r of results) {
+      msg += `📸 #${r.num} ${r.fileName}`;
+      if (r.gps) msg += `\n   📍 ${r.gps}`;
+      if (r.date) msg += ` 📅 ${r.date}`;
+      msg += '\n';
+    }
+
+    const totalPhotos = session.uploadedPhotoIds.length;
+    if (totalPhotos > newUploadedIds.length) {
+      msg += `\n📊 Всего загружено: ${totalPhotos} фото`;
+    }
+
+    if (newUploadedIds.length > 0) {
+      msg += `\n\n🎤 Хотите добавить голосовые описания?\nОписания будут применяться по порядку загрузки.`;
+      
+      await ctx.telegram.sendMessage(chatId, msg, {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🎤 Добавить описания', `describe_photos:${projectId}`)],
+          [Markup.button.callback('📷 Загрузить ещё', `upload_photos:${projectId}`)],
+          [Markup.button.callback('⏭️ Готово', `photos:${projectId}`)],
+        ]),
+      });
+    } else {
+      await ctx.telegram.sendMessage(chatId, '❌ Не удалось загрузить фото');
     }
   }
 
   private escapeMarkdown(text: string): string {
     return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
+  }
+
+  /**
+   * Экранирует HTML-сущности для безопасного отображения в Telegram HTML
+   */
+  private escapeHtml(text: string): string {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
 
   /**

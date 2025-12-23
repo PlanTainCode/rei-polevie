@@ -6,7 +6,6 @@ import {
   Beaker,
   MapPinned,
   CheckCircle,
-  RefreshCw,
   X,
   Check,
   Pencil,
@@ -105,14 +104,6 @@ export function ProjectSamplesPage() {
     },
   });
 
-  const regenerateMutation = useMutation({
-    mutationFn: () => projectsApi.regenerateSamples(id!),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['project-samples', id] });
-      queryClient.invalidateQueries({ queryKey: ['project', id] });
-    },
-  });
-
   const startEditing = (sample: Sample) => {
     setEditingSampleId(sample.id);
     setEditData({
@@ -201,17 +192,6 @@ export function ProjectSamplesPage() {
               <p className="text-[var(--text-secondary)]">{project.name}</p>
             </div>
           </div>
-
-          {canEdit && (
-            <Button
-              variant="secondary"
-              onClick={() => regenerateMutation.mutate()}
-              isLoading={regenerateMutation.isPending}
-            >
-              <RefreshCw className="w-4 h-4" />
-              Перегенерировать
-            </Button>
-          )}
         </div>
       </div>
 
@@ -242,16 +222,10 @@ export function ProjectSamplesPage() {
         <Card>
           <CardContent className="py-12 text-center">
             <Beaker className="w-12 h-12 text-[var(--text-tertiary)] mx-auto mb-3" />
-            <p className="text-[var(--text-secondary)] mb-4">Пробы пока не сгенерированы</p>
-            {canEdit && (
-              <Button
-                onClick={() => regenerateMutation.mutate()}
-                isLoading={regenerateMutation.isPending}
-              >
-                <RefreshCw className="w-4 h-4" />
-                Сгенерировать пробы
-              </Button>
-            )}
+            <p className="text-[var(--text-secondary)]">Пробы пока не сгенерированы</p>
+            <p className="text-sm text-[var(--text-tertiary)] mt-2">
+              Загрузите поручение на странице проекта для генерации проб
+            </p>
           </CardContent>
         </Card>
       ) : (

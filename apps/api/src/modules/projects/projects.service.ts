@@ -134,14 +134,11 @@ export class ProjectsService {
       console.error('Error extracting address:', err);
     }
 
-    // Извлекаем название заказчика через AI из ТЗ (приоритет у ТЗ)
-    let clientName = extractedData.clientName || '';
+    // Извлекаем название заказчика ТОЛЬКО через AI из ТЗ (парсер таблиц даёт мусор)
+    let clientName = '';
     if (tzData?.rawText) {
       try {
-        const aiClientName = await this.aiService.extractClientName(tzData.rawText);
-        if (aiClientName && (!clientName || aiClientName.length > clientName.length)) {
-          clientName = aiClientName;
-        }
+        clientName = await this.aiService.extractClientName(tzData.rawText) || '';
       } catch (err) {
         console.error('Error extracting client name:', err);
       }
@@ -631,13 +628,10 @@ export class ProjectsService {
       console.error('Error extracting address:', err);
     }
 
-    // Извлекаем название заказчика через AI из ТЗ
-    let clientName = extractedData.clientName || '';
+    // Извлекаем название заказчика ТОЛЬКО через AI из ТЗ
+    let clientName = '';
     try {
-      const aiClientName = await this.aiService.extractClientName(tzText);
-      if (aiClientName && (!clientName || aiClientName.length > clientName.length)) {
-        clientName = aiClientName;
-      }
+      clientName = await this.aiService.extractClientName(tzText) || '';
     } catch (err) {
       console.error('Error extracting client name:', err);
     }

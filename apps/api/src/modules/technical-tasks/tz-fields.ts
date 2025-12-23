@@ -56,6 +56,13 @@ export interface TechnicalCharacteristics {
   settlementInfo?: string;                 // Допустимые осадки
 }
 
+// Флаги для пункта 7 "Цели и задачи инженерных изысканий"
+export interface GoalsFlags {
+  includeReconstruction: boolean;    // Включить "и реконструкции" в текст
+  includeAgriculturalLand: boolean;  // Включить "бывшие земли с/х назначения складывающаяся городская среда"
+  includeIndustrialLand: boolean;    // Включить "земли объекта производственного назначения"
+}
+
 // Состав работ ИЭИ (инженерно-экологические изыскания)
 export interface EcologySurveyWorks {
   gammaTerrain: boolean;                   // Измерение МЭД гамма-излучения на территории
@@ -92,6 +99,7 @@ export interface TechnicalTaskData {
   cadastralNumber?: string;                // Кадастровый номер
   territoryDescription?: string;           // Описание границ территории
   areaSize?: string;                       // Площадь участка
+  boundaryDescription?: string;            // Полный текст для п.12 (границы площадки)
 
   // Виды работ
   surveyTypes: SurveyTypes;
@@ -120,6 +128,12 @@ export interface TechnicalTaskData {
 
   // Результаты работ
   reportRequirements?: string;             // Требования к отчетной документации
+  
+  // Флаги для п.7 "Цели и задачи"
+  goalsFlags?: GoalsFlags;
+  
+  // П.15 - опасные природные процессы
+  dangerousProcesses?: string;
 }
 
 // Поля шаблона для замены

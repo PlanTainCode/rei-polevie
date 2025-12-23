@@ -24,6 +24,12 @@ import { Button, Card, CardHeader, CardTitle, CardContent, Input } from '@/compo
 // ID справок ЦГМС (для показа поля хим. веществ)
 const CGMS_INQUIRY_IDS = ['CGMS_CLIMATE', 'CGMS_CLIMATE_MO'];
 
+// ID справок требующих кадастровые кварталы (МО)
+const CADASTRAL_INQUIRY_IDS = ['GU_KN_MO', 'MSH_VETERINARY', 'VODOKANAL', 'MVK_ZSO_MO', 'ADMINISTRATION', 'KLH', 'MIN_ECOLOGY_ZSO'];
+
+// ID справки Администрация (требует название администрации)
+const ADMINISTRATION_INQUIRY_ID = 'ADMINISTRATION';
+
 // Тип для исполнителя
 interface Executor {
   name: string;
@@ -107,6 +113,14 @@ export function InquiryRequestsPage() {
   const showChemicals = Array.from(selectedInquiries).some((id) =>
     CGMS_INQUIRY_IDS.includes(id),
   );
+
+  // Проверяем нужно ли показывать поле кадастровых кварталов (для МО)
+  const showCadastral = Array.from(selectedInquiries).some((id) =>
+    CADASTRAL_INQUIRY_IDS.includes(id),
+  );
+
+  // Проверяем нужно ли показывать поле названия администрации
+  const showAdministration = selectedInquiries.has(ADMINISTRATION_INQUIRY_ID);
 
   // Собираем данные для сохранения
   const getDataToSave = () => {
@@ -370,6 +384,41 @@ export function InquiryRequestsPage() {
                     placeholder="Перечислите химические вещества для запроса фоновых концентраций..."
                     className="w-full px-3 py-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] min-h-[100px]"
                   />
+                </div>
+              )}
+
+              {/* Кадастровые кварталы — для справок МО */}
+              {showCadastral && (
+                <div className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-lg">
+                  <label className="block text-sm font-medium text-purple-400 mb-2">
+                    Кадастровые кварталы
+                  </label>
+                  <textarea
+                    value={additionalData.cadastralNumbers || ''}
+                    onChange={(e) => updateAdditionalData('cadastralNumbers', e.target.value)}
+                    placeholder="50:24:0070101, 50:24:0070214, 50:24:0070608..."
+                    className="w-full px-3 py-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] min-h-[80px]"
+                  />
+                  <p className="text-xs text-purple-400/70 mt-1">
+                    Укажите кадастровые кварталы через запятую
+                  </p>
+                </div>
+              )}
+
+              {/* Название администрации — для справки Администрация */}
+              {showAdministration && (
+                <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                  <label className="block text-sm font-medium text-blue-400 mb-2">
+                    Название администрации (получатель)
+                  </label>
+                  <Input
+                    value={additionalData.administrationName || ''}
+                    onChange={(e) => updateAdditionalData('administrationName', e.target.value)}
+                    placeholder="Администрация г.Куровское, Орехово-Зуевского г.о., Московской обл."
+                  />
+                  <p className="text-xs text-blue-400/70 mt-1">
+                    Укажите полное название администрации муниципального образования
+                  </p>
                 </div>
               )}
             </div>

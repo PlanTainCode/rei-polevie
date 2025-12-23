@@ -514,12 +514,31 @@ export class WordParserService {
 
   /**
    * Извлекает заказчика из строк таблицы
-   * Ищет строку где первая ячейка = "Заказчик" и берёт вторую ячейку
+   * Приоритет: "Наименование и местонахождение заказчика" (секция 5.1)
+   * Исключаем блоки СОГЛАСОВАНО
    */
   private extractClientFromTableRows(tables: string[][]): string | undefined {
+    // Приоритет 1: ищем "Наименование и местонахождение заказчика" (секция 5.1 ТЗ)
     for (const row of tables) {
-      // Ищем строку где первая ячейка содержит "Заказчик"
+      if (row.length >= 2) {
+        const header = row[0].toLowerCase();
+        if (header.includes('наименование') && header.includes('местонахождение') && header.includes('заказчик')) {
+          const client = row[1].trim();
+          if (client.length > 2) {
+            return client;
+          }
+        }
+      }
+    }
+
+    // Приоритет 2: ищем просто "Заказчик", но исключаем СОГЛАСОВАНО
+    for (const row of tables) {
       if (row.length >= 2 && row[0].toLowerCase().includes('заказчик')) {
+        // Пропускаем строки с СОГЛАСОВАНО или подписями
+        const rowText = row.join(' ').toLowerCase();
+        if (rowText.includes('согласовано') || rowText.includes('___') || rowText.includes('исполнитель')) {
+          continue;
+        }
         const client = row[1].trim();
         if (client.length > 2) {
           return client;
@@ -531,22 +550,43 @@ export class WordParserService {
 
   /**
    * Извлекает заказчика из текста по паттернам (резервный вариант)
+   * Исключаем блоки СОГЛАСОВАНО
    */
   private extractClientFromText(rawText: string): string | undefined {
+    // Сначала пробуем найти секцию 5.1 с "Наименование и местонахождение заказчика"
+    const section51Match = rawText.match(
+      /(?:5\.1|Наименование и местонахождение заказчика)[^\n]*\n+([^\n]+(?:ООО|АО|ЗАО|ПАО|ИП)[^\n]+)/i
+    );
+    if (section51Match?.[1]) {
+      const client = section51Match[1].trim().replace(/\s+/g, ' ');
+      if (client.length > 3 && !client.toLowerCase().includes('согласовано')) {
+        return client;
+      }
+    }
+
     const patterns = [
       // "Заказчик: ООО «Название»"
-      /Заказчик[:\s]*((?:ООО|АО|ЗАО|ПАО|ИП)\s*[«"]?[^»"\n]+)/i,
+      /Заказчик[:\s]*((?:ООО|АО|ЗАО|ПАО|ИП)\s*[«"]?[^»"\n]+)/gi,
       // Заказчик с кавычками
-      /Заказчик[:\s]*[«"]([^»"]+)[»"]/i,
+      /Заказчик[:\s]*[«"]([^»"]+)[»"]/gi,
     ];
 
     for (const pattern of patterns) {
-      const match = rawText.match(pattern);
-      if (match && match[1]) {
-        let client = match[1].trim();
-        client = client.replace(/\s+/g, ' ').trim();
-        if (client.length > 3) {
-          return client;
+      // Используем matchAll чтобы найти все совпадения и выбрать подходящее
+      const matches = [...rawText.matchAll(pattern)];
+      for (const match of matches) {
+        if (match && match[1]) {
+          let client = match[1].trim();
+          client = client.replace(/\s+/g, ' ').trim();
+          // Пропускаем если это из блока СОГЛАСОВАНО
+          if (client.length > 3 && !client.toLowerCase().includes('согласовано')) {
+            // Проверяем контекст — не находится ли это рядом с СОГЛАСОВАНО
+            const matchIndex = match.index || 0;
+            const contextBefore = rawText.substring(Math.max(0, matchIndex - 100), matchIndex);
+            if (!contextBefore.toLowerCase().includes('согласовано')) {
+              return client;
+            }
+          }
         }
       }
     }

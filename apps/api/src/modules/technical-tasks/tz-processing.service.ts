@@ -62,20 +62,142 @@ export class TzProcessingService {
   async extractTechnicalTaskData(documentText: string): Promise<TechnicalTaskData> {
     const systemPrompt = `Ты — эксперт по инженерным изысканиям в России. Твоя задача — извлечь данные из технического задания (ТЗ) заказчика для заполнения шаблона ТЗ исполнителя.
 
-ВАЖНЕЙШИЕ ПРАВИЛА:
-1. Наименование объекта (objectName) копируй ПОЛНОСТЬЮ и ДОСЛОВНО как есть в документе, включая ВСЕ части: "по объекту:", "по адресу:", кадастровые номера, описания зон и т.д. НЕ СОКРАЩАЙ и НЕ УБИРАЙ никакие части!
-2. Местоположение (objectLocation) — только город/район/область (кратко)
-3. Все текстовые поля извлекай ТОЧНО как написано в документе
+Шаблон ТЗ состоит из 27 пронумерованных пунктов. Ниже описание пунктов 1-7 и что нужно извлечь:
 
-Извлеки данные и верни ТОЛЬКО валидный JSON:
+=== ПУНКТ 1. Наименование объекта ===
+Копируй ПОЛНОСТЬЮ и ДОСЛОВНО как есть в документе!
+Включая ВСЕ части: "по объекту:", "расположенный по адресу:", названия улиц, кадастровые номера, описания зон.
+НЕ СОКРАЩАЙ и НЕ УБИРАЙ ничего!
+Пример: "Реконструкция (снос и восстановление) сетей связи ПАО МГТС по объекту: \"Жилой дом с подземной автостоянкой... по адресу: г.Москва...\""
+
+=== ПУНКТ 2. Местоположение объекта ===
+Ищи отдельный пункт "Местоположение" или "Адрес объекта" в исходном ТЗ.
+Если адрес содержит "кадастровый номер участка XXX" — УБЕРИ эту часть вместе с текстом "кадастровый номер участка".
+Пример: "г. Москва, ул. Юных Ленинцев, земельный участок 44/3"
+
+=== ПУНКТ 3. Основание для выполнения работ ===
+НЕ ИЗВЛЕКАЕМ — заполняется вручную
+
+=== ПУНКТ 4. Вид градостроительной деятельности ===
+Определи по контексту ТЗ ОДИН наиболее подходящий вид из списка:
+- "Архитектурно-строительное проектирование"
+- "Капитальный ремонт"  
+- "Реконструкция"
+- "Комплексное развитие территории и их благоустройство"
+- "Территориальное планирование"
+- "Градостроительное зонирование"
+- "Планировка территории"
+- "Строительство"
+- "Снос объектов капитального строительства"
+- "Эксплуатация зданий, сооружений"
+
+Верни ТОЛЬКО ОДНУ строку из списка выше!
+
+=== ПУНКТ 5. Идентификационные сведения о заказчике ===
+Заголовок группы — не извлекаем
+
+=== ПУНКТ 5.1. Наименование и местонахождение заказчика ===
+ОБЯЗАТЕЛЬНО найди и извлеки ВСЕ данные заказчика:
+- name: Полное наименование организации (ООО, АО, ПАО и т.д.)
+- ogrn: ОГРН — 13-значный номер, ищи после "ОГРН" или "ОГРН:"
+- address: Полный юридический адрес — ищи после "адрес", "юр. адрес", "место нахождения", или индекс (6 цифр) с адресом
+
+ВАЖНО: Эти данные обычно в начале документа, в шапке, или в разделе "Заказчик"/"Застройщик"
+
+=== ПУНКТ 5.2. Контакты представителя заказчика ===
+ОБЯЗАТЕЛЬНО найди ВСЕ контактные данные:
+- name: ФИО контактного лица
+- phone: Телефон в любом формате (+7, 8, с пробелами и скобками)
+- email: Email адрес
+
+Ищи после слов "контакт", "представитель", "ответственный", "тел.", "телефон", "e-mail", "@"
+
+=== ПУНКТЫ 6, 6.1, 6.2 — Сведения об исполнителе ===
+НЕ ИЗВЛЕКАЕМ — это данные вашей компании (АО "РЭИ-ЭКОАУДИТ")
+
+=== ПУНКТ 7. Цели и задачи инженерных изысканий ===
+Текст шаблонный, но определи флаги для условных частей:
+- includeReconstruction: true если в ТЗ есть реконструкция объекта
+- includeAgriculturalLand: true если упоминаются бывшие земли с/х назначения или складывающаяся городская среда
+- includeIndustrialLand: true если упоминается объект производственного назначения
+
+=== ПУНКТ 8. Этап выполнения инженерных изысканий ===
+НЕ ИЗВЛЕКАЕМ — шаблонный текст
+
+=== ПУНКТ 9. Виды инженерных изысканий ===
+Определи какие виды изысканий нужны по ТЗ:
+- hydrometeorology: true если нужны инженерно-гидрометеорологические изыскания (ИГМИ)
+- geology: true если нужны инженерно-геологические изыскания (ИГИ)
+- ecology: true если нужны инженерно-экологические изыскания (ИЭИ)
+Ищи в названии документа, в тексте "на выполнение ИЭИ", "инженерно-экологические" и т.д.
+
+=== ПУНКТ 10. Идентификационные сведения об объекте ===
+Группа подпунктов:
+
+10.1 Назначение объекта — определи тип объекта:
+"Многоквартирный жилой дом", "Объект улично-дорожной сети", "Объект производственного назначения", 
+"Административное здание", "Объект образовательного учреждения", "Инженерные сети" и т.д.
+
+10.2 Принадлежность к транспортной инфраструктуре — true если дорога, мост, путепровод, ж/д
+
+10.3 Принадлежность к опасным производственным объектам — true если ОПО (обычно false)
+
+10.4 Пожарная и взрывопожарная опасность — ищи класс пожарной опасности или "Нет данных"
+
+10.5 Уровень ответственности — "Нормальный" или "Повышенный" (ищи в ТЗ)
+
+10.6 Наличие помещений с постоянным нахождением людей:
+- "Предусмотрено" если жильё, офисы, школы
+- "Отсутствуют" если дороги, инженерные сети
+- "Не применимо" если линейный объект
+
+=== ПУНКТ 11. Предполагаемые техногенные воздействия ===
+Определи по тексту ТЗ: источники загрязнения, выбросы, воздействия на среду. Или "Нет данных"
+
+=== ПУНКТ 12. Данные о границах площадки ===
+СГЕНЕРИРУЙ полный текст для этого пункта на основе данных из ТЗ.
+Формат: "Территория обследования расположена в [район/округ/город]. [Описание расположения объекта]. Площадь обследуемого участка – [площадь] га."
+Если это здание — опиши где оно расположено.
+Если это трасса — опиши начало, конец, направление.
+Верни в поле boundaryDescription.
+
+=== ПУНКТ 13. Краткая техническая характеристика объекта ===
+Извлеки:
+- technicalDescription: Описание объекта (этажность, площадь, тип конструкций)
+- excavationDepth: Глубина ведения земляных работ (max)
+
+=== ПУНКТ 15. Наличие опасных природных процессов ===
+Ищи в ТЗ информацию об опасных природных процессах: оползни, подтопление, карст, просадочные грунты, сейсмика и т.д.
+- Если есть информация — извлеки её
+- Если написано "отсутствуют" — верни "Отсутствуют"  
+- Если ничего нет — верни "Нет данных"
+
+=== ПУНКТ 18. Требования к составлению прогноза ===
+Этот пункт зависит от наличия ИГМИ (гидрометеорология) в surveyTypes.
+
+Верни JSON:
 
 {
-  "objectName": "ПОЛНОЕ наименование объекта ДОСЛОВНО как в документе, со всеми частями включая 'по адресу', кадастровые номера и т.д.",
-  "objectLocation": "Город/район кратко, например: Московская область, городской округ Красногорск",
-  "cadastralNumber": "кадастровый номер если указан",
-  "areaSize": "площадь участка с единицами, например: 2,5 га или 15000 кв.м",
+  "objectName": "ПОЛНОЕ наименование объекта ДОСЛОВНО",
+  "objectLocation": "адрес БЕЗ кадастрового номера участка",
+  "urbanPlanningActivity": "ОДНА строка из списка видов градостроительной деятельности",
   
-  "territoryDescription": "Описание расположения территории. Например: Территория обследования расположена в городском округе Красногорск Московской области. Проектируемый объект расположен по адресу...",
+  "customer": {
+    "name": "Полное наименование организации или null",
+    "ogrn": "ОГРН или null",
+    "address": "Юридический адрес или null"
+  },
+  "customerContact": {
+    "name": "ФИО контактного лица или null",
+    "phone": "телефон или null",
+    "email": "email или null"
+  },
+  
+  "goalsFlags": {
+    "includeReconstruction": true/false,
+    "includeAgriculturalLand": true/false,
+    "includeIndustrialLand": true/false
+  },
   
   "surveyTypes": {
     "hydrometeorology": true/false,
@@ -83,81 +205,29 @@ export class TzProcessingService {
     "ecology": true/false
   },
   
-  "urbanPlanningActivities": {
-    "architecturalDesign": true если архитектурно-строительное проектирование,
-    "capitalRepair": true если капитальный ремонт,
-    "reconstruction": true если реконструкция,
-    "territoryDevelopment": true если комплексное развитие территории,
-    "territorialPlanning": true если территориальное планирование,
-    "urbanZoning": true если градостроительное зонирование,
-    "territoryPlanning": true если планировка территории,
-    "construction": true если строительство,
-    "demolition": true если снос,
-    "buildingOperation": true если эксплуатация
-  },
-  
-  "customer": {
-    "name": "Полное наименование организации с формой собственности, например: ООО «ПКБ Петракомплект»",
-    "ogrn": "ОГРН если указан",
-    "address": "Юридический адрес заказчика полностью",
-    "contactName": "ФИО контактного лица",
-    "contactPhone": "телефон",
-    "contactEmail": "email"
-  },
-  
   "objectInfo": {
-    "purpose": "Назначение объекта. Варианты: Многоквартирный жилой дом / Объект улично-дорожной сети / Объект производственного назначения / Административное здание / и т.д.",
-    "transportInfrastructure": true если относится к транспортной инфраструктуре (дороги, мосты),
-    "dangerousProduction": true если опасный производственный объект,
-    "fireHazard": "класс пожарной опасности или Нет данных",
-    "responsibilityLevel": "Нормальный или Повышенный (по умолчанию Нормальный)",
-    "permanentPresence": "Предусмотрено если жилье/офисы, Отсутствуют если дороги/сети",
-    "technogenicImpact": "описание воздействий или Нет данных"
+    "purpose": "Назначение объекта",
+    "transportInfrastructure": true/false,
+    "dangerousProduction": true/false,
+    "fireHazard": "Класс пожарной опасности или Нет данных",
+    "responsibilityLevel": "Нормальный или Повышенный",
+    "permanentPresence": "Предусмотрено или Отсутствуют или Не применимо"
   },
   
-  "technicalCharacteristics": {
-    "description": "Краткое описание: этажность, площадь застройки, тип конструкций. Например: 24-этажный жилой дом, монолитный ж/б каркас, фундамент плитный",
-    "excavationDepth": "Глубина земляных работ, например: до 7,5 м",
-    "foundationType": "Тип фундамента: плитный/свайный/ленточный",
-    "foundationDepth": "Глубина заложения фундамента, например: -7,1 м (абс. отм. 144,38 м)",
-    "foundationLoad": "Нагрузка на фундамент, например: 40 т/м2",
-    "basementInfo": "Информация о подземных частях: подземный паркинг 2 уровня, технический этаж",
-    "settlementInfo": "Допустимые осадки, например: 15 см"
-  },
+  "technogenicImpact": "Описание воздействий или Нет данных",
+  "boundaryDescription": "Полный текст для п.12: Территория обследования расположена в ... Площадь обследуемого участка – X га.",
   
-  "ecologySurveyWorks": {
-    "gammaTerrain": true если измерение МЭД гамма на территории,
-    "gammaBuilding": true если измерение МЭД гамма в здании,
-    "gammaSpectrometerySoil": true если гамма-спектрометрия грунта,
-    "gammaSpectrometryOss": true если гамма-спектрометрия ОСС,
-    "radonTerrain": true если измерение ППР на территории,
-    "radonBuilding": true если измерение ЭРОА радона в здании,
-    "heavyMetalsSoil": true если тяжелые металлы в грунте,
-    "heavyMetalsOss": true если тяжелые металлы в ОСС,
-    "benzpyrene": true если бенз(а)пирен,
-    "oilProducts": true если нефтепродукты,
-    "microbiologySoil": true если микробиология грунта,
-    "airAnalysis": true если анализ воздуха,
-    "waterChemistry": true если химия воды,
-    "waterMicrobiology": true если микробиология воды,
-    "gasGeochemistry": true если газогеохимия,
-    "noiseLevel": true если шум,
-    "vibration": true если вибрация,
-    "emf": true если ЭМП
-  },
+  "technicalDescription": "Описание объекта",
+  "excavationDepth": "Глубина земляных работ, например: до 5 м",
   
-  "pollutionSources": "Существующие источники воздействия: ...\nПроектируемые источники воздействия: ...",
-  "previousSurveys": "Информация о ранее выполненных изысканиях или Не представлено",
-  "projectSolutions": "Способ строительства: открытый котлован / ГНБ / траншейный и т.д.",
-  "reportRequirements": "Требования к отчетам: количество экземпляров, форматы"
+  "dangerousProcesses": "Описание опасных процессов или Отсутствуют или Нет данных"
 }
 
-ПРАВИЛА ИЗВЛЕЧЕНИЯ:
-- objectName: копируй ВСЁ включая "по объекту:", "по адресу:", кадастровые номера!
-- Если данные не указаны — ставь null или false
-- surveyTypes определяй по упоминанию видов изысканий в тексте
-- urbanPlanningActivities определяй по контексту (строительство нового = construction, снос старого = demolition и т.д.)
-- ecologySurveyWorks определяй по таблице состава работ если есть
+ВАЖНО:
+- objectName: копируй ДОСЛОВНО со всеми "по объекту:", "по адресу:" и т.д.!
+- objectLocation: убери "кадастровый номер участка XXX" если есть
+- urbanPlanningActivity: верни ОДНУ строку, не массив!
+- Если данные не найдены — ставь null
 
 Верни ТОЛЬКО JSON без пояснений.`;
 
@@ -170,12 +240,18 @@ export class TzProcessingService {
       ]);
 
       // Парсим JSON ответ
+      this.logger.log(`AI response length: ${response.length}`);
+      this.logger.log(`AI response preview: ${response.substring(0, 500)}...`);
+      
       const jsonMatch = response.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
+        this.logger.error(`AI response does not contain valid JSON: ${response.substring(0, 1000)}`);
         throw new Error('AI response does not contain valid JSON');
       }
 
       const data = JSON.parse(jsonMatch[0]);
+      this.logger.log(`Parsed data: objectName=${data.objectName?.substring(0, 100)}, urbanPlanningActivity=${data.urbanPlanningActivity}`);
+      
       return this.validateAndNormalize(data);
     } catch (error) {
       this.logger.error('Error extracting TZ data via AI:', error);
@@ -210,18 +286,8 @@ export class TzProcessingService {
       ecology: true,
     };
 
-    const defaultUrbanPlanningActivities: UrbanPlanningActivities = {
-      architecturalDesign: false,
-      capitalRepair: false,
-      reconstruction: false,
-      territoryDevelopment: false,
-      territorialPlanning: false,
-      urbanZoning: false,
-      territoryPlanning: false,
-      construction: true,
-      demolition: false,
-      buildingOperation: false,
-    };
+    // Преобразуем строку urbanPlanningActivity в объект urbanPlanningActivities
+    const urbanPlanningActivities = this.parseUrbanPlanningActivity(data.urbanPlanningActivity);
 
     const defaultEcologyWorks: EcologySurveyWorks = {
       gammaTerrain: false,
@@ -244,6 +310,16 @@ export class TzProcessingService {
       emf: false,
     };
 
+    // Объединяем customer и customerContact
+    const customer = {
+      name: data.customer?.name || 'Заказчик не указан',
+      ogrn: data.customer?.ogrn || undefined,
+      address: data.customer?.address || 'Адрес не указан',
+      contactName: data.customerContact?.name || data.customer?.contactName || undefined,
+      contactPhone: data.customerContact?.phone || data.customer?.contactPhone || undefined,
+      contactEmail: data.customerContact?.email || data.customer?.contactEmail || undefined,
+    };
+
     return {
       contractNumber: data.contractNumber || undefined,
       contractDate: data.contractDate || undefined,
@@ -255,28 +331,19 @@ export class TzProcessingService {
       cadastralNumber: data.cadastralNumber || undefined,
       territoryDescription: data.territoryDescription || undefined,
       areaSize: data.areaSize || undefined,
+      boundaryDescription: data.boundaryDescription || undefined,
 
       surveyTypes: {
         ...defaultSurveyTypes,
         ...(data.surveyTypes || {}),
       },
-      urbanPlanningActivities: {
-        ...defaultUrbanPlanningActivities,
-        ...(data.urbanPlanningActivities || {}),
-      },
+      urbanPlanningActivities,
       ecologySurveyWorks: {
         ...defaultEcologyWorks,
         ...(data.ecologySurveyWorks || {}),
       },
 
-      customer: {
-        name: data.customer?.name || 'Заказчик не указан',
-        ogrn: data.customer?.ogrn || undefined,
-        address: data.customer?.address || 'Адрес не указан',
-        contactName: data.customer?.contactName || undefined,
-        contactPhone: data.customer?.contactPhone || undefined,
-        contactEmail: data.customer?.contactEmail || undefined,
-      },
+      customer,
 
       objectInfo: {
         purpose: data.objectInfo?.purpose || undefined,
@@ -285,12 +352,12 @@ export class TzProcessingService {
         fireHazard: data.objectInfo?.fireHazard || 'Нет данных',
         responsibilityLevel: data.objectInfo?.responsibilityLevel || 'Нормальный',
         permanentPresence: data.objectInfo?.permanentPresence || 'Нет данных',
-        technogenicImpact: data.objectInfo?.technogenicImpact || 'Нет данных',
+        technogenicImpact: data.technogenicImpact || data.objectInfo?.technogenicImpact || 'Нет данных',
       },
 
       technicalCharacteristics: {
-        description: data.technicalCharacteristics?.description || undefined,
-        excavationDepth: data.technicalCharacteristics?.excavationDepth || undefined,
+        description: data.technicalDescription || data.technicalCharacteristics?.description || undefined,
+        excavationDepth: data.excavationDepth || data.technicalCharacteristics?.excavationDepth || undefined,
         foundationType: data.technicalCharacteristics?.foundationType || undefined,
         foundationDepth: data.technicalCharacteristics?.foundationDepth || undefined,
         foundationLoad: data.technicalCharacteristics?.foundationLoad || undefined,
@@ -306,7 +373,68 @@ export class TzProcessingService {
       projectSolutions: data.projectSolutions || undefined,
       hydrometeoCharacteristics: data.hydrometeoCharacteristics || [],
       reportRequirements: data.reportRequirements || undefined,
+      
+      // Флаги для пункта 7
+      goalsFlags: data.goalsFlags || {
+        includeReconstruction: false,
+        includeAgriculturalLand: false,
+        includeIndustrialLand: false,
+      },
+      
+      // П.15 - опасные природные процессы
+      dangerousProcesses: data.dangerousProcesses || 'Нет данных',
     };
+  }
+
+  /**
+   * Преобразовать строку вида градостроительной деятельности в объект
+   */
+  private parseUrbanPlanningActivity(activity: string | undefined): UrbanPlanningActivities {
+    const result: UrbanPlanningActivities = {
+      architecturalDesign: false,
+      capitalRepair: false,
+      reconstruction: false,
+      territoryDevelopment: false,
+      territorialPlanning: false,
+      urbanZoning: false,
+      territoryPlanning: false,
+      construction: false,
+      demolition: false,
+      buildingOperation: false,
+    };
+
+    if (!activity) {
+      result.construction = true; // по умолчанию
+      return result;
+    }
+
+    const activityLower = activity.toLowerCase();
+    
+    if (activityLower.includes('архитектурно-строительное')) {
+      result.architecturalDesign = true;
+    } else if (activityLower.includes('капитальный ремонт')) {
+      result.capitalRepair = true;
+    } else if (activityLower.includes('реконструкция')) {
+      result.reconstruction = true;
+    } else if (activityLower.includes('комплексное развитие')) {
+      result.territoryDevelopment = true;
+    } else if (activityLower.includes('территориальное планирование')) {
+      result.territorialPlanning = true;
+    } else if (activityLower.includes('градостроительное зонирование')) {
+      result.urbanZoning = true;
+    } else if (activityLower.includes('планировка территории')) {
+      result.territoryPlanning = true;
+    } else if (activityLower.includes('строительство')) {
+      result.construction = true;
+    } else if (activityLower.includes('снос')) {
+      result.demolition = true;
+    } else if (activityLower.includes('эксплуатация')) {
+      result.buildingOperation = true;
+    } else {
+      result.construction = true; // по умолчанию
+    }
+
+    return result;
   }
 
   /**
