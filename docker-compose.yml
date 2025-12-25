@@ -39,6 +39,7 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY}
+      PROXY_URL: ${PROXY_URL}
     volumes:
       # Персистентное хранение файлов
       - api_uploads:/app/apps/api/uploads
