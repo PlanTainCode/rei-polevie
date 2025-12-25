@@ -6,6 +6,7 @@
 import { join } from 'path';
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import * as PizZip from 'pizzip';
+import { cleanupDocument } from './doc-cleanup';
 
 const PLACEHOLDERS = {
   DATE: '20.07.2023',
@@ -68,6 +69,9 @@ export async function generateZhkhInquiry(
   docXml = replaceNumberMiddle(docXml, params.numberMiddle);
   docXml = addOrderToNumber(docXml, orderFromFileName);
   docXml = widenTextboxes(docXml);
+  
+  // Очищаем документ от лишних разрывов страниц
+  docXml = cleanupDocument(docXml);
 
   zip.file('word/document.xml', docXml);
 

@@ -6,6 +6,7 @@
 import { join } from 'path';
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import * as PizZip from 'pizzip';
+import { cleanupDocument } from './doc-cleanup';
 
 // Плейсхолдеры в шаблоне (текст подсвечен зелёным и/или подчёркнут)
 const PLACEHOLDERS = {
@@ -98,6 +99,9 @@ export async function generateDknInquiry(
 
   // 9. Расширяем текстовое поле с датой и номером
   docXml = widenTextboxes(docXml);
+
+  // 10. Очищаем документ от лишних разрывов страниц
+  docXml = cleanupDocument(docXml);
 
   // Сохраняем обратно в архив
   zip.file('word/document.xml', docXml);

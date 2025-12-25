@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { join } from 'path';
 import { mkdir, writeFile, readFile } from 'fs/promises';
 import * as PizZip from 'pizzip';
@@ -13,6 +13,7 @@ import {
   getInquiriesByRegion,
   detectRegionFromAddress,
 } from './inquiry-requests.types';
+import { processInquiryWithPdf } from './pdf.utils';
 import { generateCgmsInquiry } from './generators/cgms-generator';
 import { generateDpioosInquiry } from './generators/dpioos-generator';
 import { generateDknInquiry } from './generators/dkn-generator';
@@ -34,6 +35,7 @@ import { generateMinprirodaMoInquiry } from './generators/minpriroda-mo-generato
 
 @Injectable()
 export class InquiryRequestsService {
+  private readonly logger = new Logger(InquiryRequestsService.name);
   private readonly templateDir = join(process.cwd(), 'templates');
   private readonly outputDir = join(process.cwd(), 'generated', 'inquiries');
 
@@ -146,10 +148,14 @@ export class InquiryRequestsService {
 
   /**
    * Генерировать выбранные справки
+   * @param projectId - ID проекта
+   * @param inquiryIds - список ID справок для генерации
+   * @param attachmentPdf - опциональный PDF для объединения (приложение с альбомной ориентацией)
    */
   async generate(
     projectId: string,
     inquiryIds: string[],
+    attachmentPdf?: Buffer,
   ): Promise<GenerateInquiriesResult> {
     const inquiryRequest = await this.prisma.inquiryRequest.findUnique({
       where: { projectId },
@@ -187,6 +193,10 @@ export class InquiryRequestsService {
     const generatedFiles: GeneratedInquiryFile[] = [];
     const errors: { inquiryId: string; error: string }[] = [];
 
+    if (attachmentPdf) {
+      this.logger.log(`Получен PDF для объединения: ${attachmentPdf.length} байт`);
+    }
+
     // Генерируем каждую справку
     for (const inquiryId of inquiryIds) {
       const inquiry = availableInquiries.find((i) => i.id === inquiryId);
@@ -201,10 +211,11 @@ export class InquiryRequestsService {
           region,
           project,
           additionalData,
+          attachmentPdf,
         );
         generatedFiles.push(result);
       } catch (error) {
-        console.error(`[InquiryRequestsService] Ошибка генерации ${inquiryId}:`, error);
+        this.logger.error(`Ошибка генерации ${inquiryId}:`, error);
         errors.push({
           inquiryId,
           error: error instanceof Error ? error.message : 'Неизвестная ошибка',
@@ -245,6 +256,11 @@ export class InquiryRequestsService {
 
   /**
    * Генерирует один документ справки
+   * @param inquiry - тип справки
+   * @param region - регион
+   * @param project - данные проекта
+   * @param additionalData - дополнительные данные
+   * @param attachmentPdf - опциональный PDF для объединения (альбомная ориентация)
    */
   private async generateSingleInquiry(
     inquiry: InquiryType,
@@ -260,6 +276,7 @@ export class InquiryRequestsService {
       clientAddress: string | null;
     },
     additionalData: Record<string, string>,
+    attachmentPdf?: Buffer,
   ): Promise<GeneratedInquiryFile> {
     // Определяем путь к шаблону
     const templateFolder = region === 'MOSCOW' ? 'запросы мск' : 'запросы мо';
@@ -304,13 +321,7 @@ export class InquiryRequestsService {
         executors,
       });
 
-      return {
-        inquiryId: inquiry.id,
-        inquiryName: inquiry.shortName,
-        fileName: result.fileName,
-        fileUrl: `/generated/inquiries/${result.fileName}`,
-        generatedAt: new Date().toISOString(),
-      };
+      return this.processGeneratedDocument(result, inquiry, attachmentPdf);
     }
 
     // Используем специализированный генератор для ЦГМС (МО)
@@ -325,13 +336,7 @@ export class InquiryRequestsService {
         executors,
       });
 
-      return {
-        inquiryId: inquiry.id,
-        inquiryName: inquiry.shortName,
-        fileName: result.fileName,
-        fileUrl: `/generated/inquiries/${result.fileName}`,
-        generatedAt: new Date().toISOString(),
-      };
+      return this.processGeneratedDocument(result, inquiry, attachmentPdf);
     }
 
     // Используем специализированный генератор для ДПиООС
@@ -345,13 +350,7 @@ export class InquiryRequestsService {
         executors,
       });
 
-      return {
-        inquiryId: inquiry.id,
-        inquiryName: inquiry.shortName,
-        fileName: result.fileName,
-        fileUrl: `/generated/inquiries/${result.fileName}`,
-        generatedAt: new Date().toISOString(),
-      };
+      return this.processGeneratedDocument(result, inquiry, attachmentPdf);
     }
 
     // Используем специализированный генератор для ДКН
@@ -365,13 +364,7 @@ export class InquiryRequestsService {
         executors,
       });
 
-      return {
-        inquiryId: inquiry.id,
-        inquiryName: inquiry.shortName,
-        fileName: result.fileName,
-        fileUrl: `/generated/inquiries/${result.fileName}`,
-        generatedAt: new Date().toISOString(),
-      };
+      return this.processGeneratedDocument(result, inquiry, attachmentPdf);
     }
 
     // Используем специализированный генератор для Комитета ветеринарии
@@ -385,13 +378,7 @@ export class InquiryRequestsService {
         executors,
       });
 
-      return {
-        inquiryId: inquiry.id,
-        inquiryName: inquiry.shortName,
-        fileName: result.fileName,
-        fileUrl: `/generated/inquiries/${result.fileName}`,
-        generatedAt: new Date().toISOString(),
-      };
+      return this.processGeneratedDocument(result, inquiry, attachmentPdf);
     }
 
     // Используем специализированный генератор для МВК ЗСО
@@ -405,13 +392,7 @@ export class InquiryRequestsService {
         executors,
       });
 
-      return {
-        inquiryId: inquiry.id,
-        inquiryName: inquiry.shortName,
-        fileName: result.fileName,
-        fileUrl: `/generated/inquiries/${result.fileName}`,
-        generatedAt: new Date().toISOString(),
-      };
+      return this.processGeneratedDocument(result, inquiry, attachmentPdf);
     }
 
     // Используем специализированный генератор для ДепТорговли
@@ -425,13 +406,7 @@ export class InquiryRequestsService {
         executors,
       });
 
-      return {
-        inquiryId: inquiry.id,
-        inquiryName: inquiry.shortName,
-        fileName: result.fileName,
-        fileUrl: `/generated/inquiries/${result.fileName}`,
-        generatedAt: new Date().toISOString(),
-      };
+      return this.processGeneratedDocument(result, inquiry, attachmentPdf);
     }
 
     // Используем специализированный генератор для Департамента ЖКХ
@@ -445,13 +420,7 @@ export class InquiryRequestsService {
         executors,
       });
 
-      return {
-        inquiryId: inquiry.id,
-        inquiryName: inquiry.shortName,
-        fileName: result.fileName,
-        fileUrl: `/generated/inquiries/${result.fileName}`,
-        generatedAt: new Date().toISOString(),
-      };
+      return this.processGeneratedDocument(result, inquiry, attachmentPdf);
     }
 
     // Используем специализированный генератор для Управы района
@@ -465,13 +434,7 @@ export class InquiryRequestsService {
         executors,
       });
 
-      return {
-        inquiryId: inquiry.id,
-        inquiryName: inquiry.shortName,
-        fileName: result.fileName,
-        fileUrl: `/generated/inquiries/${result.fileName}`,
-        generatedAt: new Date().toISOString(),
-      };
+      return this.processGeneratedDocument(result, inquiry, attachmentPdf);
     }
 
     // Используем специализированный генератор для МинПрироды РФ
@@ -485,13 +448,7 @@ export class InquiryRequestsService {
         executors,
       });
 
-      return {
-        inquiryId: inquiry.id,
-        inquiryName: inquiry.shortName,
-        fileName: result.fileName,
-        fileUrl: `/generated/inquiries/${result.fileName}`,
-        generatedAt: new Date().toISOString(),
-      };
+      return this.processGeneratedDocument(result, inquiry, attachmentPdf);
     }
 
     // Используем специализированный генератор для ГУ КН МО (культурное наследие МО)
@@ -506,13 +463,7 @@ export class InquiryRequestsService {
         executors,
       });
 
-      return {
-        inquiryId: inquiry.id,
-        inquiryName: inquiry.shortName,
-        fileName: result.fileName,
-        fileUrl: `/generated/inquiries/${result.fileName}`,
-        generatedAt: new Date().toISOString(),
-      };
+      return this.processGeneratedDocument(result, inquiry, attachmentPdf);
     }
 
     // Используем специализированный генератор для МСХ МО (ветеринария)
@@ -527,13 +478,7 @@ export class InquiryRequestsService {
         executors,
       });
 
-      return {
-        inquiryId: inquiry.id,
-        inquiryName: inquiry.shortName,
-        fileName: result.fileName,
-        fileUrl: `/generated/inquiries/${result.fileName}`,
-        generatedAt: new Date().toISOString(),
-      };
+      return this.processGeneratedDocument(result, inquiry, attachmentPdf);
     }
 
     // Используем специализированный генератор для Водоканала
@@ -548,13 +493,7 @@ export class InquiryRequestsService {
         executors,
       });
 
-      return {
-        inquiryId: inquiry.id,
-        inquiryName: inquiry.shortName,
-        fileName: result.fileName,
-        fileUrl: `/generated/inquiries/${result.fileName}`,
-        generatedAt: new Date().toISOString(),
-      };
+      return this.processGeneratedDocument(result, inquiry, attachmentPdf);
     }
 
     // Используем специализированный генератор для МВК ЗСО (МО)
@@ -569,13 +508,7 @@ export class InquiryRequestsService {
         executors,
       });
 
-      return {
-        inquiryId: inquiry.id,
-        inquiryName: inquiry.shortName,
-        fileName: result.fileName,
-        fileUrl: `/generated/inquiries/${result.fileName}`,
-        generatedAt: new Date().toISOString(),
-      };
+      return this.processGeneratedDocument(result, inquiry, attachmentPdf);
     }
 
     // Используем специализированный генератор для Администрации (МО)
@@ -591,13 +524,7 @@ export class InquiryRequestsService {
         executors,
       });
 
-      return {
-        inquiryId: inquiry.id,
-        inquiryName: inquiry.shortName,
-        fileName: result.fileName,
-        fileUrl: `/generated/inquiries/${result.fileName}`,
-        generatedAt: new Date().toISOString(),
-      };
+      return this.processGeneratedDocument(result, inquiry, attachmentPdf);
     }
 
     // Используем специализированный генератор для КЛХ (МО)
@@ -612,13 +539,7 @@ export class InquiryRequestsService {
         executors,
       });
 
-      return {
-        inquiryId: inquiry.id,
-        inquiryName: inquiry.shortName,
-        fileName: result.fileName,
-        fileUrl: `/generated/inquiries/${result.fileName}`,
-        generatedAt: new Date().toISOString(),
-      };
+      return this.processGeneratedDocument(result, inquiry, attachmentPdf);
     }
 
     // Используем специализированный генератор для Мин Экологии ЗСО (МО)
@@ -633,13 +554,7 @@ export class InquiryRequestsService {
         executors,
       });
 
-      return {
-        inquiryId: inquiry.id,
-        inquiryName: inquiry.shortName,
-        fileName: result.fileName,
-        fileUrl: `/generated/inquiries/${result.fileName}`,
-        generatedAt: new Date().toISOString(),
-      };
+      return this.processGeneratedDocument(result, inquiry, attachmentPdf);
     }
 
     // Используем специализированный генератор для МинПрироды РФ (МО)
@@ -653,13 +568,7 @@ export class InquiryRequestsService {
         executors,
       });
 
-      return {
-        inquiryId: inquiry.id,
-        inquiryName: inquiry.shortName,
-        fileName: result.fileName,
-        fileUrl: `/generated/inquiries/${result.fileName}`,
-        generatedAt: new Date().toISOString(),
-      };
+      return this.processGeneratedDocument(result, inquiry, attachmentPdf);
     }
 
     // Для остальных справок используем общий генератор
@@ -683,14 +592,60 @@ export class InquiryRequestsService {
     const buffer = zip.generate({
       type: 'nodebuffer',
       compression: 'DEFLATE',
-    });
+    }) as Buffer;
     await writeFile(filePath, buffer);
 
+    const result = { fileName, filePath, buffer };
+    return this.processGeneratedDocument(result, inquiry, attachmentPdf);
+  }
+
+  /**
+   * Обрабатывает сгенерированный документ:
+   * - Если есть attachmentPdf: конвертирует Word в PDF и объединяет с приложением
+   * - Если нет attachmentPdf: возвращает исходный Word файл
+   */
+  private async processGeneratedDocument(
+    result: { fileName: string; filePath: string; buffer: Buffer },
+    inquiry: InquiryType,
+    attachmentPdf?: Buffer,
+  ): Promise<GeneratedInquiryFile> {
+    // Если есть PDF приложение - конвертируем и объединяем
+    if (attachmentPdf) {
+      try {
+        this.logger.log(`Конвертация и объединение PDF для ${inquiry.id}...`);
+        const pdfResult = await processInquiryWithPdf(
+          result.filePath,
+          attachmentPdf,
+          this.outputDir,
+          result.fileName,
+        );
+
+        return {
+          inquiryId: inquiry.id,
+          inquiryName: inquiry.shortName,
+          fileName: pdfResult.fileName,
+          fileUrl: `/generated/inquiries/${pdfResult.fileName}`,
+          generatedAt: new Date().toISOString(),
+        };
+      } catch (error) {
+        this.logger.error(`Ошибка конвертации PDF для ${inquiry.id}:`, error);
+        // Если ошибка конвертации - возвращаем оригинальный Word документ
+        return {
+          inquiryId: inquiry.id,
+          inquiryName: inquiry.shortName,
+          fileName: result.fileName,
+          fileUrl: `/generated/inquiries/${result.fileName}`,
+          generatedAt: new Date().toISOString(),
+        };
+      }
+    }
+
+    // Без PDF приложения - возвращаем Word файл как есть
     return {
       inquiryId: inquiry.id,
       inquiryName: inquiry.shortName,
-      fileName,
-      fileUrl: `/generated/inquiries/${fileName}`,
+      fileName: result.fileName,
+      fileUrl: `/generated/inquiries/${result.fileName}`,
       generatedAt: new Date().toISOString(),
     };
   }
@@ -899,6 +854,65 @@ export class InquiryRequestsService {
       regionName: region === 'MOSCOW' ? 'г. Москва' : 'Московская область',
       inquiries,
     };
+  }
+
+  /**
+   * Получить данные для отправки справки по email
+   */
+  async getInquiryEmailData(
+    projectId: string,
+    inquiryId: string,
+  ): Promise<{
+    inquiryName: string;
+    objectName: string;
+    objectAddress: string;
+    pdfBuffer: Buffer;
+    fileName: string;
+  } | null> {
+    // Получаем проект и запрос справок
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: {
+        objectName: true,
+        objectAddress: true,
+        inquiryRequest: true,
+      },
+    });
+
+    if (!project || !project.inquiryRequest) {
+      return null;
+    }
+
+    // Ищем сгенерированный файл
+    const generatedFiles = (project.inquiryRequest.generatedFiles || []) as unknown as GeneratedInquiryFile[];
+    const file = generatedFiles.find((f) => f.inquiryId === inquiryId);
+
+    if (!file) {
+      return null;
+    }
+
+    // Проверяем что это PDF файл
+    if (!file.fileName.toLowerCase().endsWith('.pdf')) {
+      this.logger.warn(`Файл ${file.fileName} не является PDF, email отправка невозможна`);
+      return null;
+    }
+
+    // Читаем файл
+    try {
+      const filePath = join(this.outputDir, file.fileName);
+      const pdfBuffer = await readFile(filePath);
+
+      return {
+        inquiryName: file.inquiryName,
+        objectName: project.objectName || 'Без названия',
+        objectAddress: project.objectAddress || 'Адрес не указан',
+        pdfBuffer,
+        fileName: file.fileName,
+      };
+    } catch (error) {
+      this.logger.error(`Ошибка чтения файла ${file.fileName}: ${error.message}`);
+      return null;
+    }
   }
 }
 

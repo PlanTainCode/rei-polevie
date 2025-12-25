@@ -8,10 +8,16 @@ import {
   Res,
   UseGuards,
   NotFoundException,
+  BadRequestException,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { InquiryRequestsService } from './inquiry-requests.service';
+import { EmailService } from '../email/email.service';
 import {
   type UpdateInquiryRequestDto,
   type GenerateInquiriesDto,
@@ -20,7 +26,10 @@ import {
 @Controller('projects/:projectId/inquiry-requests')
 @UseGuards(JwtAuthGuard)
 export class InquiryRequestsController {
-  constructor(private inquiryRequestsService: InquiryRequestsService) {}
+  constructor(
+    private inquiryRequestsService: InquiryRequestsService,
+    private emailService: EmailService,
+  ) {}
 
   /**
    * Получить или создать запрос справок для проекта
@@ -51,13 +60,46 @@ export class InquiryRequestsController {
 
   /**
    * Сгенерировать справки
+   * Принимает опциональный PDF файл (приложение) для объединения со справками
    */
   @Post('generate')
+  @UseInterceptors(
+    FileInterceptor('attachmentPdf', {
+      storage: memoryStorage(),
+      fileFilter: (req, file, callback) => {
+        if (file.mimetype === 'application/pdf') {
+          callback(null, true);
+        } else {
+          callback(new Error('Разрешены только PDF файлы'), false);
+        }
+      },
+      limits: {
+        fileSize: 50 * 1024 * 1024, // 50MB
+      },
+    }),
+  )
   async generate(
     @Param('projectId') projectId: string,
-    @Body() dto: GenerateInquiriesDto,
+    @Body() dto: { inquiryIds: string | string[] },
+    @UploadedFile() attachmentPdf?: Express.Multer.File,
   ) {
-    return this.inquiryRequestsService.generate(projectId, dto.inquiryIds);
+    // inquiryIds может прийти как JSON строка из FormData или как массив
+    let inquiryIds: string[];
+    if (typeof dto.inquiryIds === 'string') {
+      try {
+        inquiryIds = JSON.parse(dto.inquiryIds);
+      } catch {
+        inquiryIds = [dto.inquiryIds];
+      }
+    } else {
+      inquiryIds = dto.inquiryIds;
+    }
+
+    return this.inquiryRequestsService.generate(
+      projectId,
+      inquiryIds,
+      attachmentPdf?.buffer,
+    );
   }
 
   /**
@@ -88,6 +130,54 @@ export class InquiryRequestsController {
     }
 
     res.download(path, fileName);
+  }
+
+  /**
+   * Отправить справку на email ведомства
+   */
+  @Post('send-email')
+  async sendEmail(
+    @Param('projectId') projectId: string,
+    @Body() dto: { inquiryId: string; email: string },
+  ) {
+    if (!dto.email || !dto.inquiryId) {
+      throw new BadRequestException('Необходимо указать inquiryId и email');
+    }
+
+    // Получаем данные проекта и запроса
+    const result = await this.inquiryRequestsService.getInquiryEmailData(
+      projectId,
+      dto.inquiryId,
+    );
+
+    if (!result) {
+      throw new NotFoundException('Справка не найдена или не сгенерирована');
+    }
+
+    // Отправляем письмо
+    const emailResult = await this.emailService.sendInquiryRequest({
+      to: dto.email,
+      inquiryName: result.inquiryName,
+      objectName: result.objectName,
+      objectAddress: result.objectAddress,
+      pdfBuffer: result.pdfBuffer,
+      pdfFileName: result.fileName,
+    });
+
+    return {
+      success: emailResult.success,
+      messageId: emailResult.messageId,
+      error: emailResult.error,
+    };
+  }
+
+  /**
+   * Проверить настройку email сервиса
+   */
+  @Get('email-status')
+  async getEmailStatus() {
+    const isConfigured = await this.emailService.verifyConnection();
+    return { configured: isConfigured };
   }
 }
 

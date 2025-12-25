@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as mammoth from 'mammoth';
+import { proxyFetch } from '../ai/proxy-fetch';
 import { readFile } from 'fs/promises';
 import { join, extname } from 'path';
 import { TechnicalTaskData, SurveyTypes, UrbanPlanningActivities, EcologySurveyWorks } from './tz-fields';
@@ -441,7 +442,7 @@ export class TzProcessingService {
    * Вызов AI через OpenRouter
    */
   private async chat(messages: ChatMessage[]): Promise<string> {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const response = await proxyFetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

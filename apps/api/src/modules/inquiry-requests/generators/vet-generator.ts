@@ -6,6 +6,7 @@
 import { join } from 'path';
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import * as PizZip from 'pizzip';
+import { cleanupDocument } from './doc-cleanup';
 
 // Плейсхолдеры в шаблоне
 const PLACEHOLDERS = {
@@ -88,6 +89,9 @@ export async function generateVetInquiry(
 
   // 9. Расширяем текстовые поля
   docXml = widenTextboxes(docXml);
+
+  // 10. Очищаем документ от лишних разрывов страниц
+  docXml = cleanupDocument(docXml);
 
   zip.file('word/document.xml', docXml);
 

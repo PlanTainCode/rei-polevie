@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { proxyFetch } from './proxy-fetch';
 import {
   extractProgramIeiOrderFlagsViaAi,
   ProgramIeiOrderFlags,
@@ -237,10 +238,12 @@ export interface ServiceMatch {
 @Injectable()
 export class AiService {
   private readonly apiKey: string;
-  private readonly model = 'anthropic/claude-3.5-sonnet';
+  // Gemini 3 Pro Preview (ноябрь 2025) - флагман Google, ~$0.66/программу
+  private readonly model = 'google/gemini-3-pro-preview';
 
   constructor(private configService: ConfigService) {
     this.apiKey = this.configService.get<string>('OPENROUTER_API_KEY') || '';
+    console.log(`[AiService] Initialized with model: ${this.model}, API key: ${this.apiKey ? this.apiKey.substring(0, 15) + '...' : 'NOT SET'}`);
   }
 
   /**
@@ -294,7 +297,7 @@ export class AiService {
   }
 
   private async chat(messages: ChatMessage[]): Promise<string> {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const response = await proxyFetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -311,7 +314,10 @@ export class AiService {
     });
 
     if (!response.ok) {
-      throw new Error(`OpenRouter API error: ${response.status}`);
+      const errorBody = await response.text();
+      console.error(`[AiService] OpenRouter error ${response.status}:`, errorBody);
+      console.error(`[AiService] Model: ${this.model}, API key starts with: ${this.apiKey?.substring(0, 10)}...`);
+      throw new Error(`OpenRouter API error: ${response.status} - ${errorBody}`);
     }
 
     const data = (await response.json()) as OpenRouterResponse;
@@ -1379,7 +1385,7 @@ territoryConditionText:
 Если координаты не найдены, верни: {"error": "not_found"}`;
 
     try {
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      const response = await proxyFetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

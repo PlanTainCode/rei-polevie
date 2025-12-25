@@ -6,6 +6,7 @@
 import { join } from 'path';
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import * as PizZip from 'pizzip';
+import { cleanupDocument } from './doc-cleanup';
 
 // Плейсхолдеры в шаблоне (текст подсвечен зелёным)
 const PLACEHOLDERS = {
@@ -109,6 +110,9 @@ export async function generateCgmsInquiry(
 
   // 7. Заменяем название объекта
   docXml = replaceObjectName(docXml, params.objectName);
+  
+  // 8. Очищаем документ от лишних разрывов страниц
+  docXml = cleanupDocument(docXml);
   
   // Сохраняем обратно в архив
   zip.file('word/document.xml', docXml);
@@ -274,14 +278,11 @@ function replaceExecutors(xml: string, executors: Executor[]): string {
     xml = xml.replace(EXECUTOR_PHONES[i], '');
   }
   
-  // Убираем дополнительные части разбитых телефонов (они шаблонные, не нужны)
-  for (const part of PHONE_EXTRA_PARTS) {
-    const pattern = new RegExp(
-      `(<w:highlight w:val="green"\\/><\\/w:rPr><w:t[^>]*>)${escapeRegex(part)}(<\\/w:t>)`,
-      'g',
-    );
-    xml = xml.replace(pattern, '$1$2');
-  }
+  // Убираем дополнительные части разбитых телефонов "7, доб.114"
+  // Удаляем просто по тексту в любом контексте
+  xml = xml.replace(/>7<\/w:t>/g, '></w:t>');
+  xml = xml.replace(/>, доб\.114<\/w:t>/g, '></w:t>');
+  xml = xml.replace(/>7, доб\.114<\/w:t>/g, '></w:t>');
   
   return xml;
 }

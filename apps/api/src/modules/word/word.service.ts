@@ -41,7 +41,10 @@ import {
   parseHaFromText,
   pruneProgramIeiSection42WaterBlocks,
 } from './program-iei/section-42-natural-conditions';
-import { replaceParagraphTextByParaIdPreserveRunProps } from './program-iei/docx-xml';
+import { 
+  replaceParagraphTextByParaIdPreserveRunProps,
+  normalizeDocumentStyles,
+} from './program-iei/docx-xml';
 import { mergeSiteDescriptionWithArea } from './program-iei/site-boundaries';
 import { replaceProgramIeiSection43Block } from './program-iei/section-43';
 import { replaceProgramIeiSection44Block } from './program-iei/section-44';
@@ -723,6 +726,14 @@ export class WordService {
     // Массив текстов всех поручений (основное + доотборы)
     const allOrderTexts: string[] = [];
     
+    console.log('[WordService] tzFileUrl:', project.tzFileUrl);
+    console.log('[WordService] Project data:', {
+      clientName: project.clientName,
+      clientAddress: project.clientAddress,
+      objectAddress: project.objectAddress,
+      objectName: project.objectName,
+    });
+    
     if (project.tzFileUrl) {
       try {
         // Читаем текст ТЗ
@@ -765,6 +776,43 @@ export class WordService {
       } catch (error) {
         console.error('[WordService] Ошибка чтения ТЗ или AI:', error);
       }
+    } else {
+      console.warn('[WordService] ТЗ не загружено (tzFileUrl пуст) - используем данные из project');
+    }
+
+    // Если section1Data не было получено из AI - используем данные из project
+    if (!section1Data) {
+      console.warn('[WordService] section1Data пуст - создаём из данных project');
+      section1Data = {
+        objectName: project.objectName || project.name || '',
+        objectLocation: project.objectAddress || '',
+        clientName: project.clientName || '',
+        clientOgrn: '',
+        clientAddress: project.clientAddress || '',
+        clientContactName: '',
+        clientContactPhone: '',
+        clientContactEmail: '',
+        goalsAndTasks: '',
+        objectPurpose: project.objectPurpose || '',
+        transportInfrastructure: 'Нет',
+        hazardousProduction: 'Нет',
+        fireHazard: 'Нет данных',
+        responsibilityLevel: 'Нормальный',
+        permanentOccupancy: '',
+        urbanPlanningActivity: '',
+        surveyStage: 'Инженерные изыскания для подготовки проектной документации',
+        technicalCharacteristics: '',
+        excavationDepth: '',
+        siteDescription: '',
+        siteArea: '',
+        clientDirectorPosition: 'Директор',
+        clientDirectorName: '',
+        clientShortName: '',
+        coordinates: null,
+        cadastralNumber: '',
+        backgroundConcentrationsRef: '',
+        previousSurveyReport: '',
+      };
     }
 
     // П.3.1 (краткая физико-географическая характеристика) - определяем по адресу/местоположению
@@ -1328,7 +1376,10 @@ export class WordService {
       }
     }
 
-    // Финальная нормализация оформления (красный → чёрный)
+    // Финальная нормализация оформления:
+    // 1. Убираем все highlight, shd и цветной текст → чёрный
+    docXml = normalizeDocumentStyles(docXml);
+    // 2. Дополнительная нормализация для старого кода
     docXml = this.normalizeGeneratedTextFormatting(docXml);
     
     zip.file('word/document.xml', docXml);
@@ -1339,6 +1390,7 @@ export class WordService {
       if (header) {
         let headerXml = header.asText();
         headerXml = this.replacePlaceholders(headerXml, data);
+        headerXml = normalizeDocumentStyles(headerXml);
         headerXml = this.normalizeGeneratedTextFormatting(headerXml);
         zip.file(headerFile, headerXml);
       }
@@ -1352,6 +1404,7 @@ export class WordService {
         let footerXml = footer.asText();
         footerXml = this.replacePlaceholders(footerXml, data);
         footerXml = this.replaceDocumentNumber(footerXml, docNumber);
+        footerXml = normalizeDocumentStyles(footerXml);
         footerXml = this.normalizeGeneratedTextFormatting(footerXml);
         zip.file(footerFile, footerXml);
       }
@@ -1954,7 +2007,7 @@ export class WordService {
 
   /**
    * Вспомогательный хелпер: заменяет текст параграфа по w14:paraId,
-   * сохраняя <w:pPr> (чтобы не ломать стили/маркировку списков).
+   * сохраняя <w:pPr> и rPr (шрифт/размер) из исходного run.
    */
   private replaceParagraphTextByParaId(xml: string, paraId: string, newText: string): string {
     const escaped = this.escapeXml(newText);
@@ -1963,10 +2016,39 @@ export class WordService {
       'g',
     );
 
+    // Стандартный rPr если в параграфе нет своего
+    const defaultRPr = '<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:color w:val="000000"/></w:rPr>';
+
     return xml.replace(re, (_m, open, body, close) => {
-      const pPrMatch = String(body).match(/<w:pPr[\s\S]*?<\/w:pPr>/);
+      const bodyStr = String(body);
+      const pPrMatch = bodyStr.match(/<w:pPr[\s\S]*?<\/w:pPr>/);
       const pPr = pPrMatch ? pPrMatch[0] : '';
-      return `${open}${pPr}<w:r><w:rPr><w:color w:val="000000"/></w:rPr><w:t xml:space="preserve">${escaped}</w:t></w:r>${close}`;
+
+      // Ищем rPr ТОЛЬКО внутри <w:r> (не в pPr!) - берём первый run
+      const runMatch = bodyStr.match(/<w:r>[\s\S]*?<\/w:r>/);
+      let rPr = defaultRPr;
+      if (runMatch) {
+        const runRprMatch = runMatch[0].match(/<w:rPr[\s\S]*?<\/w:rPr>/);
+        if (runRprMatch) {
+          rPr = runRprMatch[0];
+        }
+      }
+
+      // Чистим highlight/shd и принудительно ставим чёрный цвет
+      rPr = rPr
+        .replace(/<w:highlight[^/]*\/>/g, '')
+        .replace(/<w:highlight[^>]*>[\s\S]*?<\/w:highlight>/g, '')
+        .replace(/<w:shd[^/]*\/>/g, '')
+        .replace(/<w:shd[^>]*>[\s\S]*?<\/w:shd>/g, '');
+
+      if (rPr.includes('<w:color')) {
+        rPr = rPr.replace(/<w:color[^/]*\/>/g, '<w:color w:val="000000"/>');
+        rPr = rPr.replace(/<w:color[^>]*>[\s\S]*?<\/w:color>/g, '<w:color w:val="000000"/>');
+      } else {
+        rPr = rPr.replace('<w:rPr>', '<w:rPr><w:color w:val="000000"/>');
+      }
+
+      return `${open}${pPr}<w:r>${rPr}<w:t xml:space="preserve">${escaped}</w:t></w:r>${close}`;
     });
   }
 

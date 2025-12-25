@@ -6,6 +6,7 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import PizZip from 'pizzip';
+import { cleanupDocument } from './doc-cleanup';
 
 export interface Executor {
   name: string;
@@ -72,6 +73,9 @@ export async function generateDpioosInquiry(
 
   // 7. Заменяем исполнителей
   docXml = replaceExecutors(docXml, params.executors);
+
+  // 8. Очищаем документ от лишних разрывов страниц
+  docXml = cleanupDocument(docXml);
 
   // Сохраняем обратно в архив
   zip.file('word/document.xml', docXml);

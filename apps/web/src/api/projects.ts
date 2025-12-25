@@ -139,6 +139,7 @@ export interface InquiryType {
   templateFile: string;
   order: number;
   description?: string;
+  email?: string;
 }
 
 export interface GeneratedInquiryFile {
@@ -625,10 +626,24 @@ export const projectsApi = {
   generateInquiries: async (
     projectId: string,
     inquiryIds: string[],
+    attachmentPdf?: File,
   ): Promise<GenerateInquiriesResult> => {
+    const formData = new FormData();
+    formData.append('inquiryIds', JSON.stringify(inquiryIds));
+    
+    if (attachmentPdf) {
+      formData.append('attachmentPdf', attachmentPdf);
+    }
+    
     const response = await apiClient.post<GenerateInquiriesResult>(
       `/projects/${projectId}/inquiry-requests/generate`,
-      { inquiryIds },
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        timeout: 300000, // 5 минут на генерацию и конвертацию PDF
+      },
     );
     return response.data;
   },
@@ -647,6 +662,38 @@ export const projectsApi = {
     link.click();
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
+  },
+
+  // Получить blob URL для просмотра PDF
+  getInquiryPdfBlobUrl: async (projectId: string, fileName: string): Promise<string> => {
+    const response = await apiClient.get(
+      `/projects/${projectId}/inquiry-requests/download/${fileName}`,
+      { responseType: 'blob' },
+    );
+
+    const blob = new Blob([response.data], { type: 'application/pdf' });
+    return window.URL.createObjectURL(blob);
+  },
+
+  // Отправить справку на email ведомства
+  sendInquiryEmail: async (
+    projectId: string,
+    inquiryId: string,
+    email: string,
+  ): Promise<{ success: boolean; messageId?: string; error?: string }> => {
+    const response = await apiClient.post(
+      `/projects/${projectId}/inquiry-requests/send-email`,
+      { inquiryId, email },
+    );
+    return response.data;
+  },
+
+  // Проверить статус email сервиса
+  getEmailStatus: async (projectId: string): Promise<{ configured: boolean }> => {
+    const response = await apiClient.get(
+      `/projects/${projectId}/inquiry-requests/email-status`,
+    );
+    return response.data;
   },
 };
 

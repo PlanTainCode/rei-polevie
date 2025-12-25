@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -13,6 +13,13 @@ import {
   RefreshCw,
   User,
   Phone,
+  Upload,
+  X,
+  Paperclip,
+  Eye,
+  Mail,
+  Send,
+  Loader2,
 } from 'lucide-react';
 import {
   projectsApi,
@@ -20,6 +27,203 @@ import {
   type GeneratedInquiryFile,
 } from '@/api/projects';
 import { Button, Card, CardHeader, CardTitle, CardContent, Input } from '@/components/ui';
+
+// Компонент модального окна для просмотра PDF
+function PdfViewerModal({
+  isOpen,
+  onClose,
+  blobUrl,
+  fileName,
+  isLoading,
+  onDownload,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  blobUrl: string | null;
+  fileName: string;
+  isLoading: boolean;
+  onDownload: () => void;
+}) {
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape);
+      document.body.style.overflow = 'hidden';
+    }
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+      document.body.style.overflow = '';
+    };
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-black/90">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 bg-[var(--bg-secondary)] border-b border-[var(--border-primary)]">
+        <div className="flex items-center gap-3">
+          <FileText className="w-5 h-5 text-teal-400" />
+          <span className="font-medium truncate max-w-md">{fileName}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={onDownload}
+          >
+            <Download className="w-4 h-4" />
+            Скачать
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onClose}
+            className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          >
+            <X className="w-5 h-5" />
+          </Button>
+        </div>
+      </div>
+
+      {/* PDF Viewer */}
+      <div className="flex-1 p-4">
+        {isLoading ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="animate-spin w-8 h-8 border-2 border-teal-400 border-t-transparent rounded-full" />
+          </div>
+        ) : blobUrl ? (
+          <iframe
+            src={blobUrl}
+            className="w-full h-full rounded-lg bg-white"
+            title={fileName}
+          />
+        ) : (
+          <div className="flex items-center justify-center h-full text-[var(--text-secondary)]">
+            Не удалось загрузить PDF
+          </div>
+        )}
+      </div>
+
+      {/* Footer hint */}
+      <div className="px-4 py-2 text-center text-sm text-[var(--text-secondary)]">
+        Нажмите <kbd className="px-2 py-0.5 bg-[var(--bg-tertiary)] rounded text-xs">Esc</kbd> или кнопку закрытия чтобы выйти
+      </div>
+    </div>
+  );
+}
+
+// Компонент модального окна для отправки email
+function SendEmailModal({
+  isOpen,
+  onClose,
+  inquiryName,
+  defaultEmail,
+  onSend,
+  isSending,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  inquiryName: string;
+  defaultEmail: string;
+  onSend: (email: string) => void;
+  isSending: boolean;
+}) {
+  const [email, setEmail] = useState(defaultEmail);
+
+  useEffect(() => {
+    setEmail(defaultEmail);
+  }, [defaultEmail]);
+
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isSending) onClose();
+    };
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape);
+      document.body.style.overflow = 'hidden';
+    }
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+      document.body.style.overflow = '';
+    };
+  }, [isOpen, onClose, isSending]);
+
+  if (!isOpen) return null;
+
+  const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+      <div className="bg-[var(--bg-primary)] rounded-xl border border-[var(--border-primary)] w-full max-w-md mx-4 shadow-xl">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)]">
+          <div className="flex items-center gap-3">
+            <Mail className="w-5 h-5 text-teal-400" />
+            <span className="font-medium">Отправить на email</span>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={isSending}
+            className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="px-5 py-4 space-y-4">
+          <div>
+            <p className="text-sm text-[var(--text-secondary)] mb-1">Справка:</p>
+            <p className="font-medium">{inquiryName}</p>
+          </div>
+
+          <div>
+            <label className="block text-sm text-[var(--text-secondary)] mb-2">
+              Email получателя
+            </label>
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="example@domain.ru"
+              disabled={isSending}
+              className={!isValidEmail && email ? 'border-red-500' : ''}
+            />
+            {!isValidEmail && email && (
+              <p className="text-xs text-red-400 mt-1">Введите корректный email адрес</p>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[var(--border-primary)]">
+          <Button variant="secondary" onClick={onClose} disabled={isSending}>
+            Отмена
+          </Button>
+          <Button
+            onClick={() => onSend(email)}
+            disabled={!isValidEmail || isSending}
+          >
+            {isSending ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Отправка...
+              </>
+            ) : (
+              <>
+                <Send className="w-4 h-4" />
+                Отправить
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ID справок ЦГМС (для показа поля хим. веществ)
 const CGMS_INQUIRY_IDS = ['CGMS_CLIMATE', 'CGMS_CLIMATE_MO'];
@@ -67,6 +271,107 @@ export function InquiryRequestsPage() {
   
   // Исполнитель (ФИО + телефон)
   const [executor, setExecutor] = useState<Executor>({ name: '', phone: '' });
+  
+  // PDF приложение для объединения
+  const [attachmentPdf, setAttachmentPdf] = useState<File | null>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
+  
+  // Состояние для просмотра PDF
+  const [pdfViewer, setPdfViewer] = useState<{
+    isOpen: boolean;
+    blobUrl: string | null;
+    fileName: string;
+    isLoading: boolean;
+  }>({
+    isOpen: false,
+    blobUrl: null,
+    fileName: '',
+    isLoading: false,
+  });
+
+  // Открыть просмотр PDF
+  const openPdfViewer = async (fileName: string) => {
+    setPdfViewer({ isOpen: true, blobUrl: null, fileName, isLoading: true });
+    try {
+      const blobUrl = await projectsApi.getInquiryPdfBlobUrl(id!, fileName);
+      setPdfViewer((prev) => ({ ...prev, blobUrl, isLoading: false }));
+    } catch {
+      setPdfViewer((prev) => ({ ...prev, isLoading: false }));
+    }
+  };
+
+  // Закрыть просмотр PDF
+  const closePdfViewer = () => {
+    // Освобождаем blob URL
+    if (pdfViewer.blobUrl) {
+      window.URL.revokeObjectURL(pdfViewer.blobUrl);
+    }
+    setPdfViewer({ isOpen: false, blobUrl: null, fileName: '', isLoading: false });
+  };
+
+  // Состояние для отправки email
+  const [emailModal, setEmailModal] = useState<{
+    isOpen: boolean;
+    inquiryId: string;
+    inquiryName: string;
+    defaultEmail: string;
+  }>({
+    isOpen: false,
+    inquiryId: '',
+    inquiryName: '',
+    defaultEmail: '',
+  });
+
+  // Уведомление об отправке
+  const [emailNotification, setEmailNotification] = useState<{
+    show: boolean;
+    success: boolean;
+    message: string;
+  }>({ show: false, success: false, message: '' });
+
+  // Мутация для отправки email
+  const sendEmailMutation = useMutation({
+    mutationFn: async ({ inquiryId, email }: { inquiryId: string; email: string }) => {
+      return projectsApi.sendInquiryEmail(id!, inquiryId, email);
+    },
+    onSuccess: (data) => {
+      setEmailModal((prev) => ({ ...prev, isOpen: false }));
+      if (data.success) {
+        setEmailNotification({
+          show: true,
+          success: true,
+          message: 'Письмо успешно отправлено!',
+        });
+      } else {
+        setEmailNotification({
+          show: true,
+          success: false,
+          message: data.error || 'Ошибка отправки письма',
+        });
+      }
+      // Скрыть уведомление через 5 секунд
+      setTimeout(() => setEmailNotification((prev) => ({ ...prev, show: false })), 5000);
+    },
+    onError: (error: Error) => {
+      setEmailModal((prev) => ({ ...prev, isOpen: false }));
+      setEmailNotification({
+        show: true,
+        success: false,
+        message: error.message || 'Ошибка отправки',
+      });
+      setTimeout(() => setEmailNotification((prev) => ({ ...prev, show: false })), 5000);
+    },
+  });
+
+  // Открыть модалку отправки email
+  const openEmailModal = (inquiry: InquiryType) => {
+    setEmailModal({
+      isOpen: true,
+      inquiryId: inquiry.id,
+      inquiryName: inquiry.shortName,
+      defaultEmail: inquiry.email || '',
+    });
+  };
 
   // Загрузка проекта
   const { data: project, isLoading: projectLoading } = useQuery({
@@ -146,8 +451,12 @@ export function InquiryRequestsPage() {
     mutationFn: async () => {
       // Сначала сохраняем данные
       await projectsApi.updateInquiryRequest(id!, getDataToSave());
-      // Затем генерируем
-      return projectsApi.generateInquiries(id!, Array.from(selectedInquiries));
+      // Затем генерируем (с PDF приложением если есть)
+      return projectsApi.generateInquiries(
+        id!,
+        Array.from(selectedInquiries),
+        attachmentPdf || undefined,
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inquiry-request', id] });
@@ -215,6 +524,56 @@ export function InquiryRequestsPage() {
 
   return (
     <div className="max-w-4xl animate-fade-in">
+      {/* Модальное окно просмотра PDF */}
+      <PdfViewerModal
+        isOpen={pdfViewer.isOpen}
+        onClose={closePdfViewer}
+        blobUrl={pdfViewer.blobUrl}
+        fileName={pdfViewer.fileName}
+        isLoading={pdfViewer.isLoading}
+        onDownload={() => {
+          if (pdfViewer.fileName) {
+            projectsApi.downloadInquiry(id!, pdfViewer.fileName);
+          }
+        }}
+      />
+
+      {/* Модальное окно отправки email */}
+      <SendEmailModal
+        isOpen={emailModal.isOpen}
+        onClose={() => setEmailModal((prev) => ({ ...prev, isOpen: false }))}
+        inquiryName={emailModal.inquiryName}
+        defaultEmail={emailModal.defaultEmail}
+        onSend={(email) => sendEmailMutation.mutate({ inquiryId: emailModal.inquiryId, email })}
+        isSending={sendEmailMutation.isPending}
+      />
+
+      {/* Уведомление об отправке email */}
+      {emailNotification.show && (
+        <div
+          className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 animate-fade-in ${
+            emailNotification.success
+              ? 'bg-teal-500/20 border border-teal-500/30'
+              : 'bg-red-500/20 border border-red-500/30'
+          }`}
+        >
+          {emailNotification.success ? (
+            <CheckCircle className="w-5 h-5 text-teal-400" />
+          ) : (
+            <AlertCircle className="w-5 h-5 text-red-400" />
+          )}
+          <span className={emailNotification.success ? 'text-teal-400' : 'text-red-400'}>
+            {emailNotification.message}
+          </span>
+          <button
+            onClick={() => setEmailNotification((prev) => ({ ...prev, show: false }))}
+            className="ml-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Навигация */}
       <div className="mb-6">
         <Link
@@ -289,6 +648,13 @@ export function InquiryRequestsPage() {
                     projectsApi.downloadInquiry(id!, file.fileName);
                   }
                 }}
+                onPreview={() => {
+                  const file = generatedFiles.find((f) => f.inquiryId === inquiry.id);
+                  if (file) {
+                    openPdfViewer(file.fileName);
+                  }
+                }}
+                onSendEmail={() => openEmailModal(inquiry)}
               />
             ))}
           </div>
@@ -421,6 +787,60 @@ export function InquiryRequestsPage() {
                   </p>
                 </div>
               )}
+
+              {/* PDF приложение */}
+              <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                <label className="block text-sm font-medium text-emerald-400 mb-2">
+                  <Paperclip className="w-4 h-4 inline mr-1" />
+                  PDF приложение (опционально)
+                </label>
+                <p className="text-xs text-emerald-400/70 mb-3">
+                  Загрузите PDF с альбомной ориентацией — он будет добавлен к каждой справке после конвертации в PDF
+                </p>
+                
+                {attachmentPdf ? (
+                  <div className="flex items-center gap-3 p-3 bg-[var(--bg-secondary)] rounded-lg">
+                    <FileText className="w-5 h-5 text-emerald-400" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{attachmentPdf.name}</p>
+                      <p className="text-xs text-[var(--text-secondary)]">
+                        {(attachmentPdf.size / 1024 / 1024).toFixed(2)} МБ
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setAttachmentPdf(null)}
+                      className="text-red-400 hover:text-red-300"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div
+                    className="flex items-center justify-center gap-2 p-4 border-2 border-dashed border-emerald-500/30 rounded-lg cursor-pointer hover:border-emerald-500/50 transition-colors"
+                    onClick={() => pdfInputRef.current?.click()}
+                  >
+                    <Upload className="w-5 h-5 text-emerald-400" />
+                    <span className="text-sm text-emerald-400">Выбрать PDF файл</span>
+                  </div>
+                )}
+                
+                <input
+                  ref={pdfInputRef}
+                  type="file"
+                  accept="application/pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setAttachmentPdf(file);
+                    }
+                    // Сбрасываем input для возможности повторного выбора того же файла
+                    e.target.value = '';
+                  }}
+                />
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -496,13 +916,19 @@ function InquiryCheckbox({
   onToggle,
   generatedFile,
   onDownload,
+  onPreview,
+  onSendEmail,
 }: {
   inquiry: InquiryType;
   isSelected: boolean;
   onToggle: () => void;
   generatedFile?: GeneratedInquiryFile;
   onDownload: () => void;
+  onPreview: () => void;
+  onSendEmail: () => void;
 }) {
+  const isPdf = generatedFile?.fileName.toLowerCase().endsWith('.pdf');
+
   return (
     <div
       className={`
@@ -545,22 +971,55 @@ function InquiryCheckbox({
         </div>
       </div>
 
-      {/* Кнопка скачивания если файл сгенерирован */}
+      {/* Кнопки если файл сгенерирован */}
       {generatedFile && (
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDownload();
-          }}
-          className="flex-shrink-0"
-        >
-          <Download className="w-4 h-4" />
-          <span className="ml-1 text-xs text-[var(--text-secondary)]">
-            {new Date(generatedFile.generatedAt).toLocaleDateString('ru')}
-          </span>
-        </Button>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {/* Кнопка отправки email (только для PDF) */}
+          {isPdf && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSendEmail();
+              }}
+              title="Отправить на email"
+              className="text-amber-400 hover:text-amber-300"
+            >
+              <Mail className="w-4 h-4" />
+            </Button>
+          )}
+          {/* Кнопка просмотра (только для PDF) */}
+          {isPdf && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={(e) => {
+                e.stopPropagation();
+                onPreview();
+              }}
+              title="Просмотреть"
+              className="text-teal-400 hover:text-teal-300"
+            >
+              <Eye className="w-4 h-4" />
+            </Button>
+          )}
+          {/* Кнопка скачивания */}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDownload();
+            }}
+            title="Скачать"
+          >
+            <Download className="w-4 h-4" />
+            <span className="ml-1 text-xs text-[var(--text-secondary)]">
+              {new Date(generatedFile.generatedAt).toLocaleDateString('ru')}
+            </span>
+          </Button>
+        </div>
       )}
     </div>
   );

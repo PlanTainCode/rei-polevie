@@ -13,6 +13,7 @@ export interface InquiryType {
   templateFile: string;
   order: number;
   description?: string;
+  email?: string; // Email ведомства для отправки запроса
 }
 
 // Справки для г. Москвы
@@ -32,6 +33,7 @@ export const MOSCOW_INQUIRIES: InquiryType[] = [
     templateFile: '1. ДПиООС Москвы.docx',
     order: 1,
     description: 'ООПТ, водные объекты, зеленые насаждения',
+    email: 'depmospriroda@mos.ru',
   },
   {
     id: 'DKN',
@@ -40,6 +42,7 @@ export const MOSCOW_INQUIRIES: InquiryType[] = [
     templateFile: '2. ДКН г.Москвы.docx',
     order: 2,
     description: 'Объекты культурного наследия',
+    email: 'dkn_info@mos.ru',
   },
   {
     id: 'VETERINARY',
@@ -48,6 +51,7 @@ export const MOSCOW_INQUIRIES: InquiryType[] = [
     templateFile: '3. Комитет ветеринарии г.Москвы.docx',
     order: 3,
     description: 'Сибирская язва, скотомогильники',
+    email: 'moskomvet@mos.ru',
   },
   {
     id: 'MVK_ZSO',
@@ -64,6 +68,7 @@ export const MOSCOW_INQUIRIES: InquiryType[] = [
     templateFile: '5. ДепТорговли Москвы.docx',
     order: 5,
     description: 'Рынки, ярмарки',
+    email: 'dtu@mos.ru',
   },
   {
     id: 'DEP_GKH',
