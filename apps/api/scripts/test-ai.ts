@@ -1,16 +1,16 @@
 async function testAI() {
-  const key = process.env.OPENROUTER_API_KEY;
-  console.log('API Key exists:', !!key);
+  const key = process.env.DEEPSEEK_API_KEY;
+  console.log('DeepSeek API Key exists:', !!key);
   console.log('API Key length:', key?.length || 0);
   
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  const response = await fetch('https://api.deepseek.com/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${key}`,
     },
     body: JSON.stringify({
-      model: 'anthropic/claude-sonnet-4',
+      model: 'deepseek-chat',
       messages: [
         { role: 'user', content: 'Скажи просто "привет"' },
       ],

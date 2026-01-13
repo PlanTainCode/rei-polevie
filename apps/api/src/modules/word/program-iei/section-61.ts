@@ -1,5 +1,5 @@
 import type { ProgramIeiOrderFlags } from '../../ai/ai.service';
-import { removeParagraphByParaId } from './docx-xml';
+import { removeParagraphByParaId, removeMarkerRunFromParagraph } from './docx-xml';
 
 // ParaId для пункта 6.1
 const PARA_IDS = {
@@ -32,18 +32,20 @@ export function replaceProgramIeiSection61Block(params: {
 
   // 2. МР 2.6.1.0333-23 (Здание) — только если есть здание, иначе удаляем
   if (hasBuildingSurvey) {
-    // Убираем префикс "(Здание) " из текста (ищем в <w:t> и удаляем)
-    xml = removePrefixFromParagraph(xml, PARA_IDS.building, '(Здание) ');
+    // Убираем маркер "(Здание)" — он в отдельном <w:r>
+    xml = removeMarkerRunFromParagraph(xml, PARA_IDS.building, '(Здание)');
   } else {
     xml = removeParagraphByParaId(xml, PARA_IDS.building);
   }
 
   // 3. Московские документы — только если адрес в Москве
   if (isMoscow) {
-    // Убираем префикс "(Москва) " из текстов
-    xml = removePrefixFromParagraph(xml, PARA_IDS.moscowInstruction, '(Москва) ');
-    xml = removePrefixFromParagraph(xml, PARA_IDS.moscow1386, '(Москва) ');
-    xml = removePrefixFromParagraph(xml, PARA_IDS.moscow1387, '(Москва) ');
+    // Убираем маркер "(Москва)" — он в отдельном <w:r>
+    // Для moscowInstruction маркер без пробела: "(Москва)"
+    // Для 1386 и 1387 маркер с пробелом: "(Москва) "
+    xml = removeMarkerRunFromParagraph(xml, PARA_IDS.moscowInstruction, '(Москва)');
+    xml = removeMarkerRunFromParagraph(xml, PARA_IDS.moscow1386, '(Москва) ');
+    xml = removeMarkerRunFromParagraph(xml, PARA_IDS.moscow1387, '(Москва) ');
   } else {
     // Удаляем московские документы для не-Москвы
     xml = removeParagraphByParaId(xml, PARA_IDS.moscowInstruction);
@@ -55,43 +57,6 @@ export function replaceProgramIeiSection61Block(params: {
   xml = removeHighlightFromSection61(xml);
 
   return xml;
-}
-
-/**
- * Удаляет префикс из текста параграфа, сохраняя все стили
- */
-function removePrefixFromParagraph(xml: string, paraId: string, prefix: string): string {
-  // Находим параграф по paraId
-  const paraPattern = new RegExp(
-    `(<w:p\\b[^>]*w14:paraId="${paraId}"[^>]*>[\\s\\S]*?</w:p>)`,
-  );
-
-  return xml.replace(paraPattern, (match) => {
-    // Удаляем префикс из всех <w:t> элементов
-    // Префикс может быть в одном <w:t> или разбит на несколько
-    let result = match;
-
-    // Простой случай: префикс целиком в одном <w:t>
-    result = result.replace(
-      new RegExp(`(<w:t[^>]*>)${escapeRegex(prefix)}`, 'g'),
-      '$1',
-    );
-
-    // Также попробуем удалить если он в начале текста с xml:space
-    result = result.replace(
-      new RegExp(`(<w:t xml:space="preserve">)${escapeRegex(prefix)}`, 'g'),
-      '$1',
-    );
-
-    return result;
-  });
-}
-
-/**
- * Экранирует спецсимволы для RegExp
- */
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**

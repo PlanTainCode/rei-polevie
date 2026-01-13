@@ -185,12 +185,27 @@ export class SamplesService {
       (a, b) => a.depthFrom - b.depthFrom,
     );
 
+    // Проверяем: это стандартное поручение (все слои имеют одинаковый count, нет platformNumbers)?
+    // Если да — все площадки имеют все слои
+    const hasPlatformNumbers = sortedLayers.some(l => l.platformNumbers && l.platformNumbers.length > 0);
+    const firstLayerCount = sortedLayers[0]?.count || platformCount;
+    const isStandardOrder = !hasPlatformNumbers && sortedLayers.every(l => l.count === firstLayerCount || l.count === 0);
+    
+    // Для стандартного поручения: фиксированный набор площадок для всех слоёв
+    const standardPlatformNumbers = isStandardOrder 
+      ? Array.from({ length: firstLayerCount > 0 ? firstLayerCount : platformCount }, (_, i) => i + 1)
+      : null;
+
     for (const layer of sortedLayers) {
       // Определяем номера площадок для данного слоя
-      // Если есть platformNumbers — используем их, иначе генерируем от 1 до count
-      const platformNumbers = layer.platformNumbers && layer.platformNumbers.length > 0
-        ? layer.platformNumbers
-        : Array.from({ length: layer.count > 0 ? layer.count : platformCount }, (_, i) => i + 1);
+      // 1. Если стандартное поручение — все площадки имеют все слои
+      // 2. Если есть platformNumbers — используем их
+      // 3. Иначе генерируем от 1 до count
+      const platformNumbers = standardPlatformNumbers
+        ? standardPlatformNumbers
+        : (layer.platformNumbers && layer.platformNumbers.length > 0
+          ? layer.platformNumbers
+          : Array.from({ length: layer.count > 0 ? layer.count : platformCount }, (_, i) => i + 1));
       
       // Для каждой площадки создаём пробу в данном слое
       for (const pNum of platformNumbers) {

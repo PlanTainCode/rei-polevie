@@ -31,9 +31,12 @@ export async function extractSection47LayersViaAi(
 ): Promise<Section47LayersData> {
   // Сначала пробуем детерминированный парсинг
   const deterministic = extractLayersDeterministically(orderText);
-  if (deterministic) {
+  if (deterministic && deterministic.layers.length > 0) {
+    console.log('[section-47-layers] Детерминистический парсинг успешен:', JSON.stringify(deterministic));
     return deterministic;
   }
+  
+  console.log('[section-47-layers] Детерминистический парсинг не сработал, используем AI');
 
   // Если не получилось - используем AI
   try {
@@ -64,7 +67,19 @@ ${orderText}
       temperature: 0,
     });
 
-    const parsed = JSON.parse(result);
+    // Извлекаем JSON из ответа (может быть обёрнут в ```json ... ```)
+    const jsonMatch = result.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.error('[AI] Не удалось найти JSON в ответе п.4.7:', result);
+      return {
+        layers: [],
+        maxDepth: 0,
+        surfacePlatformCount: 0,
+        totalBoreholeCount: 0,
+      };
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
     const layers: SoilLayer[] = Array.isArray(parsed.layers)
       ? parsed.layers.map((l: { from?: number; to?: number; count?: number }) => ({
           from: Number(l.from) || 0,

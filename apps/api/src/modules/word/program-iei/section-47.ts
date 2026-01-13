@@ -194,15 +194,15 @@ function formatDepth(depth: number): string {
 }
 
 /**
- * Генерирует XML для параграфа слоя с корректным оформлением
+ * Генерирует XML для параграфа слоя с корректным оформлением (как в шаблоне)
  */
 function generateLayerParagraphXml(text: string, index: number): string {
   // Генерируем уникальный paraId (используем базовый + индекс)
   const baseId = parseInt('18870DCF', 16);
   const newId = (baseId + index + 100).toString(16).toUpperCase().padStart(8, '0');
 
-  // Используем корректное оформление: Times New Roman 12pt, чёрный цвет, выравнивание по ширине
-  return `<w:p w14:paraId="${newId}"><w:pPr><w:jc w:val="both"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:color w:val="000000"/></w:rPr><w:t xml:space="preserve">${escapeXmlForLayers(text)}</w:t></w:r></w:p>`;
+  // Используем оформление из шаблона: стиль 14, отступы, курсив, Times New Roman 12pt
+  return `<w:p w14:paraId="${newId}"><w:pPr><w:pStyle w:val="14"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="12"/></w:numPr><w:tabs><w:tab w:val="left" w:pos="601"/></w:tabs><w:spacing w:after="60"/><w:ind w:left="601" w:hanging="284"/><w:jc w:val="both"/></w:pPr><w:r><w:rPr><w:bCs/><w:i/><w:sz w:val="24"/><w:szCs w:val="24"/><w:color w:val="000000"/></w:rPr><w:t xml:space="preserve">${escapeXmlForLayers(text)}</w:t></w:r></w:p>`;
 }
 
 /**

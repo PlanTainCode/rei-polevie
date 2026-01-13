@@ -213,7 +213,7 @@ export class ProjectsController {
     return this.projectsService.regenerateFromTz(id, tzFile, req.user.userId);
   }
 
-  // Создание дочернего проекта (доотбор)
+  // Создание дочернего проекта (допотбор)
   @Post(':id/create-child')
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -241,7 +241,7 @@ export class ProjectsController {
     return this.projectsService.createChildProject(id, dto.name, orderFile, req.user.userId);
   }
 
-  // Получить список дочерних проектов (доотборов)
+  // Получить список дочерних проектов (допотборов)
   @Get(':id/children')
   async getChildProjects(
     @Request() req: { user: { userId: string } },
@@ -365,10 +365,10 @@ export class ProjectsController {
     // Проверяем доступ к проекту
     const project = await this.projectsService.findById(id, req.user.userId);
 
-    // Запрещаем генерацию программы ИЭИ для доотборов — она общая с родительским проектом
+    // Запрещаем генерацию программы ИЭИ для допотборов — она общая с родительским проектом
     if (project.parentProjectId) {
       throw new BadRequestException(
-        'Программа ИЭИ генерируется только для основного проекта. Для доотбора используйте программу родительского проекта.',
+        'Программа ИЭИ генерируется только для основного проекта. Для допотбора используйте программу родительского проекта.',
       );
     }
 

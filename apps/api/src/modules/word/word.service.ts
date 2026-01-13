@@ -707,11 +707,11 @@ export class WordService {
       throw new NotFoundException('Проект не найден');
     }
 
-    // Получаем все дочерние проекты (доотборы) для объединения данных
+    // Получаем все дочерние проекты (допотборы) для объединения данных
     const childProjects = await this.prisma.project.findMany({
       where: { parentProjectId: projectId },
     });
-    console.log(`[WordService] Найдено ${childProjects.length} доотборов для объединения`);
+    console.log(`[WordService] Найдено ${childProjects.length} допотборов для объединения`);
 
     // Извлекаем данные из ТЗ через AI
     let tzText: string | null = null;
@@ -723,7 +723,7 @@ export class WordService {
     let orderText: string | null = null;
     let section47LayersData: import('../ai/ai.service').Section47LayersData | null = null;
     
-    // Массив текстов всех поручений (основное + доотборы)
+    // Массив текстов всех поручений (основное + допотборы)
     const allOrderTexts: string[] = [];
     
     console.log('[WordService] tzFileUrl:', project.tzFileUrl);
@@ -805,6 +805,9 @@ export class WordService {
         excavationDepth: '',
         siteDescription: '',
         siteArea: '',
+        technicalCustomerName: '',
+        technicalCustomerDirectorPosition: 'Генеральный директор',
+        technicalCustomerDirectorName: '',
         clientDirectorPosition: 'Директор',
         clientDirectorName: '',
         clientShortName: '',
@@ -832,7 +835,7 @@ export class WordService {
     }
 
     // Поручение: флаги состава работ для раздела 4 (п.4.1/4.2)
-    // Собираем поручения: основное + все доотборы
+    // Собираем поручения: основное + все допотборы
     if (project.orderFileUrl) {
       try {
         const orderPath = join(this.uploadsDir, project.orderFileUrl);
@@ -853,7 +856,7 @@ export class WordService {
       }
     }
 
-    // Читаем поручения из доотборов и объединяем данные
+    // Читаем поручения из допотборов и объединяем данные
     for (const child of childProjects) {
       if (child.orderFileUrl) {
         try {
@@ -863,12 +866,12 @@ export class WordService {
           const childOrderText = childOrderResult.value;
           allOrderTexts.push(childOrderText);
 
-          // Извлекаем флаги из доотбора и объединяем с основными
+          // Извлекаем флаги из допотбора и объединяем с основными
           const objectNameForOrder = String(project.objectName || project.name || '').trim();
           const childFlags = await this.aiService.extractProgramIeiOrderFlags(childOrderText, objectNameForOrder);
-          console.log(`[WordService] AI извлёк флаги из доотбора ${child.name}:`, JSON.stringify(childFlags, null, 2));
+          console.log(`[WordService] AI извлёк флаги из допотбора ${child.name}:`, JSON.stringify(childFlags, null, 2));
 
-          // Объединяем флаги: если в доотборе флаг true — он становится true в итоге
+          // Объединяем флаги: если в допотборе флаг true — он становится true в итоге
           if (childFlags && orderFlags) {
             orderFlags = this.mergeOrderFlags(orderFlags, childFlags);
           } else if (childFlags && !orderFlags) {
@@ -883,16 +886,16 @@ export class WordService {
             section47LayersData = childLayers;
           }
 
-          console.log(`[WordService] Обработан доотбор: ${child.name}`);
+          console.log(`[WordService] Обработан допотбор: ${child.name}`);
         } catch (error) {
-          console.error(`[WordService] Ошибка чтения поручения доотбора ${child.name}:`, error);
+          console.error(`[WordService] Ошибка чтения поручения допотбора ${child.name}:`, error);
         }
       }
     }
 
     // Объединяем все тексты поручений для AI анализа
     if (allOrderTexts.length > 0) {
-      const combinedOrderText = allOrderTexts.join('\n\n--- ДООТБОР ---\n\n');
+      const combinedOrderText = allOrderTexts.join('\n\n--- ДОПОТБОР ---\n\n');
       orderText = combinedOrderText;
       if (allOrderTexts.length > 1) {
         console.log(`[WordService] Объединено ${allOrderTexts.length} поручений для анализа`);
@@ -936,7 +939,7 @@ export class WordService {
       }
     }
 
-    // Объединяем услуги (services) из основного проекта и доотборов
+    // Объединяем услуги (services) из основного проекта и допотборов
     const mergedServices = [...(Array.isArray(project.services) ? project.services : [])];
     for (const child of childProjects) {
       if (Array.isArray(child.services)) {
@@ -955,7 +958,7 @@ export class WordService {
         }
       }
     }
-    console.log(`[WordService] Объединено ${mergedServices.length} услуг из основного проекта и доотборов`);
+    console.log(`[WordService] Объединено ${mergedServices.length} услуг из основного проекта и допотборов`);
 
     // Создаём объект проекта с объединёнными услугами
     const projectWithMergedServices = {
@@ -973,6 +976,17 @@ export class WordService {
 
     // Заменяем плейсхолдеры в document.xml
     let docXml = zip.file('word/document.xml')?.asText() || '';
+    
+    // Логируем данные для п.1.9.1 (technicalCharacteristics -> XrObject)
+    console.log('[WordService] XrObject (technicalCharacteristics) для замены:', data.XrObject);
+    
+    // ВАЖНО: Сначала заменяем блок ЗАКАЗЧИКА по paraId (до общей замены!)
+    // Потому что в шаблоне одинаковые плейсхолдеры для технического заказчика и заказчика
+    if (section1Data) {
+      docXml = this.replaceCustomerTitleBlock(docXml, section1Data);
+    }
+    
+    // Теперь общая замена плейсхолдеров (заполнит технического заказчика)
     docXml = this.replacePlaceholders(docXml, data);
     
     // Специальные замены блоков текста
@@ -1005,7 +1019,7 @@ export class WordService {
     docXml = this.replaceProgramIeiSection32Block(docXml, programIei, section32Data);
 
     // Заполняем раздел 4 (п.4.1/4.2) по поручению — изолированная логика (в отдельном модуле)
-    // Используем проект с объединёнными услугами из доотборов
+    // Используем проект с объединёнными услугами из допотборов
     docXml = replaceProgramIeiSection41Block({
       xml: docXml,
       orderFlags,
@@ -1018,7 +1032,7 @@ export class WordService {
     // Извлекаем услуги из каждого поручения отдельно и суммируем количества
     if (allOrderTexts.length > 0) {
       // Гарантированно есть хотя бы одно поручение — используем объединённый текст
-      const combinedOrderTextForSection42 = orderText || allOrderTexts.join('\n\n--- ДООТБОР ---\n\n');
+      const combinedOrderTextForSection42 = orderText || allOrderTexts.join('\n\n--- ДОПОТБОР ---\n\n');
       
       let servicesFromOrder: ServiceMatch[] = [];
       let quantitiesByRow: Record<number, number | string> = {};
@@ -1026,7 +1040,7 @@ export class WordService {
       // Обрабатываем каждое поручение отдельно и суммируем количества
       for (let orderIdx = 0; orderIdx < allOrderTexts.length; orderIdx++) {
         const singleOrderText = allOrderTexts[orderIdx];
-        const orderLabel = orderIdx === 0 ? 'основное' : `доотбор ${orderIdx}`;
+        const orderLabel = orderIdx === 0 ? 'основное' : `допотбор ${orderIdx}`;
         try {
           console.log(`[WordService] Поручение ${orderLabel}: текст ${singleOrderText.length} символов`);
           const singleServices = await this.aiService.matchServicesFromOrder(singleOrderText);
@@ -1077,13 +1091,18 @@ export class WordService {
             console.log(`[WordService] Поручение ${orderLabel}: row=${row}, было=${existing}, добавлено=${numValue}, стало=${quantitiesByRow[row]}`);
           }
 
-          // Обновляем servicesFromOrder с объединёнными количествами
+          // Обновляем servicesFromOrder — дедуплицируем по row внутри одного поручения
+          const seenRowsInThisOrder = new Set<number>();
           for (const service of singleServices) {
+            // Пропускаем дубликаты внутри одного поручения
+            if (seenRowsInThisOrder.has(service.row)) continue;
+            seenRowsInThisOrder.add(service.row);
+            
             const existingIdx = servicesFromOrder.findIndex(s => s.row === service.row);
             const numQty = serviceQuantities[service.row] || 0;
             
             if (existingIdx >= 0) {
-              // Увеличиваем количество существующей услуги
+              // Увеличиваем количество существующей услуги (суммируем между поручениями)
               const existingQty = typeof servicesFromOrder[existingIdx].quantity === 'number'
                 ? servicesFromOrder[existingIdx].quantity as number
                 : Number(String(servicesFromOrder[existingIdx].quantity || 0).replace(',', '.')) || 0;
@@ -1521,9 +1540,10 @@ export class WordService {
       // Титульная страница
       Объект: objectName || project.name || '—',
       Адрес: aiData?.objectLocation || project.objectAddress || '',
-      ДиректорДолжность: aiData?.clientDirectorPosition || 'Директор',
-      ДиректорФИО: aiData?.clientDirectorName || '',
-      НазваниеОрганизации: shortName,
+      // Технический заказчик (из ТЗ) - отдельная организация от заказчика!
+      ДиректорДолжность: aiData?.technicalCustomerDirectorPosition || 'Генеральный директор',
+      ДиректорФИО: aiData?.technicalCustomerDirectorName || '',
+      НазваниеОрганизации: aiData?.technicalCustomerName || '',
       
       // 1.3 Сведения о заказчике
       Заказчик: clientName,
@@ -1692,6 +1712,59 @@ export class WordService {
     }
 
     return xml;
+  }
+
+  /**
+   * Заменяет данные ЗАКАЗЧИКА на титульной странице по paraId.
+   * Нужно отдельно от общей замены плейсхолдеров, т.к. одинаковые плейсхолдеры
+   * используются для технического заказчика и заказчика.
+   * 
+   * ParaId для блока ЗАКАЗЧИК на титуле:
+   * - 464E563C: ДиректорДолжность (должность руководителя заказчика)
+   * - 481DA297: НазваниеОрганизации (название организации заказчика)
+   * - 2D94512F: ДиректорФИО (ФИО руководителя заказчика)
+   */
+  private replaceCustomerTitleBlock(xml: string, section1Data: ProgramIeiSection1Data): string {
+    // Данные заказчика (из шапки/титула ТЗ)
+    const customerPosition = section1Data.clientDirectorPosition || 'Генеральный директор';
+    const customerName = section1Data.clientName || '';
+    const customerDirectorName = section1Data.clientDirectorName || '';
+
+    // Заменяем должность заказчика (paraId 464E563C)
+    xml = this.replaceHyperlinkTextByParaId(xml, '464E563C', 'ДиректорДолжность', customerPosition);
+    
+    // Заменяем название организации заказчика (paraId 481DA297)
+    xml = this.replaceHyperlinkTextByParaId(xml, '481DA297', 'НазваниеОрганизации', customerName);
+    
+    // Заменяем ФИО заказчика (paraId 2D94512F)
+    xml = this.replaceHyperlinkTextByParaId(xml, '2D94512F', 'ДиректорФИО', customerDirectorName);
+
+    return xml;
+  }
+
+  /**
+   * Заменяет текст HYPERLINK плейсхолдера по paraId
+   */
+  private replaceHyperlinkTextByParaId(xml: string, paraId: string, placeholder: string, newValue: string): string {
+    if (!newValue || newValue.trim() === '') {
+      return xml;
+    }
+
+    // Паттерн для поиска параграфа по paraId с HYPERLINK плейсхолдером
+    const paraPattern = new RegExp(
+      `(<w:p\\b[^>]*w14:paraId="${paraId}"[^>]*>)([\\s\\S]*?)(</w:p>)`,
+      'g',
+    );
+
+    return xml.replace(paraPattern, (match, openTag, content, closeTag) => {
+      // Внутри параграфа заменяем текст плейсхолдера
+      const placeholderPattern = new RegExp(
+        `(HYPERLINK\\s+\\\\l\\s+&quot;${placeholder}&quot;[^]*?fldCharType="separate"[^]*?<w:t[^>]*>)${placeholder}(</w:t>)`,
+        'g',
+      );
+      const newContent = content.replace(placeholderPattern, `$1${this.escapeXml(newValue)}$2`);
+      return `${openTag}${newContent}${closeTag}`;
+    });
   }
 
   /**
@@ -2069,7 +2142,7 @@ export class WordService {
    * Правила (по договорённости):
    * - Абзац про административное расположение берём по адресу (заменяем район в тексте).
    * - Из 4 ландшафтов оставляем только один, остальные удаляем.
-   * - В климатическом абзаце убираем слово "Москва" если адрес относится к МО.
+   * - В климатическом абзаце убрано слово "Москва" перед температурой.
    * - Картинку (paraId="592EDF35") НЕ трогаем.
    */
   private replaceProgramIeiSection31Block(
@@ -2169,16 +2242,10 @@ export class WordService {
       }
     }
 
-    // --- 3.1: климатический абзац (paraId="0F3987D3") - убираем "Москва" для МО
-    if (inferredRegion === 'MOSCOW_OBLAST') {
-      const climateText =
-        'по схематической карте климатического районирования для строительства Московский регион относится к IIВ климатической зоне; Москва среднегодовая температура воздуха – +5,9 ºС, минимальная среднемесячная температура воздуха наблюдается в январе – -7,0 ºС, максимальная в июле +19,2 ºС.';
-      const climateTextMo = climateText.replace(
-        '; Москва среднегодовая температура воздуха',
-        '; Среднегодовая температура воздуха',
-      );
-      xml = this.replaceParagraphTextByParaId(xml, '0F3987D3', climateTextMo);
-    }
+    // --- 3.1: климатический абзац (paraId="0F3987D3") - убираем слово "Москва" перед температурой
+    const climateTextCorrected =
+      'по схематической карте климатического районирования для строительства Московский регион относится к IIВ климатической зоне; среднегодовая температура воздуха – +5,9 ºС, минимальная среднемесячная температура воздуха наблюдается в январе – -7,0 ºС, максимальная в июле +19,2 ºС.';
+    xml = this.replaceParagraphTextByParaId(xml, '0F3987D3', climateTextCorrected);
 
     return xml;
   }
@@ -2352,7 +2419,7 @@ export class WordService {
   }
 
   /**
-   * Объединяет флаги из основного поручения и доотбора
+   * Объединяет флаги из основного поручения и допотбора
    * Логика: если флаг true в любом из источников — он становится true
    */
   private mergeOrderFlags(
@@ -2374,7 +2441,7 @@ export class WordService {
   }
 
   /**
-   * Объединяет слои грунта из основного поручения и доотбора
+   * Объединяет слои грунта из основного поручения и допотбора
    * Логика: берём максимальную глубину и объединяем слои, увеличивая количества
    */
   private mergeSection47Layers(

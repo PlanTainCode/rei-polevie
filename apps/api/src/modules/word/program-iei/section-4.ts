@@ -7,6 +7,7 @@ import type {
 import {
   removeParagraphByParaId,
   replaceParagraphTextByParaId,
+  removeMarkerRunFromParagraph,
 } from './docx-xml';
 
 const isMoscowByAddress = (address: string): boolean => {
@@ -155,6 +156,10 @@ export function replaceProgramIeiSection41Block(params: {
   if (!isMoscow) {
     xml = removeParagraphByParaId(xml, '573F6AC7');
     xml = removeParagraphByParaId(xml, '358E2949');
+  } else {
+    // Убираем маркер "(Москва-биотестирование)" — он в отдельном <w:r> с жирным шрифтом
+    // Удаляем run с маркером и следующий run с пробелом
+    xml = removeMarkerRunFromParagraph(xml, '573F6AC7', '(Москва-биотестирование)');
   }
 
   // 5) Удаляем оценку воздуха по ранее выполненным ИЭИ

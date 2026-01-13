@@ -93,8 +93,8 @@ model Project {
   companyId        String
   name             String        // Название проекта
   
-  // Связь родитель-дочерний (для доотбора)
-  parentProjectId  String?       // ID родительского проекта (если это доотбор)
+  // Связь родитель-дочерний (для допотбора)
+  parentProjectId  String?       // ID родительского проекта (если это допотбор)
   
   // Файлы
   tzFileName       String?       // Имя файла ТЗ

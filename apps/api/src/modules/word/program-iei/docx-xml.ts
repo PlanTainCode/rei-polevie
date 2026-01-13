@@ -120,12 +120,86 @@ export function removeTableRowByTrParaId(xml: string, trParaId: string): string 
 }
 
 /**
+ * Удаляет префикс из текста параграфа, сохраняя все стили
+ */
+export function removePrefixFromParagraph(xml: string, paraId: string, prefix: string): string {
+  const paraPattern = new RegExp(
+    `(<w:p\\b[^>]*w14:paraId="${paraId}"[^>]*>[\\s\\S]*?</w:p>)`,
+  );
+
+  return xml.replace(paraPattern, (match) => {
+    let result = match;
+
+    // Простой случай: префикс целиком в одном <w:t>
+    result = result.replace(
+      new RegExp(`(<w:t[^>]*>)${escapeRegexPattern(prefix)}`, 'g'),
+      '$1',
+    );
+
+    // Также попробуем удалить если он в начале текста с xml:space
+    result = result.replace(
+      new RegExp(`(<w:t xml:space="preserve">)${escapeRegexPattern(prefix)}`, 'g'),
+      '$1',
+    );
+
+    return result;
+  });
+}
+
+/**
+ * Экранирует спецсимволы для использования в RegExp
+ */
+function escapeRegexPattern(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Удаляет run (w:r) содержащий указанный маркер из параграфа.
+ * Также удаляет следующий run если он содержит только пробел,
+ * или убирает ведущий пробел из следующего текста.
+ * Сохраняет все остальные стили и runs.
+ */
+export function removeMarkerRunFromParagraph(xml: string, paraId: string, marker: string): string {
+  const paraPattern = new RegExp(
+    `(<w:p\\b[^>]*w14:paraId="${paraId}"[^>]*>)([\\s\\S]*?)(</w:p>)`,
+  );
+
+  return xml.replace(paraPattern, (_match, open, body, close) => {
+    let newBody = body;
+    
+    // Удаляем run содержащий маркер
+    const markerEscaped = escapeRegexPattern(marker);
+    const markerRunPattern = new RegExp(
+      `<w:r>[^]*?<w:t[^>]*>${markerEscaped}</w:t>[^]*?</w:r>`,
+      'g',
+    );
+    newBody = newBody.replace(markerRunPattern, '');
+    
+    // Удаляем run содержащий только пробел (обычно следует за маркером)
+    newBody = newBody.replace(
+      /<w:r>[^]*?<w:t[^>]*>\s<\/w:t>[^]*?<\/w:r>/g,
+      '',
+    );
+    
+    // Убираем ведущий пробел из текста следующего run (если пробел в начале текста)
+    // Паттерн: <w:t xml:space="preserve"> Текст</w:t> -> <w:t xml:space="preserve">Текст</w:t>
+    newBody = newBody.replace(
+      /(<w:t[^>]*>)\s+/g,
+      '$1',
+    );
+    
+    return open + newBody + close;
+  });
+}
+
+/**
  * Глобальная нормализация стилей документа:
  * - Убирает все подсветки (highlight)
  * - Убирает заливку текста (shd в rPr)
  * - Убирает заливку ячеек таблиц (shd в tcPr) - меняем на "clear"
  * - Убирает фоновый цвет параграфов (shd в pPr)
  * - Меняет все цвета текста на чёрный (000000)
+ * - Убирает подчёркивания текста
  */
 export function normalizeDocumentStyles(xml: string): string {
   let result = xml;
@@ -202,6 +276,11 @@ export function normalizeDocumentStyles(xml: string): string {
     /<w:color w:val="(?!000000|auto)[0-9A-Fa-f]{6}"\s*\/>/gi,
     '<w:color w:val="000000"/>',
   );
+
+  // 7. Убираем подчёркивания текста (для плейсхолдеров титульной страницы)
+  result = result.replace(/<w:u w:val="single"\/>/g, '');
+  result = result.replace(/<w:u w:val="single"[^/]*\/>/g, '');
+  result = result.replace(/<w:u w:val="single"[^>]*>[^<]*<\/w:u>/g, '');
 
   return result;
 }

@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as mammoth from 'mammoth';
-import { proxyFetch } from '../ai/proxy-fetch';
 import { readFile } from 'fs/promises';
 import { join, extname } from 'path';
 import { TechnicalTaskData, SurveyTypes, UrbanPlanningActivities, EcologySurveyWorks } from './tz-fields';
@@ -22,11 +21,12 @@ interface ChatMessage {
 export class TzProcessingService {
   private readonly logger = new Logger(TzProcessingService.name);
   private readonly apiKey: string;
-  private readonly model: string;
+  // DeepSeek-V3.2 - самая актуальная модель DeepSeek
+  private readonly model = 'deepseek-chat';
+  private readonly baseUrl = 'https://api.deepseek.com';
 
   constructor(private configService: ConfigService) {
-    this.apiKey = this.configService.get<string>('OPENROUTER_API_KEY') || '';
-    this.model = this.configService.get<string>('AI_MODEL') || 'anthropic/claude-sonnet-4';
+    this.apiKey = this.configService.get<string>('DEEPSEEK_API_KEY') || '';
   }
 
   /**
@@ -439,16 +439,14 @@ export class TzProcessingService {
   }
 
   /**
-   * Вызов AI через OpenRouter
+   * Вызов AI через DeepSeek API
    */
   private async chat(messages: ChatMessage[]): Promise<string> {
-    const response = await proxyFetch('https://openrouter.ai/api/v1/chat/completions', {
+    const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${this.apiKey}`,
-        'HTTP-Referer': 'https://polevie.app',
-        'X-Title': 'Polevie TZ Processing',
       },
       body: JSON.stringify({
         model: this.model,
@@ -460,7 +458,7 @@ export class TzProcessingService {
 
     if (!response.ok) {
       const error = await response.text();
-      throw new Error(`OpenRouter API error: ${error}`);
+      throw new Error(`DeepSeek API error: ${error}`);
     }
 
     const data = await response.json();

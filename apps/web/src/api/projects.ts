@@ -34,7 +34,7 @@ export interface Project {
     samples: number;
     platforms: number;
   };
-  // Связь родитель-дочерний (доотбор)
+  // Связь родитель-дочерний (допотбор)
   parentProjectId: string | null;
   parentProject?: {
     id: string;
@@ -311,7 +311,7 @@ export const projectsApi = {
     return response.data;
   },
 
-  // Создать дочерний проект (доотбор)
+  // Создать дочерний проект (допотбор)
   createChildProject: async (parentId: string, name: string, orderFile: File): Promise<Project> => {
     const formData = new FormData();
     formData.append('name', name);
@@ -328,7 +328,7 @@ export const projectsApi = {
     return response.data;
   },
 
-  // Получить список дочерних проектов (доотборов)
+  // Получить список дочерних проектов (допотборов)
   getChildProjects: async (parentId: string): Promise<Project[]> => {
     const response = await apiClient.get<Project[]>(`/projects/${parentId}/children`);
     return response.data;

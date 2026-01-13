@@ -2,7 +2,7 @@ import * as mammoth from 'mammoth';
 import { readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 
 async function testExtraction() {
   // Читаем ТЗ
@@ -14,7 +14,7 @@ async function testExtraction() {
   console.log(text.substring(0, 2000));
   
   // Отправляем в AI
-  console.log('\n\n=== ЗАПРОС К AI ===\n');
+  console.log('\n\n=== ЗАПРОС К DeepSeek AI ===\n');
   
   const systemPrompt = `Ты — эксперт по инженерным изысканиям в России. Твоя задача — извлечь данные из технического задания (ТЗ) заказчика для заполнения шаблона ТЗ исполнителя.
 
@@ -87,15 +87,14 @@ async function testExtraction() {
 
 Верни ТОЛЬКО JSON без пояснений.`;
 
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  const response = await fetch('https://api.deepseek.com/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-      'HTTP-Referer': 'https://polevie.app',
+      'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
     },
     body: JSON.stringify({
-      model: 'anthropic/claude-sonnet-4',
+      model: 'deepseek-chat',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Извлеки данные из технического задания:\n\n${text}` },
@@ -108,7 +107,7 @@ async function testExtraction() {
   const data = await response.json();
   const content = data.choices?.[0]?.message?.content || '';
   
-  console.log('=== ОТВЕТ AI ===\n');
+  console.log('=== ОТВЕТ DeepSeek AI ===\n');
   console.log(content);
   
   // Сохраняем результат

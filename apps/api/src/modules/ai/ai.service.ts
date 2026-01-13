@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { proxyFetch } from './proxy-fetch';
 import {
   extractProgramIeiOrderFlagsViaAi,
   ProgramIeiOrderFlags,
@@ -23,18 +22,10 @@ import {
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string | MessageContent[];
+  content: string;
 }
 
-interface MessageContent {
-  type: 'text' | 'image_url';
-  text?: string;
-  image_url?: {
-    url: string;
-  };
-}
-
-interface OpenRouterResponse {
+interface DeepSeekResponse {
   choices: Array<{
     message: {
       content: string;
@@ -238,12 +229,18 @@ export interface ServiceMatch {
 @Injectable()
 export class AiService {
   private readonly apiKey: string;
-  // Gemini 3 Pro Preview (ноябрь 2025) - флагман Google, ~$0.66/программу
-  private readonly model = 'google/gemini-3-pro-preview';
+  // DeepSeek-V3.2 - самая актуальная модель DeepSeek (deepseek-chat = non-thinking mode)
+  private readonly model = 'deepseek-chat';
+  private readonly baseUrl = 'https://api.deepseek.com';
 
   constructor(private configService: ConfigService) {
-    this.apiKey = this.configService.get<string>('OPENROUTER_API_KEY') || '';
-    console.log(`[AiService] Initialized with model: ${this.model}, API key: ${this.apiKey ? this.apiKey.substring(0, 15) + '...' : 'NOT SET'}`);
+    this.apiKey = this.configService.get<string>('DEEPSEEK_API_KEY') || '';
+    if (!this.apiKey) {
+      console.error('[AiService] ⚠️ DEEPSEEK_API_KEY не установлен! AI функции не будут работать.');
+      console.error('[AiService] Получите ключ на https://platform.deepseek.com/api_keys и добавьте в .env');
+    } else {
+      console.log(`[AiService] DeepSeek API initialized, key: ${this.apiKey.substring(0, 8)}...`);
+    }
   }
 
   /**
@@ -297,30 +294,28 @@ export class AiService {
   }
 
   private async chat(messages: ChatMessage[]): Promise<string> {
-    const response = await proxyFetch('https://openrouter.ai/api/v1/chat/completions', {
+    const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${this.apiKey}`,
-        'HTTP-Referer': 'https://polevie.app',
-        'X-Title': 'Polevie',
       },
       body: JSON.stringify({
         model: this.model,
         messages,
         temperature: 0.1,
-        max_tokens: 4096,
+        max_tokens: 8192,
       }),
     });
 
     if (!response.ok) {
       const errorBody = await response.text();
-      console.error(`[AiService] OpenRouter error ${response.status}:`, errorBody);
+      console.error(`[AiService] DeepSeek error ${response.status}:`, errorBody);
       console.error(`[AiService] Model: ${this.model}, API key starts with: ${this.apiKey?.substring(0, 10)}...`);
-      throw new Error(`OpenRouter API error: ${response.status} - ${errorBody}`);
+      throw new Error(`DeepSeek API error: ${response.status} - ${errorBody}`);
     }
 
-    const data = (await response.json()) as OpenRouterResponse;
+    const data = (await response.json()) as DeepSeekResponse;
     return data.choices[0]?.message?.content || '';
   }
 
@@ -711,7 +706,13 @@ ${TEMPLATE_SERVICES.map((s, i) => `${i + 1}. [Строка ${s.row}, №${s.num}
 - Если упоминается рекультивация, ГОСТ 17.5 - это строка 27
 - ОСОБОЕ ВНИМАНИЕ: Если в тексте упоминаются "цисты кишечных патогенных простейших", "цисты простейших", "простейшие" в контексте паразитологии - это означает, что в заявке ФМБА должны быть цисты. Отметь это в matchedText для услуги микробиологии (строка 22)
 
-Найди ВСЕ упоминания услуг и укажи количество проб/точек/га для каждой.
+КРИТИЧНО ПО КОЛИЧЕСТВУ:
+- В поручениях часто есть ДВЕ колонки с числами: "ориентировочное" (план) и "фактическое" (итог)
+- ВСЕГДА бери ФАКТИЧЕСКОЕ количество, а НЕ ориентировочное!
+- Фактическое обычно в правой колонке или помечено как "факт", "итого", "кол-во"
+- Ориентировочное часто помечено как "ориент.", "план", "прим."
+
+Найди ВСЕ упоминания услуг и укажи ФАКТИЧЕСКОЕ количество проб/точек/га для каждой.
 
 Отвечай в формате JSON (массив объектов):
 [
@@ -886,7 +887,7 @@ ${TEMPLATE_SERVICES.map((s, i) => `${i + 1}. [Строка ${s.row}, №${s.num}
     const systemPrompt = `Ты эксперт по инженерно-экологическим изысканиям (ИЭИ).
 Твоя задача - ТОЧНО извлечь данные из Технического Задания (ТЗ) для заполнения программы ИЭИ.
 
-КРИТИЧЕСКИ ВАЖНО - КОПИРУЙ ТЕКСТ ИЗ ТЗ БЕЗ ИЗМЕНЕНИЙ:
+Инструкции по полям:
 
 1. **goalsAndTasks** - КОПИРУЙ ПОЛНОСТЬЮ ВЕСЬ ТЕКСТ из пункта "Цели и задачи инженерных изысканий" (обычно п.7 ТЗ).
    Пример из ТЗ: "Инженерные изыскания выполняются с целью комплексного изучения условий территории... Задачи ИЭИ определены..."
@@ -902,14 +903,22 @@ ${TEMPLATE_SERVICES.map((s, i) => `${i + 1}. [Строка ${s.row}, №${s.num}
 4. **siteDescription** - из п.12 "Краткая техническая характеристика объекта" - текст про территорию и площадь, КОПИРУЙ ПОЛНОСТЬЮ!
    Пример: "Территория обследования расположена в деревне Красная Пахра... Площадь участка объекта – около 0,77 га."
 
-5. **technicalCharacteristics** - из п.12 "Краткая техническая характеристика объекта" - КОПИРУЙ ПОЛНОСТЬЮ!
-   Включая описание зданий, габариты, этажность, коммуникации.
-   ВАЖНО: УБЕРИ текст про глубину земляных работ из этого поля! Например текст вида:
-   "Глубина ведения земляных работ (max): в местах фундамента здания – до 5,0 м; в местах прокладки инженерных коммуникаций – до 5,0 м."
-   Этот текст НЕ должен быть в technicalCharacteristics!
+5. **technicalCharacteristics** - из п.13 ТЗ "Краткая техническая характеристика объекта"
+   
+   КРИТИЧЕСКИ ВАЖНО - КОПИРУЙ VERBATIM (ДОСЛОВНО)!
+   - Копируй КАЖДОЕ слово, КАЖДУЮ цифру, КАЖДЫЙ знак препинания ТОЧНО как в ТЗ!
+   - НЕ меняй числа! НЕ округляй! НЕ перефразируй!
+   - Если в ТЗ написано "311,25 м" - пиши "311,25 м", НЕ "156,5 м"!
+   - Если в ТЗ написано "демонтаж телефонного колодца" - пиши именно так, НЕ "демонтаж телефонных колодцев"!
+   
+   Извлеки ТОЛЬКО текст ДО фразы "Глубина ведения земляных работ:" (не включая её).
+   Текст про глубину идёт в отдельное поле excavationDepth.
 
-6. **excavationDepth** - глубина ведения земляных работ из п.12 - КОПИРУЙ ФРАЗУ ЦЕЛИКОМ!
-   Пример: "до 5,0 м" или "до 5,0 метров" - НЕ только число!
+6. **excavationDepth** - глубина ведения земляных работ из п.13 ТЗ - КОПИРУЙ ВЕСЬ БЛОК про глубину!
+   Ищи текст начиная с "Глубина ведения земляных работ:" и всё что после.
+   Пример: "Глубина ведения земляных работ: прокладка телефонной канализации: открытым способом – 1,1-2,5 м; закрытым способом (ГНБ1 – мах 8,54 м); демонтаж колодца – 1,9 м."
+   Если есть только краткая запись вида "Глубина ведения земляных работ (max): до 5,0 м" - копируй её.
+   КОПИРУЙ ПОЛНОСТЬЮ весь текст про глубину, не только число!
 
 МАППИНГ ПОЛЕЙ ТЗ → JSON:
 - п.1 "Наименование объекта" → objectName
@@ -926,13 +935,22 @@ ${TEMPLATE_SERVICES.map((s, i) => `${i + 1}. [Строка ${s.row}, №${s.num}
 - п.10.5 → responsibilityLevel
 - п.10.6 "Наличие помещений" → permanentOccupancy (ОДНО значение: Предусмотрено или Отсутствуют!)
 - п.11 "Данные о границах" → siteArea (только площадь, например "около 0,77 га")
-- п.12 "Техническая характеристика" → technicalCharacteristics (ВЕСЬ ТЕКСТ!), siteDescription (текст про территорию и площадь)
-- п.12 → excavationDepth (глубина работ КАК НАПИСАНО, например "до 5,0 м" или "до 5,0 метров", НЕ просто число!)
+- п.13 "Краткая техническая характеристика объекта" → technicalCharacteristics (ТОЛЬКО текст ДО "Глубина ведения земляных работ:")
+- п.13 → excavationDepth (ВЕСЬ текст начиная с "Глубина ведения земляных работ:" и после)
 
-Для титульной страницы:
-- clientDirectorPosition: должность руководителя заказчика (обычно "Директор")
-- clientDirectorName: "Фамилия И.О." (сокращённое ФИО из п.5.2, например "Лучников Ю.В." если полное "Лучников Юрий Владимирович")
-- clientShortName: название без ООО/АО/ЗАО и кавычек (например "КАРАТ-91" из "ООО «КАРАТ-91»")
+ТИТУЛЬНАЯ СТРАНИЦА - копируй данные из шапки ТЗ КАК ЕСТЬ:
+
+В шапке ТЗ есть блоки "УТВЕРЖДАЮ/СОГЛАСОВАНО" с данными организаций.
+Найди блок "Технический заказчик" и блок "Заказчик" — это РАЗНЫЕ организации!
+
+technicalCustomerName: название организации из блока "Технический заказчик" (например "ООО «ВЗЛЕТ»")
+technicalCustomerDirectorPosition: должность из блока "Технический заказчик" (например "Заместитель генерального директора по проектированию")
+technicalCustomerDirectorName: ФИО из блока "Технический заказчик" (например "Е.В.Минаев")
+
+clientName: название организации из блока "Заказчик" (например "ООО «ГОРСВЯЗЬСТРОЙ»")
+clientDirectorPosition: должность из блока "Заказчик" (например "Генеральный директор")
+clientDirectorName: ФИО из блока "Заказчик" (например "А.Н.Бордуков")
+clientShortName: название без ООО/АО и кавычек (например "ГОРСВЯЗЬСТРОЙ")
 
 Координаты участка (из п.25 ТЗ или таблицы с координатами):
 - coordinates: объект {lat, lon} с первой точкой координат участка в десятичном формате
@@ -976,6 +994,9 @@ ${TEMPLATE_SERVICES.map((s, i) => `${i + 1}. [Строка ${s.row}, №${s.num}
   "excavationDepth": "",
   "siteDescription": "",
   "siteArea": "",
+  "technicalCustomerName": "",
+  "technicalCustomerDirectorPosition": "",
+  "technicalCustomerDirectorName": "",
   "clientDirectorPosition": "",
   "clientDirectorName": "",
   "clientShortName": "",
@@ -988,9 +1009,14 @@ ${TEMPLATE_SERVICES.map((s, i) => `${i + 1}. [Строка ${s.row}, №${s.num}
 ПРАВИЛА:
 - Если данные не найдены - пустая строка ""
 - НЕ выдумывай данные!
-- КОПИРУЙ текст из ТЗ ДОСЛОВНО для goalsAndTasks, siteDescription, technicalCharacteristics`;
+- technicalCharacteristics: копируй VERBATIM (ДОСЛОВНО) текст ДО "Глубина ведения земляных работ:" — НЕ меняй числа, НЕ перефразируй!
+- excavationDepth: копируй текст начиная с "Глубина ведения земляных работ:"`;
 
-    const userPrompt = `Извлеки данные из этого ТЗ. ВАЖНО: копируй текст дословно, особенно для goalsAndTasks (п.7), siteDescription (п.11), technicalCharacteristics (п.12).
+    const userPrompt = `Извлеки данные из этого ТЗ.
+
+ВАЖНО для поля technicalCharacteristics (п.13):
+- Копируй VERBATIM (ДОСЛОВНО) текст ДО "Глубина ведения земляных работ:"
+- НЕ меняй числа! НЕ перефразируй! Копируй символ в символ!
 
 ТЗ:
 ${tzText}`;
@@ -1009,6 +1035,9 @@ ${tzText}`;
       }
 
       const parsed = JSON.parse(jsonMatch[0]) as ProgramIeiSection1Data;
+      
+      // Логируем technicalCharacteristics для диагностики
+      console.log('[AiService] technicalCharacteristics из AI:', parsed.technicalCharacteristics);
       
       // Валидируем и нормализуем данные
       return this.normalizeSection1Data(parsed);
@@ -1238,6 +1267,9 @@ territoryConditionText:
       excavationDepth: String(data.excavationDepth || '').trim(),
       siteDescription: String(data.siteDescription || '').trim(),
       siteArea: String(data.siteArea || '').trim(),
+      technicalCustomerName: String(data.technicalCustomerName || '').trim(),
+      technicalCustomerDirectorPosition: String(data.technicalCustomerDirectorPosition || 'Генеральный директор').trim(),
+      technicalCustomerDirectorName: String(data.technicalCustomerDirectorName || '').trim(),
       clientDirectorPosition: String(data.clientDirectorPosition || 'Директор').trim(),
       clientDirectorName: String(data.clientDirectorName || '').trim(),
       clientShortName: String(data.clientShortName || '').trim(),
@@ -1274,6 +1306,9 @@ territoryConditionText:
       excavationDepth: '',
       siteDescription: '',
       siteArea: '',
+      technicalCustomerName: '',
+      technicalCustomerDirectorPosition: 'Генеральный директор',
+      technicalCustomerDirectorName: '',
       clientDirectorPosition: 'Директор',
       clientDirectorName: '',
       clientShortName: '',
@@ -1351,104 +1386,14 @@ territoryConditionText:
 
   /**
    * Извлекает GPS координаты с фотографии GPS-трекера через Vision AI
-   * Распознаёт текст на экране трекера и извлекает координаты
-   * Возвращает координаты в десятичном формате (decimal degrees)
+   * 
+   * ВНИМАНИЕ: DeepSeek-V3.2 не поддерживает Vision (мультимодальность).
+   * Для распознавания координат с фото необходимо использовать другой сервис.
+   * Метод временно отключен и возвращает null.
    */
-  async extractCoordinatesFromPhoto(imageBase64: string): Promise<ExtractedCoordinates | null> {
-    const systemPrompt = `Ты эксперт по распознаванию GPS координат с фотографий GPS-трекеров и навигаторов.
-
-Твоя задача - найти и извлечь координаты с экрана устройства на фотографии и КОНВЕРТИРОВАТЬ их в десятичный формат.
-
-ВАЖНО:
-- Ищи числа, похожие на координаты (широта/долгота)
-- Координаты на фото могут быть в разных форматах:
-  * Градусы и минуты: 55 50.792, 37 39.277
-  * Десятичные градусы: 55.84653, 37.65462
-  * Градусы, минуты, секунды: 55°50'47.5"N, 37°39'16.6"E
-- Широта обычно от 40 до 80 (для России), долгота от 20 до 180
-- На экране могут быть подписи: N/С (северная широта), E/В (восточная долгота), lat, lon, ш, д
-
-КОНВЕРТАЦИЯ В ДЕСЯТИЧНЫЙ ФОРМАТ:
-- Градусы минуты → десятичные: 55 50.792 = 55 + (50.792/60) = 55.84653
-- DMS → десятичные: 55°50'47.5" = 55 + (50/60) + (47.5/3600) = 55.84653
-
-Отвечай СТРОГО в формате JSON с координатами в ДЕСЯТИЧНОМ формате:
-{
-  "latitude": "55.84653",
-  "longitude": "037.65462",
-  "format": "decimal"
-}
-
-Для долготы добавляй ведущий ноль если меньше 100 (например 037.65462).
-Точность: 5 знаков после запятой.
-
-Если координаты не найдены, верни: {"error": "not_found"}`;
-
-    try {
-      const response = await proxyFetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`,
-          'HTTP-Referer': 'https://polevie.app',
-          'X-Title': 'Polevie',
-        },
-        body: JSON.stringify({
-          model: 'anthropic/claude-3.5-sonnet',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'text',
-                  text: 'Найди и извлеки GPS координаты с этого фото GPS-трекера:',
-                },
-                {
-                  type: 'image_url',
-                  image_url: {
-                    url: `data:image/jpeg;base64,${imageBase64}`,
-                  },
-                },
-              ],
-            },
-          ],
-          temperature: 0.1,
-          max_tokens: 500,
-        }),
-      });
-
-      if (!response.ok) {
-        console.error('OpenRouter Vision API error:', response.status);
-        return null;
-      }
-
-      const data = (await response.json()) as OpenRouterResponse;
-      const content = data.choices[0]?.message?.content || '';
-      
-      console.log('AI Vision response:', content);
-
-      // Парсим JSON из ответа
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return null;
-
-      const parsed = JSON.parse(jsonMatch[0]);
-      
-      if (parsed.error) return null;
-      
-      if (parsed.latitude && parsed.longitude) {
-        return {
-          latitude: String(parsed.latitude),
-          longitude: String(parsed.longitude),
-          format: parsed.format || 'deg_min',
-        };
-      }
-
-      return null;
-    } catch (error) {
-      console.error('Error extracting coordinates from photo:', error);
-      return null;
-    }
+  async extractCoordinatesFromPhoto(_imageBase64: string): Promise<ExtractedCoordinates | null> {
+    console.warn('[AiService] extractCoordinatesFromPhoto: DeepSeek не поддерживает Vision API. Метод отключен.');
+    return null;
   }
 
   /**
@@ -1459,6 +1404,12 @@ territoryConditionText:
     const systemPrompt = `Ты эксперт по анализу документов для отбора проб почвы, донных отложений и воды.
 
 Твоя задача - извлечь информацию о слоях отбора проб и количестве проб в каждом слое из текста документа.
+
+КРИТИЧНО ПО КОЛИЧЕСТВУ:
+- В документе часто ДВЕ колонки: "ориентировочное" (план) и "фактическое" (итог)
+- ВСЕГДА бери ФАКТИЧЕСКОЕ количество, а НЕ ориентировочное!
+- Фактическое обычно в ПРАВОЙ колонке или помечено как "факт", "итого", "кол-во"
+- Ориентировочное помечено как "ориент.", "план" — его ИГНОРИРУЙ
 
 ВАЖНО:
 1. В документе могут быть разные типы проб:
@@ -1473,6 +1424,20 @@ territoryConditionText:
 3. Количество проб обычно указано рядом со слоями или в отдельной колонке "Кол-во" / "проб"
    - Может быть указано как: "4", "2 пробы", "по 2 на слой"
 
+ВАЖНО — ДВА ТИПА ПОРУЧЕНИЙ:
+
+A) СТАНДАРТНОЕ ПОРУЧЕНИЕ — указано "по N проб на каждом слое" (N может быть 1, 2, 3 и т.д.):
+   - Все слои должны иметь ОДИНАКОВЫЙ count (тот что указан в документе)
+   - НЕ добавляй platformNumbers
+   - Примеры: "по 1 пробе на слой" → count=1 для ВСЕХ слоёв
+             "по 2 пробы на слой" → count=2 для ВСЕХ слоёв
+             "по 3 пробы на слой" → count=3 для ВСЕХ слоёв
+
+B) ПОРУЧЕНИЕ С НОМЕРАМИ ПЛОЩАДОК — в скобках указано какие площадки какие слои:
+   - Каждый слой может иметь разный count
+   - Добавляй platformNumbers
+   - Пример: "слой 2,0-3,0 (4)" → count=1, platformNumbers=[4]
+
 4. НОМЕРА ПЛОЩАДОК В СКОБКАХ — слой может иметь указание номеров площадок в скобках:
    - "В слое 0,0-0,2 (1,2,3,4,5)" — слой есть у площадок 1,2,3,4,5
    - "В слое 0,5-1,0 (1,4,5)" — слой есть только у площадок 1, 4, 5
@@ -1483,7 +1448,26 @@ territoryConditionText:
 5. Микробиология — ищи упоминания "микробиологическ", "паразитологич", "санитарно-бактериол"
    - Обычно указано общее количество проб
 
-Отвечай СТРОГО в формате JSON:
+ПРИМЕРЫ ОТВЕТОВ:
+
+ПРИМЕР 1 — СТАНДАРТНОЕ ПОРУЧЕНИЕ (по 2 пробы на каждом слое, 5 слоёв):
+{
+  "soil": {
+    "layers": [
+      {"depthFrom": 0.0, "depthTo": 0.2, "label": "0,0-0,2", "count": 2, "isPP": true},
+      {"depthFrom": 0.2, "depthTo": 0.5, "label": "0,2-0,5", "count": 2, "isPP": false},
+      {"depthFrom": 0.5, "depthTo": 1.0, "label": "0,5-1,0", "count": 2, "isPP": false},
+      {"depthFrom": 1.0, "depthTo": 2.0, "label": "1,0-2,0", "count": 2, "isPP": false},
+      {"depthFrom": 2.0, "depthTo": 3.0, "label": "2,0-3,0", "count": 2, "isPP": false}
+    ],
+    "totalCount": 10
+  },
+  "sediment": {"layers": [], "totalCount": 0},
+  "water": {"layers": [], "totalCount": 0},
+  "microbiology": {"count": 2, "hasMicrobiology": true, "hasParasitology": true}
+}
+
+ПРИМЕР 2 — ПОРУЧЕНИЕ С НОМЕРАМИ ПЛОЩАДОК (разная глубина у разных скважин):
 {
   "soil": {
     "layers": [
@@ -1495,36 +1479,29 @@ territoryConditionText:
     ],
     "totalCount": 16
   },
-  "sediment": {
-    "layers": [
-      {"depthFrom": 0.0, "depthTo": 0.5, "label": "0-0,5", "count": 2, "isPP": false}
-    ],
-    "totalCount": 2
-  },
-  "water": {
-    "layers": [
-      {"depthFrom": 0, "depthTo": 0, "label": "поверхн.", "count": 2, "isPP": false}
-    ],
-    "totalCount": 2
-  },
-  "microbiology": {
-    "count": 3,
-    "hasMicrobiology": true,
-    "hasParasitology": true
-  }
+  "sediment": {"layers": [{"depthFrom": 0.0, "depthTo": 0.5, "label": "0-0,5", "count": 2, "isPP": false}], "totalCount": 2},
+  "water": {"layers": [{"depthFrom": 0, "depthTo": 0, "label": "поверхн.", "count": 2, "isPP": false}], "totalCount": 2},
+  "microbiology": {"count": 3, "hasMicrobiology": true, "hasParasitology": true}
 }
 
-Если у слоя нет номеров в скобках — не добавляй поле platformNumbers вообще.
-Если какого-то типа проб нет в документе, верни пустой массив layers и totalCount: 0.
-Если микробиологии нет, верни count: 0, hasMicrobiology: false, hasParasitology: false.`;
+ВАЖНО:
+- Для СТАНДАРТНОГО поручения: count ОДИНАКОВЫЙ для всех слоёв, БЕЗ platformNumbers
+- Для поручения С НОМЕРАМИ: count может быть разный, ЕСТЬ platformNumbers
+- Если у слоя нет номеров в скобках — НЕ добавляй platformNumbers вообще
+- Если типа проб нет — пустой массив layers и totalCount: 0`;
 
     try {
+      // Логируем фрагмент документа для отладки (ищем секцию отбора проб)
+      const probsSection = documentText.match(/Отбор проб[\s\S]{0,2000}/i);
+      console.log('[AiService] extractSamplingLayers: секция отбора проб:', probsSection?.[0]?.substring(0, 500) || 'не найдена');
+      console.log('[AiService] extractSamplingLayers: длина документа:', documentText.length);
+
       const response = await this.chat([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Извлеки данные о слоях отбора проб из этого документа:\n\n${documentText}` },
       ]);
 
-      console.log('AI sampling layers response:', response);
+      console.log('[AiService] extractSamplingLayers: AI response:', response.substring(0, 1000));
 
       // Парсим JSON из ответа
       const jsonMatch = response.match(/\{[\s\S]*\}/);
@@ -1535,9 +1512,14 @@ territoryConditionText:
 
       const parsed = JSON.parse(jsonMatch[0]);
       
+      // Логируем распарсенные слои для отладки
+      const soilLayers = (parsed.soil?.layers || []).map(this.normalizeLayer);
+      console.log('[AiService] extractSamplingLayers: parsed soil layers:', 
+        soilLayers.map((l: AiSamplingLayer) => `${l.label}: count=${l.count}, platformNumbers=${l.platformNumbers?.join(',') || 'none'}`).join(' | '));
+      
       return {
         soil: {
-          layers: (parsed.soil?.layers || []).map(this.normalizeLayer),
+          layers: soilLayers,
           totalCount: parsed.soil?.totalCount || 0,
         },
         sediment: {
@@ -1665,17 +1647,22 @@ export interface ProgramIeiSection1Data {
   // 1.8 Этап выполнения инженерных изысканий (ТЗ п.8)
   surveyStage: string;          // Инженерные изыскания для подготовки проектной документации
   
-  // 1.9.1 Краткая техническая характеристика объекта (ТЗ п.12)
+  // 1.9.1 Краткая техническая характеристика объекта (ТЗ п.13 - только текст ДО "Глубина ведения земляных работ:")
   technicalCharacteristics: string;
   
-  // 1.9.2 Глубина ведения земляных работ (извлечь из ТЗ п.12)
-  excavationDepth: string;      // до 5,0 м
+  // 1.9.2 Глубина ведения земляных работ (ТЗ п.13 - весь текст начиная с "Глубина ведения земляных работ:")
+  excavationDepth: string;
   
   // 1.9.3 Границы площадки / территория обследования (ТЗ п.11)
   siteDescription: string;      // Территория обследования расположена в...
   siteArea: string;             // Площадь участка – около 0,77 га
   
-  // Для титульной страницы - данные заказчика для согласования
+  // Для титульной страницы - данные ТЕХНИЧЕСКОГО ЗАКАЗЧИКА (из шапки ТЗ или п.6)
+  technicalCustomerName: string;              // ООО «КАРАТ-91» (полное название)
+  technicalCustomerDirectorPosition: string;  // Генеральный директор
+  technicalCustomerDirectorName: string;      // Лучников В.М. (короткое ФИО)
+  
+  // Для титульной страницы - данные ЗАКАЗЧИКА (из п.5.1, п.5.2)
   clientDirectorPosition: string;  // Директор
   clientDirectorName: string;      // Лучников В.М. (короткое ФИО)
   clientShortName: string;         // КАРАТ-91 (без ООО и кавычек)

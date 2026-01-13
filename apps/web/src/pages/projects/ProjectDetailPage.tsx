@@ -149,7 +149,7 @@ export function ProjectDetailPage() {
     },
   });
 
-  // Создание доотбора
+  // Создание допотбора
   const [showCreateChildModal, setShowCreateChildModal] = useState(false);
   const [childProjectName, setChildProjectName] = useState('');
   const [childOrderFile, setChildOrderFile] = useState<File | null>(null);
@@ -208,12 +208,12 @@ export function ProjectDetailPage() {
 
   return (
     <div className="max-w-4xl animate-fade-in">
-      {/* Индикатор доотбора (если это дочерний проект) */}
+      {/* Индикатор допотбора (если это дочерний проект) */}
       {isChildProject && project.parentProject && (
         <div className="mb-4 p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg flex items-center gap-3">
           <GitBranch className="w-5 h-5 text-purple-400" />
           <div className="flex-1">
-            <span className="text-sm text-purple-400">Доотбор от объекта:</span>{' '}
+            <span className="text-sm text-purple-400">Допотбор от объекта:</span>{' '}
             <Link
               to={`/projects/${project.parentProject.id}`}
               className="text-sm font-medium text-purple-400 hover:underline"
@@ -320,7 +320,7 @@ export function ProjectDetailPage() {
           <CardTitle>Документы</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* ТЗ — не показываем для доотборов (наследуется от родителя) */}
+          {/* ТЗ — не показываем для допотборов (наследуется от родителя) */}
           {!isChildProject && (
             <FileItem
               label="Техническое задание"
@@ -346,7 +346,7 @@ export function ProjectDetailPage() {
             onClearFile={() => setNewOrderFile(null)}
           />
 
-          {/* Перегенерация из обновленного ТЗ (только для корневых проектов, не для доотборов) */}
+          {/* Перегенерация из обновленного ТЗ (только для корневых проектов, не для допотборов) */}
           {!isChildProject && project.processedAt && project.canEdit && (
             <div className="mt-4 pt-4 border-t border-[var(--border-primary)]">
               <div className="flex items-start gap-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
@@ -738,13 +738,13 @@ export function ProjectDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Доотборы — только для корневых проектов (не для дочерних) */}
+      {/* Допотборы — только для корневых проектов (не для дочерних) */}
       {!isChildProject && project.processedAt && (
         <Card className="mb-6">
           <CardHeader className="flex flex-row items-center justify-between">
             <div className="flex items-center gap-2">
               <GitBranch className="w-5 h-5 text-purple-400" />
-              <CardTitle>Доотборы</CardTitle>
+              <CardTitle>Допотборы</CardTitle>
               {hasChildren && (
                 <span className="text-xs text-purple-400 bg-purple-500/20 px-2 py-0.5 rounded">
                   {project.childProjects!.length}
@@ -758,7 +758,7 @@ export function ProjectDetailPage() {
                 onClick={() => setShowCreateChildModal(true)}
               >
                 <Plus className="w-4 h-4" />
-                Создать доотбор
+                Создать допотбор
               </Button>
             )}
           </CardHeader>
@@ -781,18 +781,18 @@ export function ProjectDetailPage() {
               </div>
             ) : (
               <p className="text-sm text-[var(--text-secondary)] text-center py-4">
-                Доотборов пока нет. Создайте доотбор для дополнительного отбора проб.
+                Допотборов пока нет. Создайте допотбор для дополнительного отбора проб.
               </p>
             )}
           </CardContent>
         </Card>
       )}
 
-      {/* Модальное окно создания доотбора */}
+      {/* Модальное окно создания допотбора */}
       {showCreateChildModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-[var(--bg-secondary)] rounded-xl p-6 w-full max-w-md mx-4 shadow-xl">
-            <h3 className="text-lg font-bold mb-4">Создать доотбор</h3>
+            <h3 className="text-lg font-bold mb-4">Создать допотбор</h3>
             
             <div className="space-y-4">
               <div>
@@ -802,7 +802,7 @@ export function ProjectDetailPage() {
                 <Input
                   value={childProjectName}
                   onChange={(e) => setChildProjectName(e.target.value)}
-                  placeholder={`${project.name} (доотбор)`}
+                  placeholder={`${project.name} (допотбор)`}
                 />
               </div>
 
@@ -843,7 +843,7 @@ export function ProjectDetailPage() {
 
               {createChildMutation.isError && (
                 <p className="text-sm text-red-400">
-                  Ошибка при создании доотбора. Проверьте данные и попробуйте снова.
+                  Ошибка при создании допотбора. Проверьте данные и попробуйте снова.
                 </p>
               )}
             </div>

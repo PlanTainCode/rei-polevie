@@ -257,8 +257,15 @@ export class ProjectsService {
     if (nextClientAddress) updateData.clientAddress = nextClientAddress;
 
     // services: не затираем существующие при пустом результате
+    // Дедупликация по row — берём первую найденную услугу для каждого row
     if (Array.isArray(services) && services.length > 0) {
-      updateData.services = services as unknown as object;
+      const uniqueServices = services.reduce((acc, service) => {
+        if (!acc.find(s => s.row === service.row)) {
+          acc.push(service);
+        }
+        return acc;
+      }, [] as ServiceMatch[]);
+      updateData.services = uniqueServices as unknown as object;
     }
 
     await this.prisma.project.update({
@@ -446,7 +453,7 @@ export class ProjectsService {
       throw new ForbiddenException('Нет доступа к этому проекту');
     }
 
-    // Если это дочерний проект (доотбор) — мержим данные из ТЗ родителя
+    // Если это дочерний проект (допотбор) — мержим данные из ТЗ родителя
     let mergedProject = { ...project };
     if (project.parentProjectId && project.parentProject) {
       const parent = project.parentProject;
@@ -729,7 +736,7 @@ export class ProjectsService {
   }
 
   /**
-   * Создаёт дочерний проект (доотбор) на основе родительского
+   * Создаёт дочерний проект (допотбор) на основе родительского
    * Наследует ТЗ от родителя, но имеет своё поручение и свои пробы
    */
   async createChildProject(
@@ -740,9 +747,9 @@ export class ProjectsService {
   ) {
     const parentProject = await this.findById(parentId, userId);
 
-    // Нельзя создать доотбор от доотбора — только от корневого проекта
+    // Нельзя создать допотбор от допотбора — только от корневого проекта
     if (parentProject.parentProjectId) {
-      throw new ForbiddenException('Нельзя создать доотбор от доотбора. Создайте доотбор от основного объекта.');
+      throw new ForbiddenException('Нельзя создать допотбор от допотбора. Создайте допотбор от основного объекта.');
     }
 
     // Создаём дочерний проект
@@ -922,7 +929,7 @@ export class ProjectsService {
   }
 
   /**
-   * Получает список дочерних проектов (доотборов) для родительского проекта
+   * Получает список дочерних проектов (допотборов) для родительского проекта
    */
   async getChildProjects(parentId: string, userId: string) {
     await this.findById(parentId, userId); // Проверка доступа

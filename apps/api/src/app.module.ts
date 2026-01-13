@@ -19,6 +19,7 @@ import { TechnicalTasksModule } from './modules/technical-tasks/technical-tasks.
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: ['.env', '../.env', '../../.env'],
     }),
     ServeStaticModule.forRoot({
       rootPath: join(process.cwd(), 'uploads'),
