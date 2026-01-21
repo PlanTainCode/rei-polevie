@@ -1071,12 +1071,21 @@ ${tzText}`;
   "regionType": "MOSCOW_CITY" | "MOSCOW_OBLAST" | "UNKNOWN",
   "moscowDistrict": "",
   "territoryLocationText": "",
-  "landscape": "HIMKI" | "MOSKVORETSKO_GRAYVORONSKIY" | "MOSKVORETSKO_SKHODNENSKIY" | "TSARITSYNSKIY" | "UNKNOWN"
+  "landscape": "HIMKI" | "YAUZSKIY" | "MESHCHERSKIY" | "MOSKVORETSKO_KOPOTNENSKIY" | "MOSKVORETSKO_GRAYVORONSKIY" | "TSARITSYNSKIY" | "TEPLOSTANSKIY" | "KUNTSEVSKIY" | "MOSKVORETSKO_SKHODNENSKIY" | "UNKNOWN"
 }
 
-Пояснение по landscape:
-- Выбирай ОДНО значение из списка, соответствующее местоположению.
-- Если невозможно определить по адресу/местоположению - UNKNOWN.`;
+ЛАНДШАФТЫ МОСКВЫ ПО ОКРУГАМ:
+- HIMKI (САО): Аэропорт, Беговой, Войковский, Головинский, Дмитровский, Коптево, Сокол, Тимирязевский, Ховрино
+- YAUZSKIY (СВАО): Алтуфьевский, Бибирево, Лианозово, Отрадное, Медведково, Бутырский, Марфино, Останкинский
+- MESHCHERSKIY (ВАО): Измайлово, Гольяново, Богородское, Метрогородок, Новогиреево, Перово, Преображенское, Сокольники
+- MOSKVORETSKO_KOPOTNENSKIY (ЮВАО): Выхино-Жулебино, Капотня, Кузьминки, Люблино, Марьино, Печатники, Текстильщики
+- MOSKVORETSKO_GRAYVORONSKIY (ЦАО): Арбат, Басманный, Замоскворечье, Пресненский, Таганский, Тверской, Хамовники
+- TSARITSYNSKIY (ЮАО): Бирюлёво, Братеево, Орехово-Борисово, Царицыно, Чертаново, Нагатино-Садовники
+- TEPLOSTANSKIY (ЮЗАО): Академический, Гагаринский, Коньково, Ломоносовский, Тёплый Стан, Черёмушки, Ясенево, Бутово
+- KUNTSEVSKIY (ЗАО): Внуково, Дорогомилово, Крылатское, Кунцево, Можайский, Раменки, Солнцево, Филёвский Парк, Фили-Давыдково, Очаково-Матвеевское, Проспект Вернадского, Ново-Переделкино, Тропарёво-Никулино
+- MOSKVORETSKO_SKHODNENSKIY (СЗАО): Митино, Строгино, Тушино, Щукино, Хорошёво-Мнёвники
+
+Если район не определяется — UNKNOWN.`;
 
     const userPrompt = `Адрес/местоположение объекта:
 ${addressText}`;
@@ -1102,11 +1111,9 @@ ${addressText}`;
 
       const allowedRegion = new Set(['MOSCOW_CITY', 'MOSCOW_OBLAST', 'UNKNOWN'] as const);
       const allowedLandscape = new Set([
-        'HIMKI',
-        'MOSKVORETSKO_GRAYVORONSKIY',
-        'MOSKVORETSKO_SKHODNENSKIY',
-        'TSARITSYNSKIY',
-        'UNKNOWN',
+        'HIMKI', 'YAUZSKIY', 'MESHCHERSKIY', 'MOSKVORETSKO_KOPOTNENSKIY',
+        'MOSKVORETSKO_GRAYVORONSKIY', 'TSARITSYNSKIY', 'TEPLOSTANSKIY',
+        'KUNTSEVSKIY', 'MOSKVORETSKO_SKHODNENSKIY', 'UNKNOWN',
       ] as const);
 
       const regionType = allowedRegion.has(parsed.regionType as any)
@@ -1119,6 +1126,8 @@ ${addressText}`;
 
       const moscowDistrict = String(parsed.moscowDistrict || '').trim();
       const territoryLocationText = String(parsed.territoryLocationText || '').trim();
+
+      console.log(`[AiService] Section31: район=${moscowDistrict}, AI landscape=${parsed.landscape}, итог landscape=${landscape}`);
 
       return {
         regionType,
@@ -1686,16 +1695,18 @@ export interface ProgramIeiSection1Data {
  */
 export interface ProgramIeiSection31Data {
   regionType: 'MOSCOW_CITY' | 'MOSCOW_OBLAST' | 'UNKNOWN';
-  // Район г. Москвы (например: "Нагатино-Садовники"). Заполняем только если regionType = MOSCOW_CITY и район явно указан/определён.
   moscowDistrict: string;
-  // Абзац формата: "Территория обследования расположена ...". Нужен для 3.1 (обычно для МО).
   territoryLocationText: string;
-  // Выбор одного из шаблонных ландшафтов (для удаления остальных вариантов в документе)
   landscape:
     | 'HIMKI'
+    | 'YAUZSKIY'
+    | 'MESHCHERSKIY'
+    | 'MOSKVORETSKO_KOPOTNENSKIY'
     | 'MOSKVORETSKO_GRAYVORONSKIY'
-    | 'MOSKVORETSKO_SKHODNENSKIY'
     | 'TSARITSYNSKIY'
+    | 'TEPLOSTANSKIY'
+    | 'KUNTSEVSKIY'
+    | 'MOSKVORETSKO_SKHODNENSKIY'
     | 'UNKNOWN';
 }
 

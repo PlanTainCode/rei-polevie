@@ -1429,6 +1429,18 @@ export class WordService {
       }
     }
 
+    // Нормализуем styles.xml — убираем синий цвет и подчёркивание из Hyperlink
+    const stylesFile = zip.file('word/styles.xml');
+    if (stylesFile) {
+      let stylesXml = stylesFile.asText();
+      // Убираем синий цвет из стилей
+      stylesXml = stylesXml.replace(/w:val="0000FF"/gi, 'w:val="000000"');
+      // Убираем подчёркивание из стилей
+      stylesXml = stylesXml.replace(/<w:u w:val="single"\/>/g, '');
+      stylesXml = stylesXml.replace(/<w:u[^>]*\/>/g, '');
+      zip.file('word/styles.xml', stylesXml);
+    }
+
     // Заменяем обзорную схему (п.1.9.4) - это image2.png в шаблоне
     if (programIei?.overviewImageName) {
       const imagePath = join(process.cwd(), 'uploads', 'program-iei', programIei.overviewImageName);
@@ -2221,25 +2233,59 @@ export class WordService {
       xml = this.replaceParagraphTextByParaId(xml, '67F16F92', territoryText);
     }
 
-    // --- 3.1: ландшафты (оставляем только один)
-    const landscapeMap: Record<ProgramIeiSection31Data['landscape'], string | null> = {
-      HIMKI: '446E8C78',
-      MOSKVORETSKO_GRAYVORONSKIY: '56FF4617',
-      MOSKVORETSKO_SKHODNENSKIY: '00ED25F0',
-      TSARITSYNSKIY: '79DFDC31',
-      UNKNOWN: null,
+    // --- 3.1: ландшафты (оставляем первый, удаляем остальные, заменяем текст на правильный)
+    const landscapeTexts: Record<string, string> = {
+      HIMKI: 'Участок изысканий относится к Химкинскому коренному ландшафту Смоленско-Московской возвышенности.',
+      YAUZSKIY: 'Участок изысканий относится к Яузскому коренному ландшафту долины р.Яузы.',
+      MESHCHERSKIY: 'Участок изысканий относится к Мещерскому коренному ландшафту Мещерской низменности.',
+      MOSKVORETSKO_KOPOTNENSKIY: 'Участок изысканий относится к Москворецко-Копотненскому коренному ландшафту долины р.Москвы.',
+      MOSKVORETSKO_GRAYVORONSKIY: 'Участок изысканий относится к Москворецко-Грайвороновскому коренному ландшафту долины р.Москвы.',
+      TSARITSYNSKIY: 'Участок изысканий относится к Царицынскому коренному ландшафту Москворецко-Окской физико-географической провинции.',
+      TEPLOSTANSKIY: 'Участок изысканий относится к Теплостанскому коренному ландшафту Теплостанской возвышенности.',
+      KUNTSEVSKIY: 'Участок изысканий относится к Кунцевскому коренному ландшафту долины р.Москвы.',
+      MOSKVORETSKO_SKHODNENSKIY: 'Участок изысканий относится к Москворецко-Сходненскому коренному ландшафту долины р.Москвы.',
     };
 
-    const keepLandscapeParaId =
-      (section31Data?.landscape && landscapeMap[section31Data.landscape]) ||
-      // фоллбэк: оставляем наиболее "универсальный" вариант из шаблона
-      '56FF4617';
+    // Определяем ландшафт по адресу детерминированно (без AI)
+    type LandscapeType = 'HIMKI' | 'YAUZSKIY' | 'MESHCHERSKIY' | 'MOSKVORETSKO_KOPOTNENSKIY' | 'MOSKVORETSKO_GRAYVORONSKIY' | 'TSARITSYNSKIY' | 'TEPLOSTANSKIY' | 'KUNTSEVSKIY' | 'MOSKVORETSKO_SKHODNENSKIY' | 'UNKNOWN';
+    const determineLandscapeByAddress = (addr: string): LandscapeType => {
+      const a = addr.toLowerCase();
+      // KUNTSEVSKIY (ЗАО)
+      if (/фили|давыдков|кунцев|крылатск|дорогомилов|можайск|рамен|солнцев|внуков|очаков|матвеевск|тропарёв|никулин|ново-переделкин|вернадског/i.test(a)) return 'KUNTSEVSKIY';
+      // HIMKI (САО)
+      if (/аэропорт|бегов|войков|головин|дмитров|коптев|сокол|тимиряз|ховрин|химк/i.test(a)) return 'HIMKI';
+      // YAUZSKIY (СВАО)
+      if (/алтуфьев|бибирев|лианозов|отрадн|медведков|бутырск|марфин|останкин|свиблов|ростокин|ярослав/i.test(a)) return 'YAUZSKIY';
+      // MESHCHERSKIY (ВАО)
+      if (/измайлов|гольянов|богородск|метрогород|новогиреев|перов|преображенск|сокольник|ивановск|восточн/i.test(a)) return 'MESHCHERSKIY';
+      // MOSKVORETSKO_KOPOTNENSKIY (ЮВАО)
+      if (/выхин|жулебин|капотн|кузьмин|люблин|марьин|печатник|текстильщик|рязан|лефортов|южнопортов|нижегород/i.test(a)) return 'MOSKVORETSKO_KOPOTNENSKIY';
+      // MOSKVORETSKO_GRAYVORONSKIY (ЦАО)
+      if (/арбат|басман|замоскворечь|пресн|таган|тверск|хамовник|мещанск|красносельск|якиманк/i.test(a)) return 'MOSKVORETSKO_GRAYVORONSKIY';
+      // TSARITSYNSKIY (ЮАО)
+      if (/бирюлёв|братеев|орехов|борисов|царицын|чертанов|нагатин|садовник|москворечь|сабуров|даниловск|донск|нагорн|зябликов/i.test(a)) return 'TSARITSYNSKIY';
+      // TEPLOSTANSKIY (ЮЗАО)
+      if (/академич|гагарин|коньков|ломоносов|тёплый стан|теплый стан|черёмушк|черемушк|ясенев|бутов|зюзин|котловк|обручевск|севастопольск/i.test(a)) return 'TEPLOSTANSKIY';
+      // MOSKVORETSKO_SKHODNENSKIY (СЗАО)
+      if (/митин|строгин|тушин|щукин|хорошёв|хорошев|мнёвник|мневник|покровск|куркин/i.test(a)) return 'MOSKVORETSKO_SKHODNENSKIY';
+      return 'UNKNOWN';
+    };
 
+    // Сначала пробуем AI, если не получилось - определяем по адресу
+    let landscape = section31Data?.landscape;
+    if (!landscape || landscape === 'UNKNOWN') {
+      landscape = determineLandscapeByAddress(address);
+    }
+
+    // Оставляем первый абзац (446E8C78), удаляем остальные
     const allLandscapeParaIds = ['446E8C78', '56FF4617', '00ED25F0', '79DFDC31'];
-    for (const paraId of allLandscapeParaIds) {
-      if (paraId !== keepLandscapeParaId) {
-        xml = this.removeParagraphByParaId(xml, paraId);
-      }
+    for (let i = 1; i < allLandscapeParaIds.length; i++) {
+      xml = this.removeParagraphByParaId(xml, allLandscapeParaIds[i]);
+    }
+
+    // Заменяем текст первого абзаца на правильный ландшафт
+    if (landscape && landscape !== 'UNKNOWN' && landscapeTexts[landscape]) {
+      xml = this.replaceParagraphTextByParaId(xml, '446E8C78', landscapeTexts[landscape]);
     }
 
     // --- 3.1: климатический абзац (paraId="0F3987D3") - убираем слово "Москва" перед температурой

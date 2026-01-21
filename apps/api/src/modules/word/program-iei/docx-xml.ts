@@ -204,6 +204,14 @@ export function removeMarkerRunFromParagraph(xml: string, paraId: string, marker
 export function normalizeDocumentStyles(xml: string): string {
   let result = xml;
 
+  // 0. ПРЯМАЯ замена синего цвета 0000FF и серого 999999 на чёрный (самый надёжный способ)
+  result = result.replace(/w:val="0000FF"/gi, 'w:val="000000"');
+  result = result.replace(/w:val="999999"/gi, 'w:val="000000"');
+
+  // 0.1. Убираем стиль Hyperlink (синий подчёркнутый текст)
+  result = result.replace(/<w:rStyle w:val="ae"\/>/g, '');
+  result = result.replace(/<w:rStyle w:val="Hyperlink"\/>/gi, '');
+
   // 1. Убираем все highlight (подсветка текста)
   result = result.replace(/<w:highlight[^/]*\/>/g, '');
   result = result.replace(/<w:highlight[^>]*>[\s\S]*?<\/w:highlight>/g, '');
@@ -277,10 +285,15 @@ export function normalizeDocumentStyles(xml: string): string {
     '<w:color w:val="000000"/>',
   );
 
-  // 7. Убираем подчёркивания текста (для плейсхолдеров титульной страницы)
-  result = result.replace(/<w:u w:val="single"\/>/g, '');
-  result = result.replace(/<w:u w:val="single"[^/]*\/>/g, '');
-  result = result.replace(/<w:u w:val="single"[^>]*>[^<]*<\/w:u>/g, '');
+  // 6.1. Убираем themeColor (синие цвета часто заданы через тему)
+  result = result.replace(/<w:color[^>]*w:themeColor="[^"]*"[^>]*\/>/g, '<w:color w:val="000000"/>');
+  result = result.replace(/w:themeColor="[^"]*"/g, '');
+  result = result.replace(/w:themeTint="[^"]*"/g, '');
+  result = result.replace(/w:themeShade="[^"]*"/g, '');
+
+  // 7. Убираем ВСЕ подчёркивания текста (single, double, wave, dotted и т.д.)
+  result = result.replace(/<w:u[^>]*\/>/g, '');
+  result = result.replace(/<w:u[^>]*>[^<]*<\/w:u>/g, '');
 
   return result;
 }

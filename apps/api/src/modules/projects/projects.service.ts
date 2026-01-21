@@ -339,25 +339,39 @@ export class ProjectsService {
   }
 
   /**
-   * Извлекает полный номер документа из текста (например 801-110-25)
+   * Извлекает полный номер документа из текста (например 801-110-25 или 801-1-26)
    */
   private extractDocumentNumber(text: string, numbers: string[]): string {
+    // Приоритет 1: явное поле "Номер документа:" в тексте
+    const explicitPatterns = [
+      /номер\s+документа\s*[:\-–]\s*(\d{3}-\d{1,4}-\d{2})/gi,
+      /№\s*документа\s*[:\-–]\s*(\d{3}-\d{1,4}-\d{2})/gi,
+    ];
+    
+    for (const pattern of explicitPatterns) {
+      const match = pattern.exec(text);
+      if (match?.[1]) {
+        return match[1];
+      }
+    }
+
+    // Приоритет 2: общие паттерны номера (801-1-26, 801-110-25 и т.д.)
     const patterns = [
-      /\b(\d{3}-\d{2,4}-\d{2})\b/g,
-      /№\s*(\d{3}-\d{2,4}-\d{2})/gi,
+      /\b(\d{3}-\d{1,4}-\d{2})\b/g,
+      /№\s*(\d{3}-\d{1,4}-\d{2})/gi,
     ];
 
     for (const pattern of patterns) {
       const matches = text.matchAll(pattern);
       for (const match of matches) {
         if (match[1]) {
-          return match[1]; // Возвращаем полный номер (801-110-25)
+          return match[1]; // Возвращаем полный номер (801-110-25 или 801-1-26)
         }
       }
     }
 
     for (const num of numbers) {
-      const match = num.match(/(\d{3}-\d{2,4}-\d{2})/);
+      const match = num.match(/(\d{3}-\d{1,4}-\d{2})/);
       if (match && match[1]) {
         return match[1];
       }

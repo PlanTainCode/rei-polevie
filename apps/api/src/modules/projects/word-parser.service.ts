@@ -243,8 +243,8 @@ export class WordParserService {
       data.numbers = [...new Set(numbers)];
     }
 
-    // Извлекаем номер договора (формат 801-110-25)
-    const contractPattern = /(?:договор\s*(?:№|номер)?:?\s*)(\d{3}-\d{2,4}-\d{2})/i;
+    // Извлекаем номер договора (формат 801-110-25 или 801-1-26)
+    const contractPattern = /(?:договор\s*(?:№|номер)?:?\s*)(\d{3}-\d{1,4}-\d{2})/i;
     const contractMatch = rawText.match(contractPattern);
     if (contractMatch) {
       data.contractNumber = contractMatch[1];

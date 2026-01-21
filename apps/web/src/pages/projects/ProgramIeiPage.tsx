@@ -11,9 +11,83 @@ import {
   MapPin,
   Image,
   Loader2,
+  AlertTriangle,
 } from 'lucide-react';
 import { projectsApi } from '@/api/projects';
 import { Button, Input, Card, CardContent } from '@/components/ui';
+
+// Утилиты для кадастрового номера
+// Формат: XX:XX:XXXXXXX:XXX (регион:район:квартал:участок)
+// Регион: 2 цифры, Район: 2 цифры, Квартал: 6-7 цифр, Участок: 1-5 цифр
+const CADASTRAL_REGEX = /^\d{2}:\d{2}:\d{6,7}:\d{1,5}$/;
+
+const formatCadastralNumber = (value: string, prevValue: string): string => {
+  // Оставляем только цифры и двоеточия
+  const cleaned = value.replace(/[^\d:]/g, '');
+  
+  // Считаем двоеточия
+  const colonCount = (cleaned.match(/:/g) || []).length;
+  const prevColonCount = (prevValue.match(/:/g) || []).length;
+  
+  // Проверяем, это вставка (сразу много символов или 3 двоеточия)
+  const isPaste = colonCount >= 3 || (cleaned.replace(/:/g, '').length - prevValue.replace(/:/g, '').length > 3);
+  
+  if (isPaste && colonCount >= 3) {
+    // Вставка полного номера — парсим части
+    const parts = cleaned.split(':');
+    const formatted = [
+      parts[0]?.replace(/\D/g, '').slice(0, 2) || '',
+      parts[1]?.replace(/\D/g, '').slice(0, 2) || '',
+      parts[2]?.replace(/\D/g, '').slice(0, 7) || '',
+      parts[3]?.replace(/\D/g, '').slice(0, 5) || '',
+    ];
+    
+    let result = formatted[0];
+    if (formatted[1]) result += ':' + formatted[1];
+    if (formatted[2]) result += ':' + formatted[2];
+    if (formatted[3]) result += ':' + formatted[3];
+    return result;
+  }
+  
+  // Пользователь вручную добавил двоеточие — сохраняем его
+  if (colonCount > prevColonCount) {
+    const parts = cleaned.split(':');
+    const limits = [2, 2, 7, 5];
+    const formatted = parts.slice(0, 4).map((p, i) => p.replace(/\D/g, '').slice(0, limits[i]));
+    return formatted.filter(Boolean).join(':');
+  }
+  
+  // Берём только цифры
+  const digits = cleaned.replace(/:/g, '').slice(0, 16);
+  
+  // Разбиваем на части
+  const part1 = digits.slice(0, 2);
+  const part2 = digits.slice(2, 4);
+  const part3 = digits.slice(4, 11);
+  const part4 = digits.slice(11, 16);
+  
+  // Собираем с автоматическими двоеточиями
+  let result = part1;
+  
+  if (part2) {
+    result += (part1.length === 2 ? ':' : '') + part2;
+  }
+  
+  if (part3) {
+    result += (part2.length === 2 ? ':' : '') + part3;
+  }
+  
+  if (part4) {
+    result += (part3.length === 7 ? ':' : '') + part4;
+  }
+  
+  return result;
+};
+
+const validateCadastralNumber = (value: string): boolean => {
+  if (!value) return true; // Пустое значение валидно
+  return CADASTRAL_REGEX.test(value);
+};
 
 export function ProgramIeiPage() {
   const { id } = useParams<{ id: string }>();
@@ -22,6 +96,7 @@ export function ProgramIeiPage() {
 
   // Форма
   const [cadastralNumber, setCadastralNumber] = useState('');
+  const [cadastralError, setCadastralError] = useState('');
   const [egrnDescription, setEgrnDescription] = useState('');
   const [nearbySouth, setNearbySouth] = useState('');
   const [nearbyEast, setNearbyEast] = useState('');
@@ -109,6 +184,12 @@ export function ProgramIeiPage() {
     onSuccess: async (result) => {
       setIsGenerating(false);
       queryClient.invalidateQueries({ queryKey: ['program-iei', id] });
+      // Звук уведомления
+      try {
+        const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleQIvkvPnpFULLHzs7axhFSZo4fO0cCEdVNLxwoMxGUS97MuLPh87q+jXmkkgLZnl4qFZGyWG4u6sZhkld9/ztnAbI2va8sFzHSJd0vHKhTIZS8Dsy4w7HT2v6NmZTyAtmeTioVobJYbi7qxmGSV33/O2cBsja9rywXMdIl3S8cqFMhlLwOzLjDsdPa/o2ZlPIC2Z5OKhWhslhuLurGYZJXff87ZwGyNr2vLBcx0iXdLxykU1GUvA7MuMOx09sOjZmE8gLZnk4qFaGyWG4u6sZhkld9/ztnAbI2va8sFzHiJd0vHKhTIZS8Dsy4w7HT2v6NmZTyAtmeTioVobJYbi7qxmGCV33/O2cBsja9rywXMeIl3S8cqFMhlLwOzLjDsdPa/o2ZlPIC2Z5OKhWhslhuLurGYYJXff87ZwGyNr2vLBcx4iXdLxyoUyGUvA7MuMOx09r+jZmU8gLZnk4qFaGyWG4u6sZhgld9/ztnAbI2va8sFzHiJd0vHKhTIZS8Dsy4w7HT2v6NmZUA==');
+        audio.volume = 0.5;
+        audio.play();
+      } catch {}
       // Скачиваем файл
       await projectsApi.downloadWord(id!, result.fileName);
     },
@@ -128,6 +209,12 @@ export function ProgramIeiPage() {
   };
 
   const handleSave = () => {
+    // Проверяем валидность кадастрового номера перед сохранением
+    if (cadastralNumber && !validateCadastralNumber(cadastralNumber)) {
+      setCadastralError('Исправьте кадастровый номер перед сохранением');
+      return;
+    }
+    
     updateMutation.mutate({
       cadastralNumber: cadastralNumber || undefined,
       egrnDescription: egrnDescription || undefined,
@@ -140,13 +227,27 @@ export function ProgramIeiPage() {
   };
 
   const handleGenerate = () => {
+    // Проверяем валидность кадастрового номера перед генерацией
+    if (cadastralNumber && !validateCadastralNumber(cadastralNumber)) {
+      setCadastralError('Исправьте кадастровый номер перед генерацией');
+      return;
+    }
+    
     setIsGenerating(true);
     generateMutation.mutate();
   };
 
   const handleCadastralChange = (value: string) => {
-    setCadastralNumber(value);
+    const formatted = formatCadastralNumber(value, cadastralNumber);
+    setCadastralNumber(formatted);
     setHasChanges(true);
+    
+    // Валидация (показываем ошибку только если что-то введено и формат неправильный)
+    if (formatted && !validateCadastralNumber(formatted)) {
+      setCadastralError('Неверный формат. Пример: 77:06:0009005:10');
+    } else {
+      setCadastralError('');
+    }
   };
 
   const handleDescriptionChange = (value: string) => {
@@ -221,6 +322,18 @@ export function ProgramIeiPage() {
             )}
             Сгенерировать
           </Button>
+        </div>
+      </div>
+
+      {/* Предупреждение */}
+      <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 flex items-start gap-3">
+        <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+        <div className="text-sm text-amber-200">
+          <p className="font-medium mb-1">Внимание! После генерации проверьте:</p>
+          <ul className="list-disc list-inside space-y-1 text-amber-300/80">
+            <li><strong>Пункт 3.1</strong> — коренной ландшафт и физико-географическая характеристика</li>
+            <li><strong>Раздел 8</strong> — пока заполняется вручную</li>
+          </ul>
         </div>
       </div>
 
@@ -313,10 +426,15 @@ export function ProgramIeiPage() {
                   value={cadastralNumber}
                   onChange={(e) => handleCadastralChange(e.target.value)}
                   placeholder="77:06:0009005:10"
+                  className={cadastralError ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : ''}
                 />
-                <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                  Формат: XX:XX:XXXXXXX:XXX
-                </p>
+                {cadastralError ? (
+                  <p className="mt-1 text-xs text-red-400">{cadastralError}</p>
+                ) : (
+                  <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                    Формат: XX:XX:XXXXXXX:XXX (регион:район:квартал:участок)
+                  </p>
+                )}
               </div>
 
               <div>
