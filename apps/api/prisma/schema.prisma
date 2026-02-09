@@ -152,6 +152,7 @@ model Project {
   photos         Photo[]
   programIei     ProgramIei?
   inquiryRequest InquiryRequest?
+  indicator      Indicator?
 
   @@map("projects")
 }
@@ -224,9 +225,10 @@ model Sample {
   updatedAt      DateTime     @updatedAt
 
   // Отношения
-  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  platform    Platform  @relation(fields: [platformId], references: [id], onDelete: Cascade)
-  collectedBy User?     @relation("CollectedBy", fields: [collectedById], references: [id])
+  project          Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  platform         Platform          @relation(fields: [platformId], references: [id], onDelete: Cascade)
+  collectedBy      User?             @relation("CollectedBy", fields: [collectedById], references: [id])
+  indicatorSamples IndicatorSample[]
 
   @@unique([projectId, cipher]) // Уникальность cipher в рамках проекта
   @@map("samples")
@@ -273,6 +275,7 @@ model ProgramIei {
   nearbyEast        String?   // "К востоку: ..."
   nearbyWest        String?   // "К западу: ..."
   nearbyNorth       String?   // "К северу: ..."
+  openGroundPercent Int?      // Площадь поверхности открытого грунта (0-100%)
 
   // 8.2 Обоснование границ изучаемой территории
   section82Text     String?   // Текст пункта 8.2 (редактируемый)
@@ -400,3 +403,70 @@ enum TechnicalTaskStatus {
   ERROR       // Ошибка
 }
 
+// Показатели лабораторных исследований (связь 1:1 с проектом)
+model Indicator {
+  id        String @id @default(cuid())
+  projectId String @unique
+
+  // Тип исследования
+  type      IndicatorType @default(SOIL_CHEMISTRY)
+
+  // Загруженный файл протокола
+  protocolFileName  String?   // Имя файла протокола
+  protocolFileUrl   String?   // Путь к файлу протокола
+  protocolNumber    String?   // Номер протокола (напр. "1853П-25")
+
+  // Метаданные протокола
+  samplingDate      DateTime? // Дата отбора образцов
+  testingDateFrom   DateTime? // Дата начала испытаний
+  testingDateTo     DateTime? // Дата окончания испытаний
+  sampleCount       Int?      // Количество образцов в протоколе
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Отношения
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  samples IndicatorSample[]
+
+  @@map("indicators")
+}
+
+enum IndicatorType {
+  SOIL_CHEMISTRY    // Химия грунтов/почвы
+  SOIL_ERN          // ЕРН (естественные радионуклиды)
+  WATER_CHEMISTRY   // Химия воды (будет позже)
+  SEDIMENT_CHEMISTRY // Химия донных отложений (будет позже)
+}
+
+// Показатели по конкретной пробе
+model IndicatorSample {
+  id          String @id @default(cuid())
+  indicatorId String
+
+  // Шифр пробы из протокола (напр. "01АХ.01")
+  sampleCipher String
+  
+  // Связь с пробой проекта (если найдена)
+  matchedSampleId String?
+
+  // Тип грунта (определяется по description пробы)
+  // ПС = песок/супесь, СГ = суглинок/глина, null = нет характеристики
+  soilTypeCode String?
+
+  // Показатели химии (JSON)
+  chemistryData Json? // { pH: { value: 6.6, uncertainty: 0.1, unit: "ед. рН" }, ... }
+
+  // Показатели ЕРН (JSON)
+  radiationData Json? // { Cs137: { value: 3.2, unit: "Бк/кг" }, K40: ..., Aeff: ... }
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Отношения
+  indicator     Indicator @relation(fields: [indicatorId], references: [id], onDelete: Cascade)
+  matchedSample Sample?   @relation(fields: [matchedSampleId], references: [id], onDelete: SetNull)
+
+  @@unique([indicatorId, sampleCipher])
+  @@map("indicator_samples")
+}

@@ -112,11 +112,392 @@ export function replaceParagraphTextByParaIdPreserveRunProps(
   });
 }
 
+/**
+ * Для значений таблицы 4.2: заменяет текст с принудительным курсивом
+ */
+export function replaceParagraphTextByParaIdWithItalic(
+  xml: string,
+  paraId: string,
+  newText: string,
+): string {
+  const escaped = escapeXml(newText);
+  const re = new RegExp(
+    `(<w:p[^>]*w14:paraId="${paraId}"[^>]*>)([\\s\\S]*?)(<\\/w:p>)`,
+    'g',
+  );
+
+  // rPr с курсивом
+  const italicRPr = '<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:i/><w:iCs/><w:sz w:val="24"/><w:szCs w:val="24"/><w:color w:val="000000"/></w:rPr>';
+
+  return String(xml).replace(re, (_m, open, body, close) => {
+    const bodyStr = String(body);
+    const pPrMatch = bodyStr.match(/<w:pPr[\s\S]*?<\/w:pPr>/);
+    const pPr = pPrMatch ? pPrMatch[0] : '';
+
+    return `${open}${pPr}<w:r>${italicRPr}<w:t xml:space="preserve">${escaped}</w:t></w:r>${close}`;
+  });
+}
+
 export function removeTableRowByTrParaId(xml: string, trParaId: string): string {
   return String(xml).replace(
     new RegExp(`<w:tr[^>]*w14:paraId="${trParaId}"[^>]*>[\\s\\S]*?<\\/w:tr>`, 'g'),
     '',
   );
+}
+
+/**
+ * Вставляет новую строку таблицы после строки с указанным trParaId,
+ * копируя структуру следующей строки (чтобы сохранить стили)
+ * @param xml - XML документа
+ * @param afterTrParaId - paraId строки, после которой вставлять
+ * @param rowNumber - номер строки (ячейка 1)
+ * @param title - название работы (ячейка 2)
+ * @param unit - единица измерения (ячейка 3)
+ * @param quantity - количество (ячейка 4), курсивом
+ */
+export function insertTableRowAfterTrParaId(
+  xml: string,
+  afterTrParaId: string,
+  rowNumber: string,
+  title: string,
+  unit: string,
+  quantity: string,
+): string {
+  // paraId находится на <w:p> внутри строки, а не на <w:tr>
+  // Ищем позицию параграфа с нужным paraId
+  const paraIdPattern = `w14:paraId="${afterTrParaId}"`;
+  const paraIdPos = xml.indexOf(paraIdPattern);
+  if (paraIdPos === -1) {
+    console.log(`[insertTableRowAfterTrParaId] paraId ${afterTrParaId} не найден в XML`);
+    return xml;
+  }
+  
+  // Находим начало строки <w:tr> которая содержит этот параграф
+  const trStartPos = xml.lastIndexOf('<w:tr', paraIdPos);
+  if (trStartPos === -1) {
+    console.log(`[insertTableRowAfterTrParaId] <w:tr> не найден перед paraId`);
+    return xml;
+  }
+  
+  // Находим конец этой строки </w:tr>
+  const trEndPos = xml.indexOf('</w:tr>', paraIdPos);
+  if (trEndPos === -1) {
+    console.log(`[insertTableRowAfterTrParaId] </w:tr> не найден после paraId`);
+    return xml;
+  }
+  
+  const headerRowEnd = trEndPos + 7;
+  
+  // Находим следующую строку таблицы (она будет шаблоном для стилей)
+  const restXml = xml.slice(headerRowEnd);
+  const nextRowRe = /<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/;
+  const nextRowMatch = restXml.match(nextRowRe);
+  
+  if (!nextRowMatch) {
+    console.log(`[insertTableRowAfterTrParaId] Следующая строка таблицы не найдена`);
+    return xml;
+  }
+  
+  // Копируем структуру следующей строки
+  let templateRow = nextRowMatch[0];
+  
+  // Убираем paraId из новой строки (чтобы не было дублей)
+  templateRow = templateRow.replace(/w14:paraId="[^"]*"/g, '');
+  templateRow = templateRow.replace(/w14:textId="[^"]*"/g, '');
+  
+  // Находим все ячейки
+  const tcRe = /<w:tc\b[\s\S]*?<\/w:tc>/g;
+  const cells = templateRow.match(tcRe) || [];
+  
+  if (cells.length < 4) {
+    console.log(`[insertTableRowAfterTrParaId] В шаблоне менее 4 ячеек: ${cells.length}`);
+    return xml;
+  }
+  
+  // Функция для замены текста в ячейке
+  const replaceCellText = (cellXml: string, newText: string, italic?: boolean): string => {
+    // Очищаем все <w:t> и вставляем новый текст
+    let result = cellXml.replace(/<w:t[^>]*>[^<]*<\/w:t>/g, '<w:t></w:t>');
+    
+    // Заменяем первый пустой <w:t> на текст
+    const escapedText = escapeXml(newText);
+    result = result.replace(/<w:t><\/w:t>/, `<w:t xml:space="preserve">${escapedText}</w:t>`);
+    
+    // Добавляем курсив если нужно
+    if (italic && !result.includes('<w:i/>')) {
+      result = result.replace(/<w:rPr>/, '<w:rPr><w:i/><w:iCs/>');
+    }
+    
+    return result;
+  };
+  
+  // Заменяем содержимое ячеек
+  const newCells = [
+    replaceCellText(cells[0]!, rowNumber),      // Номер
+    replaceCellText(cells[1]!, title),          // Название
+    replaceCellText(cells[2]!, unit),           // Единица
+    replaceCellText(cells[3]!, quantity, true), // Количество (курсив)
+  ];
+  
+  // Собираем новую строку
+  let newRow = templateRow;
+  for (let i = 0; i < 4; i++) {
+    newRow = newRow.replace(cells[i]!, newCells[i]);
+  }
+  
+  // Вставляем новую строку после header
+  console.log(`[insertTableRowAfterTrParaId] Вставляем новую строку после позиции ${headerRowEnd}`);
+  return xml.slice(0, headerRowEnd) + newRow + xml.slice(headerRowEnd);
+}
+
+/**
+ * Находит строку таблицы по тексту и заменяет значение в последней (4-й) ячейке.
+ * Используется для подстановки значений в существующие строки шаблона.
+ */
+export function replaceTableCellValueByRowText(
+  xml: string,
+  searchTextLower: string,
+  newValue: string,
+): string {
+  // Ищем текст в XML
+  const textPattern = /<w:t[^>]*>([^<]*)<\/w:t>/g;
+  let match;
+  let foundTextPos = -1;
+  
+  while ((match = textPattern.exec(xml)) !== null) {
+    const text = match[1].toLowerCase().replace(/\s+/g, ' ').trim();
+    if (text.includes(searchTextLower)) {
+      foundTextPos = match.index;
+      console.log(`[replaceTableCellValueByRowText] Найден текст "${searchTextLower}" на позиции ${foundTextPos}`);
+      break;
+    }
+  }
+  
+  if (foundTextPos === -1) {
+    console.log(`[replaceTableCellValueByRowText] Текст "${searchTextLower}" не найден`);
+    return xml;
+  }
+  
+  // Находим строку таблицы
+  const trStartPos = xml.lastIndexOf('<w:tr', foundTextPos);
+  const trEndPos = xml.indexOf('</w:tr>', foundTextPos);
+  
+  if (trStartPos === -1 || trEndPos === -1) {
+    console.log(`[replaceTableCellValueByRowText] Строка таблицы не найдена`);
+    return xml;
+  }
+  
+  const rowXml = xml.slice(trStartPos, trEndPos + 7);
+  
+  // Находим все ячейки в строке
+  const cells: { start: number; end: number; content: string }[] = [];
+  let searchPos = 0;
+  while (searchPos < rowXml.length) {
+    const tcStart = rowXml.indexOf('<w:tc', searchPos);
+    if (tcStart === -1) break;
+    const tcEnd = rowXml.indexOf('</w:tc>', tcStart);
+    if (tcEnd === -1) break;
+    cells.push({
+      start: tcStart,
+      end: tcEnd + 7,
+      content: rowXml.slice(tcStart, tcEnd + 7),
+    });
+    searchPos = tcEnd + 7;
+  }
+  
+  console.log(`[replaceTableCellValueByRowText] Найдено ячеек: ${cells.length}`);
+  
+  if (cells.length < 4) {
+    console.log(`[replaceTableCellValueByRowText] Менее 4 ячеек, пропускаем`);
+    return xml;
+  }
+  
+  // Заменяем значение в 4-й ячейке (индекс 3)
+  const lastCell = cells[3];
+  let newCellContent = lastCell.content;
+  const escapedValue = escapeXml(newValue);
+  
+  // Проверяем есть ли <w:t> теги в ячейке
+  const hasWt = /<w:t[^>]*>[^<]*<\/w:t>/.test(newCellContent);
+  console.log(`[replaceTableCellValueByRowText] 4-я ячейка содержит <w:t>: ${hasWt}`);
+  
+  if (hasWt) {
+    // Заменяем текст в первом <w:t> теге, остальные очищаем
+    let replaced = false;
+    newCellContent = newCellContent.replace(/<w:t[^>]*>[^<]*<\/w:t>/g, (m) => {
+      if (!replaced) {
+        replaced = true;
+        return `<w:t xml:space="preserve">${escapedValue}</w:t>`;
+      }
+      return '<w:t></w:t>';
+    });
+  } else {
+    // Нет <w:t> тегов — вставляем run с текстом перед </w:p> в ячейке
+    const rPr = '<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:i/><w:iCs/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr>';
+    const newRun = `<w:r>${rPr}<w:t xml:space="preserve">${escapedValue}</w:t></w:r>`;
+    // Вставляем перед последним </w:p> в ячейке
+    const lastPClose = newCellContent.lastIndexOf('</w:p>');
+    if (lastPClose !== -1) {
+      newCellContent = newCellContent.slice(0, lastPClose) + newRun + newCellContent.slice(lastPClose);
+    }
+  }
+  
+  // Собираем новую строку
+  const newRowXml = rowXml.slice(0, lastCell.start) + newCellContent + rowXml.slice(lastCell.end);
+  
+  console.log(`[replaceTableCellValueByRowText] Значение "${newValue}" подставлено`);
+  
+  return xml.slice(0, trStartPos) + newRowXml + xml.slice(trEndPos + 7);
+}
+
+/**
+ * Вставляет строку таблицы ПЕРЕД строкой содержащей указанный текст.
+ * Копирует найденную строку как шаблон, меняет содержимое ячеек.
+ * После вставки сдвигает нумерацию в исходной строке на +1.
+ */
+export function insertTableRowBeforeByText(
+  xml: string,
+  searchTextLower: string,
+  rowNumber: string,
+  title: string,
+  unit: string,
+  quantity: string,
+): string {
+  // Извлекаем все тексты из <w:t> тегов с их позициями
+  const textPattern = /<w:t[^>]*>([^<]*)<\/w:t>/g;
+  let match;
+  let foundTextPos = -1;
+  
+  while ((match = textPattern.exec(xml)) !== null) {
+    const text = match[1].toLowerCase().replace(/\s+/g, ' ').trim();
+    if (text.includes(searchTextLower)) {
+      foundTextPos = match.index;
+      console.log(`[insertTableRowBeforeByText] Найден текст "${searchTextLower}" на позиции ${foundTextPos}`);
+      break;
+    }
+  }
+  
+  if (foundTextPos === -1) {
+    console.log(`[insertTableRowBeforeByText] Текст "${searchTextLower}" не найден в XML`);
+    return xml;
+  }
+  
+  // Находим начало строки <w:tr> которая содержит этот текст
+  const trStartPos = xml.lastIndexOf('<w:tr', foundTextPos);
+  if (trStartPos === -1) {
+    console.log(`[insertTableRowBeforeByText] <w:tr> не найден перед текстом`);
+    return xml;
+  }
+  
+  // Находим конец этой строки </w:tr>
+  const trEndPos = xml.indexOf('</w:tr>', foundTextPos);
+  if (trEndPos === -1) {
+    console.log(`[insertTableRowBeforeByText] </w:tr> не найден после текста`);
+    return xml;
+  }
+  
+  const trEndFull = trEndPos + 7; // 7 = '</w:tr>'.length
+  
+  // Копируем найденную строку как шаблон
+  let templateRow = xml.slice(trStartPos, trEndFull);
+  
+  // Убираем paraId из новой строки (чтобы не было дублей)
+  let newRow = templateRow.replace(/w14:paraId="[^"]*"/g, '');
+  newRow = newRow.replace(/w14:textId="[^"]*"/g, '');
+  
+  // Находим все ячейки в шаблоне - простой подход: ищем все <w:tc>...</w:tc>
+  // В Word таблицах ячейки НЕ вложены друг в друга, поэтому просто ищем пары
+  const cells: string[] = [];
+  let searchPos = 0;
+  
+  while (searchPos < newRow.length) {
+    // Ищем открывающий тег - может быть <w:tc> или <w:tc ...>
+    const tcStartTag = newRow.indexOf('<w:tc', searchPos);
+    if (tcStartTag === -1) break;
+    
+    // Находим конец открывающего тега
+    const tcStartEnd = newRow.indexOf('>', tcStartTag);
+    if (tcStartEnd === -1) break;
+    
+    // Ищем закрывающий </w:tc>
+    const tcCloseTag = newRow.indexOf('</w:tc>', tcStartEnd);
+    if (tcCloseTag === -1) break;
+    
+    // Извлекаем ячейку целиком
+    const cellContent = newRow.slice(tcStartTag, tcCloseTag + 7);
+    cells.push(cellContent);
+    
+    searchPos = tcCloseTag + 7;
+  }
+  
+  console.log(`[insertTableRowBeforeByText] Найдено ячеек: ${cells.length}`);
+  
+  if (cells.length < 4) {
+    console.log(`[insertTableRowBeforeByText] В шаблоне менее 4 ячеек: ${cells.length}`);
+    console.log(`[insertTableRowBeforeByText] Первые 500 символов строки: ${templateRow.substring(0, 500)}`);
+    return xml;
+  }
+  
+  // Функция для замены текста в ячейке
+  const replaceCellText = (cellXml: string, newText: string): string => {
+    // Заменяем содержимое всех <w:t> тегов
+    const escapedText = escapeXml(newText);
+    // Сначала очищаем все <w:t>
+    let result = cellXml.replace(/<w:t[^>]*>[^<]*<\/w:t>/g, '<w:t></w:t>');
+    // Заменяем первый пустой на текст
+    result = result.replace(/<w:t><\/w:t>/, `<w:t xml:space="preserve">${escapedText}</w:t>`);
+    return result;
+  };
+  
+  // Заменяем содержимое ячеек в новой строке
+  const newCells = [
+    replaceCellText(cells[0]!, rowNumber),
+    replaceCellText(cells[1]!, title),
+    replaceCellText(cells[2]!, unit),
+    replaceCellText(cells[3]!, quantity),
+  ];
+  
+  // Собираем новую строку
+  for (let i = 0; i < 4; i++) {
+    newRow = newRow.replace(cells[i]!, newCells[i]);
+  }
+  
+  // Теперь нужно сдвинуть номер в оригинальной строке на +1
+  // Находим первую ячейку (номер) в оригинальной строке и меняем 1 на 2
+  let originalRow = templateRow;
+  // Используем ту же логику поиска ячеек для оригинальной строки
+  const origCells: string[] = [];
+  let origSearchPos = 0;
+  while (origSearchPos < originalRow.length) {
+    const tcStartTag = originalRow.indexOf('<w:tc', origSearchPos);
+    if (tcStartTag === -1) break;
+    const tcStartEnd = originalRow.indexOf('>', tcStartTag);
+    if (tcStartEnd === -1) break;
+    const tcCloseTag = originalRow.indexOf('</w:tc>', tcStartEnd);
+    if (tcCloseTag === -1) break;
+    origCells.push(originalRow.slice(tcStartTag, tcCloseTag + 7));
+    origSearchPos = tcCloseTag + 7;
+  }
+  
+  if (origCells.length >= 1 && origCells[0]) {
+    // Ищем номер в первой ячейке
+    const firstCell = origCells[0];
+    const numberMatch = firstCell.match(/<w:t[^>]*>(\d+)<\/w:t>/);
+    if (numberMatch && numberMatch[1]) {
+      const oldNum = parseInt(numberMatch[1], 10);
+      const newNum = oldNum + 1;
+      const updatedFirstCell = firstCell.replace(
+        /<w:t([^>]*)>\d+<\/w:t>/,
+        `<w:t$1>${newNum}</w:t>`
+      );
+      originalRow = originalRow.replace(firstCell, updatedFirstCell);
+    }
+  }
+  
+  console.log(`[insertTableRowBeforeByText] Вставляем новую строку перед позицией ${trStartPos}`);
+  
+  // Вставляем: до trStartPos + новая строка + изменённая оригинальная строка + после trEndFull
+  return xml.slice(0, trStartPos) + newRow + originalRow + xml.slice(trEndFull);
 }
 
 /**

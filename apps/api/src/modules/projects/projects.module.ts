@@ -15,6 +15,7 @@ import { ExcelModule } from '../excel/excel.module';
 import { WordModule } from '../word/word.module';
 import { AiModule } from '../ai/ai.module';
 import { WeatherModule } from '../weather/weather.module';
+import { DistanceModule } from '../distance/distance.module';
 
 // Конфигурация Multer для документов Word
 const documentsStorage = diskStorage({
@@ -43,6 +44,7 @@ const documentsFilter = (req: Express.Request, file: Express.Multer.File, callba
     CompaniesModule,
     AiModule,
     WeatherModule,
+    DistanceModule,
     forwardRef(() => ExcelModule),
     forwardRef(() => WordModule),
     // Регистрируем Multer с memory storage для фото (обрабатываем вручную)

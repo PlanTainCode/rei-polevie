@@ -13,6 +13,7 @@ interface UpdateProgramIeiDto {
   nearbyEast?: string;
   nearbyWest?: string;
   nearbyNorth?: string;
+  openGroundPercent?: number | null;
   section82Text?: string;
 }
 
@@ -64,6 +65,7 @@ export class ProgramIeiService {
         nearbyEast: data.nearbyEast,
         nearbyWest: data.nearbyWest,
         nearbyNorth: data.nearbyNorth,
+        openGroundPercent: data.openGroundPercent,
         section82Text: data.section82Text,
       },
     });

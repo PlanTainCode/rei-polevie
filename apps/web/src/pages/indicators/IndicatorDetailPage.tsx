@@ -1,0 +1,1376 @@
+import { useState, useEffect } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import {
+  ArrowLeft,
+  FileSpreadsheet,
+  Trash2,
+  CheckCircle2,
+  AlertCircle,
+  HelpCircle,
+  ChevronDown,
+  ChevronUp,
+  FlaskConical,
+  Flame,
+  Droplets,
+  Radiation,
+} from 'lucide-react';
+
+// ПДК тяжёлых металлов (мг/кг) в зависимости от типа грунта и pH
+const METALS_PDK = {
+  Cd: { PS: 0.5, acid: 1, neutral: 2 },
+  Cu: { PS: 33, acid: 66, neutral: 132 },
+  As: { PS: 2, acid: 5, neutral: 10 },
+  Ni: { PS: 20, acid: 40, neutral: 80 },
+  Pb: { PS: 32, acid: 65, neutral: 130 },
+  Zn: { PS: 55, acid: 110, neutral: 220 },
+  Hg: { universal: 2.1 }, // Единый ПДК для ртути
+};
+
+// Фоновые значения для расчёта Zc
+const BACKGROUND_VALUES = {
+  moscow: { Cd: 0.3, Cu: 27, Hg: 0.1, As: 6.6, Ni: 20, Pb: 26, Zn: 52 },
+  mo_ps: { Cd: 0.05, Cu: 8, Hg: 0.05, As: 1.5, Ni: 6, Pb: 6, Zn: 28 },
+  mo_sg: { Cd: 0.12, Cu: 15, Hg: 0.1, As: 2.2, Ni: 30, Pb: 15, Zn: 45 },
+};
+
+type RegionType = 'moscow' | 'mo';
+type MetalsViewType = 'excess' | 'k_moscow' | 'k_mo';
+
+import { indicatorsApi, IndicatorDetail, IndicatorSample } from '@/api/indicators';
+
+// Компонент сворачиваемой секции
+function CollapsibleSection({
+  title,
+  icon: Icon,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  icon: React.ElementType;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  return (
+    <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-color)] overflow-hidden">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between p-4 hover:bg-[var(--bg-tertiary)]/50 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <Icon className="w-5 h-5 text-primary-400" />
+          <span className="font-medium">{title}</span>
+        </div>
+        {isOpen ? (
+          <ChevronUp className="w-5 h-5 text-[var(--text-secondary)]" />
+        ) : (
+          <ChevronDown className="w-5 h-5 text-[var(--text-secondary)]" />
+        )}
+      </button>
+      {isOpen && (
+        <div className="border-t border-[var(--border-color)]">{children}</div>
+      )}
+    </div>
+  );
+}
+
+// Форматирование числа: максимум 3 знака после запятой, без незначащих нулей
+function formatNumber(num: number): string {
+  // Округляем до 3 знаков и убираем незначащие нули
+  return parseFloat(num.toFixed(3)).toString();
+}
+
+// Форматирование значения показателя
+function formatValue(value: string | number | undefined | null): string {
+  if (value === undefined || value === null) return '—';
+  if (typeof value === 'string') {
+    // Обработка "менее X" значений
+    if (value.toLowerCase().includes('менее')) {
+      const num = value.match(/[\d.,]+/);
+      return num ? `<${num[0]}` : value;
+    }
+    // Попробуем преобразовать в число для форматирования
+    const parsed = parseFloat(value.replace(',', '.'));
+    if (!isNaN(parsed)) {
+      return formatNumber(parsed);
+    }
+    return value;
+  }
+  return formatNumber(value);
+}
+
+// Сортировка проб по слоям (номер после точки), затем по площадкам
+// Например: 01АХ.01, 02АХ.01, 03АХ.01, 01АХ.02, 02АХ.02, 03АХ.02, ...
+function sortSamplesByLayer(samples: IndicatorSample[]): IndicatorSample[] {
+  return [...samples].sort((a, b) => {
+    // Парсим шифр: "01АХ.01" -> площадка "01АХ", слой "01"
+    const parseСipher = (cipher: string) => {
+      const parts = cipher.split('.');
+      const layer = parts[parts.length - 1] || '00'; // номер слоя (после последней точки)
+      const site = parts.slice(0, -1).join('.') || cipher; // номер площадки (до точки)
+      return { layer, site };
+    };
+
+    const aParsed = parseСipher(a.sampleCipher);
+    const bParsed = parseСipher(b.sampleCipher);
+
+    // Сначала сортируем по слою
+    const layerCompare = aParsed.layer.localeCompare(bParsed.layer, undefined, { numeric: true });
+    if (layerCompare !== 0) return layerCompare;
+
+    // Затем по площадке
+    return aParsed.site.localeCompare(bParsed.site, undefined, { numeric: true });
+  });
+}
+
+export function IndicatorDetailPage() {
+  const { projectId } = useParams<{ projectId: string }>();
+  const navigate = useNavigate();
+  const [indicator, setIndicator] = useState<IndicatorDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [region, setRegion] = useState<RegionType>('moscow');
+  const [metalsView, setMetalsView] = useState<MetalsViewType>('excess');
+
+  useEffect(() => {
+    if (projectId) {
+      loadIndicator();
+    }
+  }, [projectId]);
+
+  const loadIndicator = async () => {
+    try {
+      setLoading(true);
+      const data = await indicatorsApi.getByProjectId(projectId!);
+      setIndicator(data);
+    } catch (err) {
+      setError('Ошибка загрузки данных');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (
+      !confirm(
+        'Вы уверены, что хотите удалить показатели? Это действие нельзя отменить.',
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setDeleting(true);
+      await indicatorsApi.delete(projectId!);
+      navigate('/indicators');
+    } catch (err) {
+      setError('Ошибка при удалении');
+      console.error(err);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const getIndicatorTypeLabel = (type: string) => {
+    const labels: Record<string, string> = {
+      SOIL_CHEMISTRY: 'Грунты (химия + ЕРН)',
+      WATER_CHEMISTRY: 'Вода',
+      SEDIMENT_CHEMISTRY: 'Донные отложения',
+    };
+    return labels[type] || type;
+  };
+
+  const formatDate = (date: string | null) => {
+    if (!date) return '—';
+    return new Date(date).toLocaleDateString('ru-RU');
+  };
+
+  const getSoilTypeDisplay = (soilTypeCode: string | null) => {
+    if (!soilTypeCode)
+      return { label: '—', className: 'text-[var(--text-secondary)]' };
+    if (soilTypeCode === 'ПС') return { label: 'ПС', className: 'text-amber-400' };
+    if (soilTypeCode === 'СГ') return { label: 'СГ', className: 'text-blue-400' };
+    return { label: soilTypeCode, className: '' };
+  };
+
+  // Получение значения химии из данных пробы
+  const getChemValue = (
+    sample: IndicatorSample,
+    key: string,
+  ): string | number | null => {
+    const data = sample.chemistryData as Record<
+      string,
+      { value: string | number }
+    > | null;
+    return data?.[key]?.value ?? null;
+  };
+
+  // ПДК бензапирена = 0.02 мг/кг
+  const BENZOPYRENE_PDK = 0.02;
+
+  // Расчёт превышения бензапирена
+  const calcBenzopyreneExcess = (
+    value: string | number | null,
+  ): string | number => {
+    if (value === null || value === undefined) return 'нет';
+    
+    // Обработка строковых значений
+    if (typeof value === 'string') {
+      const lower = value.toLowerCase();
+      // "более 2.0" -> 100
+      if (lower.includes('более')) return 100;
+      // "менее 0.005" -> нет превышения
+      if (lower.includes('менее')) return 'нет';
+      // Пробуем парсить число
+      const num = parseFloat(value.replace(',', '.'));
+      if (isNaN(num)) return 'нет';
+      value = num;
+    }
+
+    // Расчёт превышения
+    const excess = value / BENZOPYRENE_PDK;
+    if (excess <= 1) return 'нет';
+    return excess;
+  };
+
+  // Определение категории бензапирена
+  const getBenzopyreneCategory = (
+    concentration: string | number | null,
+    excess: string | number,
+  ): { label: string; className: string } => {
+    // Если превышения нет
+    if (excess === 'нет') {
+      return { label: 'Д', className: 'bg-white/10 text-white' };
+    }
+
+    // Если концентрация <0.005 -> Д
+    if (typeof concentration === 'string' && concentration.toLowerCase().includes('менее')) {
+      return { label: 'Д', className: 'bg-white/10 text-white' };
+    }
+
+    const excessNum = typeof excess === 'number' ? excess : parseFloat(String(excess));
+    
+    // превышение < 2 -> Д
+    if (excessNum < 2) {
+      return { label: 'Д', className: 'bg-white/10 text-white' };
+    }
+    
+    // превышение <= 5 -> О (опасный/средний) - оранжевый
+    if (excessNum <= 5) {
+      return { label: 'О', className: 'bg-orange-500 text-white font-bold' };
+    }
+    
+    // превышение > 5 -> ЧО (чрезвычайно опасный) - красный
+    return { label: 'ЧО', className: 'bg-red-500 text-white font-bold' };
+  };
+
+  // ПДК нефтепродуктов = 1000 мг/кг
+  const OIL_PRODUCTS_PDK = 1000;
+
+  // Расчёт превышения нефтепродуктов
+  const calcOilProductsExcess = (
+    value: string | number | null,
+  ): string | number => {
+    if (value === null || value === undefined) return 'нет';
+    
+    // Обработка строковых значений
+    if (typeof value === 'string') {
+      const lower = value.toLowerCase();
+      // "менее 50" -> нет превышения
+      if (lower.includes('менее')) return 'нет';
+      // Пробуем парсить число
+      const num = parseFloat(value.replace(',', '.'));
+      if (isNaN(num)) return 'нет';
+      value = num;
+    }
+
+    // Расчёт превышения
+    const excess = value / OIL_PRODUCTS_PDK;
+    if (excess <= 1) return 'нет';
+    return excess;
+  };
+
+  // Определение категории нефтепродуктов
+  const getOilProductsCategory = (
+    excess: string | number,
+  ): { label: string; className: string } => {
+    // Если превышения нет
+    if (excess === 'нет') {
+      return { label: 'Допустимый', className: 'bg-white/10 text-white' };
+    }
+
+    const excessNum = typeof excess === 'number' ? excess : parseFloat(String(excess));
+    
+    // превышение < 1 -> Допустимый
+    if (excessNum < 1) {
+      return { label: 'Допустимый', className: 'bg-white/10 text-white' };
+    }
+    
+    // превышение <= 2 -> Низкий (серый)
+    if (excessNum <= 2) {
+      return { label: 'Низкий', className: 'bg-gray-500 text-white' };
+    }
+    
+    // превышение <= 3 -> Средний (серый темнее)
+    if (excessNum <= 3) {
+      return { label: 'Средний', className: 'bg-gray-600 text-white' };
+    }
+    
+    // превышение <= 5 -> Высокий (оранжевый)
+    if (excessNum <= 5) {
+      return { label: 'Высокий', className: 'bg-orange-500 text-white font-bold' };
+    }
+    
+    // превышение > 5 -> Очень высокий (красный)
+    return { label: 'Очень высокий', className: 'bg-red-500 text-white font-bold' };
+  };
+
+  // Расчёт превышения ПДК для металла
+  const calcMetalExcess = (
+    metal: keyof typeof METALS_PDK,
+    value: string | number | null,
+    soilType: string | null,
+    pH: number | null,
+  ): string | number => {
+    if (value === null || value === undefined) return 'нет';
+    
+    let numValue: number;
+    if (typeof value === 'string') {
+      if (value.toLowerCase().includes('менее')) return 'нет';
+      numValue = parseFloat(value.replace(',', '.'));
+      if (isNaN(numValue)) return 'нет';
+    } else {
+      numValue = value;
+    }
+
+    // Для ртути - единый ПДК
+    if (metal === 'Hg') {
+      const pdk = METALS_PDK.Hg.universal;
+      // Ртуть в протоколе в мкг/кг, делим на 1000 для мг/кг
+      const valueInMg = numValue / 1000;
+      const excess = valueInMg / pdk;
+      return excess <= 1 ? 'нет' : excess;
+    }
+
+    // Для остальных металлов - зависит от типа грунта и pH
+    const metalPdk = METALS_PDK[metal] as { PS: number; acid: number; neutral: number };
+    let pdk: number;
+    
+    if (soilType === 'ПС') {
+      pdk = metalPdk.PS;
+    } else if (pH !== null && pH < 5.5) {
+      pdk = metalPdk.acid;
+    } else {
+      pdk = metalPdk.neutral;
+    }
+
+    const excess = numValue / pdk;
+    return excess <= 1 ? 'нет' : excess;
+  };
+
+  // Расчёт коэффициента K = концентрация / фон
+  const calcMetalK = (
+    metal: keyof typeof BACKGROUND_VALUES.moscow,
+    value: string | number | null,
+    soilType: string | null,
+    regionType: 'moscow' | 'mo',
+  ): number => {
+    if (value === null || value === undefined) return 0;
+    
+    let numValue: number;
+    if (typeof value === 'string') {
+      if (value.toLowerCase().includes('менее')) return 0;
+      numValue = parseFloat(value.replace(',', '.'));
+      if (isNaN(numValue)) return 0;
+    } else {
+      numValue = value;
+    }
+
+    // Ртуть в мкг/кг -> мг/кг
+    if (metal === 'Hg') {
+      numValue = numValue / 1000;
+    }
+
+    // Выбираем фоновое значение
+    let background: number;
+    if (regionType === 'moscow') {
+      background = BACKGROUND_VALUES.moscow[metal];
+    } else {
+      background = soilType === 'ПС' 
+        ? BACKGROUND_VALUES.mo_ps[metal] 
+        : BACKGROUND_VALUES.mo_sg[metal];
+    }
+
+    return numValue / background;
+  };
+
+  // Расчёт Zc (суммарный показатель загрязнения)
+  const calcZc = (
+    sample: IndicatorSample,
+    regionType: RegionType,
+  ): number => {
+    const soilType = sample.soilTypeCode;
+    
+    // Выбираем фоновые значения
+    let background: typeof BACKGROUND_VALUES.moscow;
+    if (regionType === 'moscow') {
+      background = BACKGROUND_VALUES.moscow;
+    } else {
+      background = soilType === 'ПС' ? BACKGROUND_VALUES.mo_ps : BACKGROUND_VALUES.mo_sg;
+    }
+
+    const metals: (keyof typeof background)[] = ['Cd', 'Cu', 'As', 'Ni', 'Hg', 'Pb', 'Zn'];
+    let sum = 0;
+
+    for (const metal of metals) {
+      const value = getChemValue(sample, metal);
+      if (value === null) continue;
+
+      let numValue: number;
+      if (typeof value === 'string') {
+        if (value.toLowerCase().includes('менее')) continue;
+        numValue = parseFloat(value.replace(',', '.'));
+        if (isNaN(numValue)) continue;
+      } else {
+        numValue = value;
+      }
+
+      // Ртуть в мкг/кг -> мг/кг
+      if (metal === 'Hg') {
+        numValue = numValue / 1000;
+      }
+
+      const Kc = numValue / background[metal];
+      if (Kc >= 1) {
+        sum += Kc - 1;
+      }
+    }
+
+    return sum + 1;
+  };
+
+  // Категория по Zc
+  const getZcCategory = (zc: number): { label: string; className: string } => {
+    if (zc < 16) return { label: 'Д', className: 'bg-white/10 text-white' };
+    if (zc <= 32) return { label: 'УО', className: 'bg-yellow-500 text-white font-bold' };
+    if (zc <= 128) return { label: 'О', className: 'bg-orange-500 text-white font-bold' };
+    return { label: 'ЧО', className: 'bg-red-500 text-white font-bold' };
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="animate-spin w-8 h-8 border-2 border-primary-500 border-t-transparent rounded-full" />
+      </div>
+    );
+  }
+
+  if (error || !indicator) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <Link
+            to="/indicators"
+            className="p-2 hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Link>
+          <h1 className="text-2xl font-bold">Показатели</h1>
+        </div>
+        <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400">
+          {error || 'Показатели не найдены'}
+        </div>
+      </div>
+    );
+  }
+
+  const matchedCount = indicator.samples.filter((s) => s.isMatched).length;
+  const totalCount = indicator.samples.length;
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-4">
+          <Link
+            to="/indicators"
+            className="p-2 hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Link>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-bold">{indicator.project.name}</h1>
+              {indicator.project.documentNumber && (
+                <span className="px-2 py-0.5 text-sm bg-[var(--bg-tertiary)] rounded">
+                  {indicator.project.documentNumber}
+                </span>
+              )}
+            </div>
+            {indicator.project.objectAddress && (
+              <p className="text-[var(--text-secondary)] mt-1">
+                {indicator.project.objectAddress}
+              </p>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={handleDelete}
+          disabled={deleting}
+          className="flex items-center gap-2 px-4 py-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+        >
+          {deleting ? (
+            <div className="animate-spin w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full" />
+          ) : (
+            <Trash2 className="w-5 h-5" />
+          )}
+          <span>Удалить</span>
+        </button>
+      </div>
+
+      {/* Protocol info */}
+      <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-color)] p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <FileSpreadsheet className="w-6 h-6 text-primary-400" />
+          <h2 className="text-lg font-medium">Информация о протоколе</h2>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <div className="text-sm text-[var(--text-secondary)]">Тип</div>
+            <div className="font-medium">
+              {getIndicatorTypeLabel(indicator.type)}
+            </div>
+          </div>
+          <div>
+            <div className="text-sm text-[var(--text-secondary)]">
+              Номер протокола
+            </div>
+            <div className="font-medium">
+              {indicator.protocolNumber || '—'}
+            </div>
+          </div>
+          <div>
+            <div className="text-sm text-[var(--text-secondary)]">
+              Дата отбора
+            </div>
+            <div className="font-medium">
+              {formatDate(indicator.samplingDate)}
+            </div>
+          </div>
+          <div>
+            <div className="text-sm text-[var(--text-secondary)]">
+              Период испытаний
+            </div>
+            <div className="font-medium">
+              {indicator.testingDateFrom
+                ? `${formatDate(indicator.testingDateFrom)} — ${formatDate(indicator.testingDateTo)}`
+                : '—'}
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 pt-4 border-t border-[var(--border-color)] flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            {matchedCount === totalCount ? (
+              <CheckCircle2 className="w-5 h-5 text-green-400" />
+            ) : (
+              <AlertCircle className="w-5 h-5 text-amber-400" />
+            )}
+            <span>
+              {matchedCount}/{totalCount} проб сопоставлено с объектом
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-color)] p-4">
+        <div className="flex flex-wrap items-center gap-6 text-sm">
+          <span className="text-[var(--text-secondary)]">Тип грунта:</span>
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-amber-400">ПС</span>
+            <span className="text-[var(--text-secondary)]">— песок/супесь</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-blue-400">СГ</span>
+            <span className="text-[var(--text-secondary)]">
+              — суглинок/глина
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-[var(--text-secondary)]">—</span>
+            <span className="text-[var(--text-secondary)]">
+              — нет характеристики
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Samples table (collapsible) */}
+      <CollapsibleSection
+        title="Сопоставление проб"
+        icon={HelpCircle}
+        defaultOpen={true}
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/30">
+                <th className="px-4 py-3 text-left text-sm font-medium text-[var(--text-secondary)]">
+                  Шифр пробы
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-[var(--text-secondary)]">
+                  Тип грунта
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-[var(--text-secondary)]">
+                  Глубина
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-[var(--text-secondary)]">
+                  Характеристика
+                </th>
+                <th className="px-4 py-3 text-center text-sm font-medium text-[var(--text-secondary)]">
+                  Сопоставлено
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortSamplesByLayer(indicator.samples).map((sample) => {
+                const soilType = getSoilTypeDisplay(sample.soilTypeCode);
+                return (
+                  <tr
+                    key={sample.id}
+                    className="border-b border-[var(--border-color)] last:border-b-0 hover:bg-[var(--bg-tertiary)]/50"
+                  >
+                    <td className="px-4 py-3 font-medium">
+                      {sample.sampleCipher}
+                    </td>
+                    <td
+                      className={`px-4 py-3 font-medium ${soilType.className}`}
+                    >
+                      {soilType.label}
+                    </td>
+                    <td className="px-4 py-3 text-[var(--text-secondary)]">
+                      {sample.matchedSample?.depthLabel || '—'}
+                    </td>
+                    <td className="px-4 py-3 text-[var(--text-secondary)]">
+                      {sample.matchedSample?.description || '—'}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {sample.isMatched ? (
+                        <CheckCircle2 className="w-5 h-5 text-green-400 mx-auto" />
+                      ) : (
+                        <HelpCircle className="w-5 h-5 text-amber-400 mx-auto" />
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </CollapsibleSection>
+
+      {/* Chemistry table (collapsible) */}
+      <CollapsibleSection
+        title="Химические показатели (тяжёлые металлы)"
+        icon={FlaskConical}
+        defaultOpen={true}
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/30">
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  №
+                </th>
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Номер пробы
+                </th>
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Слой
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  pH
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Cd
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Cu
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  As
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Ni
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Hg
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Pb
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Zn
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Грунт
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap bg-amber-500/10">
+                  pH
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortSamplesByLayer(indicator.samples).map((sample, index) => {
+                const soilType = getSoilTypeDisplay(sample.soilTypeCode);
+                const pH = getChemValue(sample, 'pH');
+                return (
+                  <tr
+                    key={sample.id}
+                    className="border-b border-[var(--border-color)] last:border-b-0 hover:bg-[var(--bg-tertiary)]/50"
+                  >
+                    <td className="px-3 py-2 text-[var(--text-secondary)]">
+                      {index + 1}
+                    </td>
+                    <td className="px-3 py-2 font-medium">
+                      {sample.sampleCipher}
+                    </td>
+                    <td className="px-3 py-2 text-[var(--text-secondary)]">
+                      {sample.matchedSample?.depthLabel || '—'}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {formatValue(pH)}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {formatValue(getChemValue(sample, 'Cd'))}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {formatValue(getChemValue(sample, 'Cu'))}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {formatValue(getChemValue(sample, 'As'))}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {formatValue(getChemValue(sample, 'Ni'))}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {formatValue(
+                        (() => {
+                          const hg = getChemValue(sample, 'Hg');
+                          if (hg === null) return null;
+                          const num = typeof hg === 'string' ? parseFloat(hg) : hg;
+                          return isNaN(num) ? hg : num / 1000;
+                        })()
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {formatValue(getChemValue(sample, 'Pb'))}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {formatValue(getChemValue(sample, 'Zn'))}
+                    </td>
+                    <td
+                      className={`px-3 py-2 text-center font-medium ${soilType.className}`}
+                    >
+                      {soilType.label}
+                    </td>
+                    <td className="px-3 py-2 text-center bg-amber-500/10 font-medium">
+                      {formatValue(pH)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="p-3 border-t border-[var(--border-color)] text-xs text-[var(--text-secondary)]">
+          Единицы измерения: Cd, Cu, As, Ni, Hg, Pb, Zn — мг/кг; pH — ед. pH
+        </div>
+      </CollapsibleSection>
+
+      {/* Benzopyrene table (collapsible) */}
+      <CollapsibleSection
+        title="Бенз(а)пирен"
+        icon={Flame}
+        defaultOpen={true}
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/30">
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Номер пробы
+                </th>
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Слой
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Концентрация бенз(а)пирена
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Превышения
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Категория
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortSamplesByLayer(indicator.samples).map((sample) => {
+                const benzValue = getChemValue(sample, 'benzapyrene');
+                const benzUncertainty = (sample.chemistryData as Record<string, { uncertainty?: string }> | null)?.benzapyrene?.uncertainty;
+                const excess = calcBenzopyreneExcess(benzValue);
+                const category = getBenzopyreneCategory(benzValue, excess);
+                
+                // Форматирование концентрации с погрешностью
+                let concentrationDisplay = '—';
+                if (benzValue !== null) {
+                  const formattedValue = formatValue(benzValue);
+                  if (benzUncertainty) {
+                    concentrationDisplay = `${formattedValue} ± ${benzUncertainty}`;
+                  } else {
+                    concentrationDisplay = formattedValue;
+                  }
+                }
+
+                // Форматирование превышения
+                const excessDisplay = typeof excess === 'number' 
+                  ? formatValue(excess) 
+                  : excess;
+
+                return (
+                  <tr
+                    key={sample.id}
+                    className="border-b border-[var(--border-color)] last:border-b-0 hover:bg-[var(--bg-tertiary)]/50"
+                  >
+                    <td className="px-3 py-2 font-medium">
+                      {sample.sampleCipher}
+                    </td>
+                    <td className="px-3 py-2 text-[var(--text-secondary)]">
+                      {sample.matchedSample?.depthLabel || '—'}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {concentrationDisplay}
+                    </td>
+                    <td className="px-3 py-2 text-center font-medium">
+                      {excessDisplay}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <span className={`inline-block px-3 py-1 rounded ${category.className}`}>
+                        {category.label}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="p-3 border-t border-[var(--border-color)]">
+          <div className="flex flex-wrap items-center gap-4 text-xs">
+            <span className="text-[var(--text-secondary)]">Категории:</span>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-white/10 text-white">Д</span>
+              <span className="text-[var(--text-secondary)]">— допустимый</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-orange-500 text-white font-bold">О</span>
+              <span className="text-[var(--text-secondary)]">— опасный (средний)</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-red-500 text-white font-bold">ЧО</span>
+              <span className="text-[var(--text-secondary)]">— чрезвычайно опасный (высокий)</span>
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-[var(--text-secondary)]">
+            ПДК бенз(а)пирена = 0,02 мг/кг. Единицы измерения: мг/кг
+          </div>
+        </div>
+      </CollapsibleSection>
+
+      {/* Oil products table (collapsible) */}
+      <CollapsibleSection
+        title="Нефтепродукты"
+        icon={Droplets}
+        defaultOpen={true}
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/30">
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Номер пробы
+                </th>
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Слой
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Концентрация нефтепродуктов
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Превышения
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Категория
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortSamplesByLayer(indicator.samples).map((sample) => {
+                const oilValue = getChemValue(sample, 'oilProducts');
+                const oilUncertainty = (sample.chemistryData as Record<string, { uncertainty?: string }> | null)?.oilProducts?.uncertainty;
+                const excess = calcOilProductsExcess(oilValue);
+                const category = getOilProductsCategory(excess);
+                
+                // Форматирование концентрации с погрешностью
+                let concentrationDisplay = '—';
+                if (oilValue !== null) {
+                  const formattedValue = formatValue(oilValue);
+                  if (oilUncertainty) {
+                    concentrationDisplay = `${formattedValue} ± ${oilUncertainty}`;
+                  } else {
+                    concentrationDisplay = formattedValue;
+                  }
+                }
+
+                // Форматирование превышения
+                const excessDisplay = typeof excess === 'number' 
+                  ? formatValue(excess) 
+                  : excess;
+
+                return (
+                  <tr
+                    key={sample.id}
+                    className="border-b border-[var(--border-color)] last:border-b-0 hover:bg-[var(--bg-tertiary)]/50"
+                  >
+                    <td className="px-3 py-2 font-medium">
+                      {sample.sampleCipher}
+                    </td>
+                    <td className="px-3 py-2 text-[var(--text-secondary)]">
+                      {sample.matchedSample?.depthLabel || '—'}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {concentrationDisplay}
+                    </td>
+                    <td className="px-3 py-2 text-center font-medium">
+                      {excessDisplay}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <span className={`inline-block px-3 py-1 rounded ${category.className}`}>
+                        {category.label}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="p-3 border-t border-[var(--border-color)]">
+          <div className="flex flex-wrap items-center gap-4 text-xs">
+            <span className="text-[var(--text-secondary)]">Категории:</span>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-white/10 text-white">Допустимый</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-gray-500 text-white">Низкий</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-gray-600 text-white">Средний</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-orange-500 text-white font-bold">Высокий</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-red-500 text-white font-bold">Очень высокий</span>
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-[var(--text-secondary)]">
+            ПДК нефтепродуктов = 1000 мг/кг. Единицы измерения: мг/кг
+          </div>
+        </div>
+      </CollapsibleSection>
+
+      {/* Heavy metals table with view switcher */}
+      <CollapsibleSection
+        title="Тяжёлые металлы"
+        icon={Radiation}
+        defaultOpen={true}
+      >
+        {/* View selector */}
+        <div className="p-4 border-b border-[var(--border-color)] flex flex-wrap items-center gap-4">
+          <div className="flex gap-2">
+            <button
+              onClick={() => setMetalsView('excess')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                metalsView === 'excess'
+                  ? 'bg-primary-500 text-white'
+                  : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]/80'
+              }`}
+            >
+              Превышения ПДК
+            </button>
+            <button
+              onClick={() => setMetalsView('k_moscow')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                metalsView === 'k_moscow'
+                  ? 'bg-primary-500 text-white'
+                  : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]/80'
+              }`}
+            >
+              K (Москва)
+            </button>
+            <button
+              onClick={() => setMetalsView('k_mo')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                metalsView === 'k_mo'
+                  ? 'bg-primary-500 text-white'
+                  : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]/80'
+              }`}
+            >
+              K (МО)
+            </button>
+          </div>
+          {/* Region selector for Zc calculation */}
+          <div className="flex items-center gap-2 ml-auto">
+            <span className="text-sm text-[var(--text-secondary)]">Zc:</span>
+            <button
+              onClick={() => setRegion('moscow')}
+              className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                region === 'moscow'
+                  ? 'bg-primary-500 text-white'
+                  : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]/80'
+              }`}
+            >
+              МСК
+            </button>
+            <button
+              onClick={() => setRegion('mo')}
+              className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                region === 'mo'
+                  ? 'bg-primary-500 text-white'
+                  : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]/80'
+              }`}
+            >
+              МО
+            </button>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/30">
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Номер пробы
+                </th>
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Слой
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Cd
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Cu
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  As
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Ni
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Hg
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Pb
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Zn
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap bg-primary-500/20">
+                  Zc
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Категория
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortSamplesByLayer(indicator.samples).map((sample) => {
+                const soilType = sample.soilTypeCode;
+                const pH = getChemValue(sample, 'pH');
+                const pHNum = typeof pH === 'number' ? pH : (typeof pH === 'string' ? parseFloat(pH.replace(',', '.')) : null);
+                
+                // Значения в зависимости от выбранного режима
+                const getValueForView = (metal: keyof typeof BACKGROUND_VALUES.moscow) => {
+                  if (metalsView === 'excess') {
+                    return calcMetalExcess(metal, getChemValue(sample, metal), soilType, pHNum);
+                  } else if (metalsView === 'k_moscow') {
+                    return calcMetalK(metal, getChemValue(sample, metal), soilType, 'moscow');
+                  } else {
+                    return calcMetalK(metal, getChemValue(sample, metal), soilType, 'mo');
+                  }
+                };
+
+                const cdVal = getValueForView('Cd');
+                const cuVal = getValueForView('Cu');
+                const asVal = getValueForView('As');
+                const niVal = getValueForView('Ni');
+                const hgVal = getValueForView('Hg');
+                const pbVal = getValueForView('Pb');
+                const znVal = getValueForView('Zn');
+                
+                const zc = calcZc(sample, region);
+                const zcCategory = getZcCategory(zc);
+
+                const formatCellValue = (v: string | number) => {
+                  if (metalsView === 'excess') {
+                    return typeof v === 'number' ? formatValue(v) : v;
+                  }
+                  // Для K-таблиц всегда числа
+                  return typeof v === 'number' ? formatValue(v) : '0';
+                };
+
+                // Подсветка для таблицы превышений
+                const getExcessClass = (v: string | number) => {
+                  if (metalsView !== 'excess') return '';
+                  if (v === 'нет') return '';
+                  const num = typeof v === 'number' ? v : parseFloat(String(v));
+                  if (num > 2) return 'text-red-400 font-medium';
+                  if (num > 1) return 'text-yellow-400 font-medium';
+                  return '';
+                };
+
+                // Подсветка для K-таблиц (K >= 1 значит выше фона)
+                const getKClass = (v: string | number) => {
+                  if (metalsView === 'excess') return '';
+                  const num = typeof v === 'number' ? v : 0;
+                  if (num >= 2) return 'text-red-400 font-medium';
+                  if (num >= 1) return 'text-yellow-400 font-medium';
+                  return '';
+                };
+
+                return (
+                  <tr
+                    key={sample.id}
+                    className="border-b border-[var(--border-color)] last:border-b-0 hover:bg-[var(--bg-tertiary)]/50"
+                  >
+                    <td className="px-3 py-2 font-medium">
+                      {sample.sampleCipher}
+                    </td>
+                    <td className="px-3 py-2 text-[var(--text-secondary)]">
+                      {sample.matchedSample?.depthLabel || '—'}
+                    </td>
+                    <td className={`px-3 py-2 text-center ${getExcessClass(cdVal)} ${getKClass(cdVal)}`}>
+                      {formatCellValue(cdVal)}
+                    </td>
+                    <td className={`px-3 py-2 text-center ${getExcessClass(cuVal)} ${getKClass(cuVal)}`}>
+                      {formatCellValue(cuVal)}
+                    </td>
+                    <td className={`px-3 py-2 text-center ${getExcessClass(asVal)} ${getKClass(asVal)}`}>
+                      {formatCellValue(asVal)}
+                    </td>
+                    <td className={`px-3 py-2 text-center ${getExcessClass(niVal)} ${getKClass(niVal)}`}>
+                      {formatCellValue(niVal)}
+                    </td>
+                    <td className={`px-3 py-2 text-center ${getExcessClass(hgVal)} ${getKClass(hgVal)}`}>
+                      {formatCellValue(hgVal)}
+                    </td>
+                    <td className={`px-3 py-2 text-center ${getExcessClass(pbVal)} ${getKClass(pbVal)}`}>
+                      {formatCellValue(pbVal)}
+                    </td>
+                    <td className={`px-3 py-2 text-center ${getExcessClass(znVal)} ${getKClass(znVal)}`}>
+                      {formatCellValue(znVal)}
+                    </td>
+                    <td className="px-3 py-2 text-center bg-primary-500/10 font-medium">
+                      {formatValue(zc)}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <span className={`inline-block px-3 py-1 rounded ${zcCategory.className}`}>
+                        {zcCategory.label}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="p-3 border-t border-[var(--border-color)]">
+          <div className="flex flex-wrap items-center gap-4 text-xs">
+            <span className="text-[var(--text-secondary)]">Категории по Zc:</span>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-white/10 text-white">Д</span>
+              <span className="text-[var(--text-secondary)]">— допустимый (&lt;16)</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-yellow-500 text-white font-bold">УО</span>
+              <span className="text-[var(--text-secondary)]">— умеренно опасный (16-32)</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-orange-500 text-white font-bold">О</span>
+              <span className="text-[var(--text-secondary)]">— опасный (32-128)</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-red-500 text-white font-bold">ЧО</span>
+              <span className="text-[var(--text-secondary)]">— чрезвычайно опасный (&gt;128)</span>
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-[var(--text-secondary)]">
+            {metalsView === 'excess' && 'Превышения ПДК с учётом типа грунта и pH.'}
+            {metalsView === 'k_moscow' && 'K = концентрация / фон (Москва). Фон: Cd=0.3, Cu=27, As=6.6, Ni=20, Hg=0.1, Pb=26, Zn=52'}
+            {metalsView === 'k_mo' && `K = концентрация / фон (МО). Фон зависит от типа грунта: ПС или СГ`}
+            {' '}Zc рассчитан по фону: {region === 'moscow' ? 'Москва' : 'МО'}.
+          </div>
+        </div>
+      </CollapsibleSection>
+
+      {/* General assessment table */}
+      <CollapsibleSection
+        title="Общая оценка загрязнения"
+        icon={AlertCircle}
+        defaultOpen={true}
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/30">
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Номер пробы
+                </th>
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Слой
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Зона
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  ТМ
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Б/п
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap bg-primary-500/20">
+                  Общая
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Н/п
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Класс
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortSamplesByLayer(indicator.samples).map((sample) => {
+                // Зона определяется по номеру площадки (первая цифра)
+                const zoneMatch = sample.sampleCipher.match(/^(\d+)/);
+                const zoneNum = zoneMatch ? parseInt(zoneMatch[1], 10) : 0;
+                const zone = `Зона ${zoneNum}`;
+
+                // Категория ТМ (по Zc)
+                const zc = calcZc(sample, region);
+                const tmCategory = getZcCategory(zc);
+
+                // Категория бензапирена
+                const benzapyreneConc = getChemValue(sample, 'benzapyrene');
+                const benzapyreneExcess = calcBenzopyreneExcess(benzapyreneConc);
+                const benzapyreneCategory = getBenzopyreneCategory(benzapyreneConc, benzapyreneExcess);
+
+                // Категория нефтепродуктов
+                const oilConc = getChemValue(sample, 'oilProducts');
+                const oilExcess = calcOilProductsExcess(oilConc);
+                const oilCategory = getOilProductsCategory(oilExcess);
+
+                // Общая категория = максимум из ТМ и Б/п
+                const categoryOrder = ['Д', 'УО', 'О', 'ЧО'];
+                const tmIdx = categoryOrder.indexOf(tmCategory.label);
+                const bpIdx = categoryOrder.indexOf(benzapyreneCategory.label);
+                const maxIdx = Math.max(tmIdx, bpIdx);
+                const overallLabel = categoryOrder[maxIdx] || 'Д';
+                
+                const getCategoryClass = (label: string) => {
+                  switch (label) {
+                    case 'ЧО': return 'bg-red-500 text-white font-bold';
+                    case 'О': return 'bg-orange-500 text-white font-bold';
+                    case 'УО': return 'bg-yellow-500 text-white font-bold';
+                    default: return 'bg-white/10 text-white';
+                  }
+                };
+
+                return (
+                  <tr
+                    key={sample.id}
+                    className="border-b border-[var(--border-color)] last:border-b-0 hover:bg-[var(--bg-tertiary)]/50"
+                  >
+                    <td className="px-3 py-2 font-medium">
+                      {sample.sampleCipher}
+                    </td>
+                    <td className="px-3 py-2 text-[var(--text-secondary)]">
+                      {sample.matchedSample?.depthLabel || '—'}
+                    </td>
+                    <td className="px-3 py-2 text-center text-[var(--text-secondary)]">
+                      {zone}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <span className={`inline-block px-2 py-0.5 rounded ${tmCategory.className}`}>
+                        {tmCategory.label}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <span className={`inline-block px-2 py-0.5 rounded ${benzapyreneCategory.className}`}>
+                        {benzapyreneCategory.label}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-center bg-primary-500/10">
+                      <span className={`inline-block px-3 py-1 rounded ${getCategoryClass(overallLabel)}`}>
+                        {overallLabel}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-center text-xs">
+                      {oilCategory.label}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <span className="inline-block px-2 py-0.5 rounded bg-green-500 text-white font-medium">
+                        V
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="p-3 border-t border-[var(--border-color)]">
+          <div className="flex flex-wrap items-center gap-4 text-xs">
+            <span className="text-[var(--text-secondary)]">Категории:</span>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-white/10 text-white">Д</span>
+              <span className="text-[var(--text-secondary)]">— допустимый</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-yellow-500 text-white font-bold">УО</span>
+              <span className="text-[var(--text-secondary)]">— умеренно опасный</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-orange-500 text-white font-bold">О</span>
+              <span className="text-[var(--text-secondary)]">— опасный</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-red-500 text-white font-bold">ЧО</span>
+              <span className="text-[var(--text-secondary)]">— чрезвычайно опасный</span>
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-[var(--text-secondary)]">
+            ТМ = тяжёлые металлы (по Zc), Б/п = бензапирен, Н/п = нефтепродукты. 
+            Общая = максимальная категория из ТМ и Б/п. Класс V = по биотестированию.
+          </div>
+        </div>
+      </CollapsibleSection>
+
+    </div>
+  );
+}

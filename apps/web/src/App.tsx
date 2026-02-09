@@ -19,6 +19,9 @@ import { InquiryRequestsPage } from '@/pages/projects/InquiryRequestsPage';
 import { TechnicalTasksPage } from '@/pages/technical-tasks/TechnicalTasksPage';
 import { CreateTechnicalTaskPage } from '@/pages/technical-tasks/CreateTechnicalTaskPage';
 import { TechnicalTaskDetailPage } from '@/pages/technical-tasks/TechnicalTaskDetailPage';
+import { IndicatorsPage } from '@/pages/indicators/IndicatorsPage';
+import { CreateIndicatorPage } from '@/pages/indicators/CreateIndicatorPage';
+import { IndicatorDetailPage } from '@/pages/indicators/IndicatorDetailPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuthStore();
@@ -99,6 +102,9 @@ export default function App() {
         <Route path="/projects/:id/photos" element={<ProjectPhotosPage />} />
         <Route path="/projects/:id/program-iei" element={<ProgramIeiPage />} />
         <Route path="/projects/:id/inquiry-requests" element={<InquiryRequestsPage />} />
+        <Route path="/indicators" element={<IndicatorsPage />} />
+        <Route path="/indicators/create" element={<CreateIndicatorPage />} />
+        <Route path="/indicators/:projectId" element={<IndicatorDetailPage />} />
         <Route path="/technical-tasks" element={<TechnicalTasksPage />} />
         <Route path="/technical-tasks/create" element={<CreateTechnicalTaskPage />} />
         <Route path="/technical-tasks/:id" element={<TechnicalTaskDetailPage />} />

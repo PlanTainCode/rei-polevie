@@ -111,6 +111,7 @@ export interface ProgramIei {
   nearbyEast: string | null;
   nearbyWest: string | null;
   nearbyNorth: string | null;
+  openGroundPercent: number | null;
   section82Text: string | null;
   generatedFileName: string | null;
   generatedFileUrl: string | null;
@@ -126,7 +127,17 @@ export interface UpdateProgramIeiData {
   nearbyEast?: string;
   nearbyWest?: string;
   nearbyNorth?: string;
+  openGroundPercent?: number | null;
   section82Text?: string;
+}
+
+// Расстояние от офиса до объекта
+export interface DistanceResult {
+  distanceKm: number | null;
+  fromAddress: string;
+  toAddress: string;
+  yandexMapsUrl: string | null;
+  error?: string;
 }
 
 // Типы для запросов справок
@@ -594,6 +605,12 @@ export const projectsApi = {
 
   getOverviewImageUrl: (imageName: string): string => {
     return `/api/uploads/program-iei/${imageName}`;
+  },
+
+  // Получить расстояние от офиса до объекта
+  getDistanceToObject: async (projectId: string): Promise<DistanceResult> => {
+    const response = await apiClient.get<DistanceResult>(`/projects/${projectId}/distance`);
+    return response.data;
   },
 
   // ========== ЗАПРОСЫ СПРАВОК ==========

@@ -19,6 +19,7 @@ import { mkdir, writeFile, readFile } from 'fs/promises';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as PizZip from 'pizzip';
 import * as mammoth from 'mammoth';
+import { DistanceService } from '../distance/distance.service';
 import {
   AiService,
   ServiceMatch,
@@ -53,6 +54,7 @@ import { replaceProgramIeiSection47Block } from './program-iei/section-47';
 import { replaceProgramIeiSection61Block } from './program-iei/section-61';
 import { replaceProgramIeiSection62Block } from './program-iei/section-62';
 import { replaceProgramIeiSection71Block } from './program-iei/section-71';
+import { replaceProgramIeiSection72Block } from './program-iei/section-72';
 import { replaceProgramIeiSection81Block } from './program-iei/section-81';
 import { extractSection81FromTz } from '../ai/program-iei/section-81';
 import { replaceProgramIeiSection82Block } from './program-iei/section-82';
@@ -76,6 +78,8 @@ interface ProgramIeiData {
   ДиректорДолжность: string;
   ДиректорФИО: string;
   НазваниеОрганизации: string;
+  // Роль АО «РЭИ-ЭКОАУДИТ»: "Подрядчик" или "Исполнитель"
+  РольПодрядчика: string;
   
   // 1.3 Сведения о заказчике
   Заказчик: string;
@@ -118,6 +122,7 @@ export class WordService {
   constructor(
     private prisma: PrismaService,
     private aiService: AiService,
+    private distanceService: DistanceService,
   ) {}
 
   /**
@@ -733,6 +738,16 @@ export class WordService {
       objectAddress: project.objectAddress,
       objectName: project.objectName,
     });
+
+    // Вычисляем расстояние от офиса до объекта
+    let distanceFromOfficeKm: number | null = null;
+    if (project.objectAddress) {
+      distanceFromOfficeKm = await this.distanceService.getDistanceToAddress(
+        project.objectAddress,
+        project.objectName || undefined,
+      );
+      console.log(`[WordService] Расстояние от офиса: ${distanceFromOfficeKm} км`);
+    }
     
     if (project.tzFileUrl) {
       try {
@@ -815,18 +830,23 @@ export class WordService {
         cadastralNumber: '',
         backgroundConcentrationsRef: '',
         previousSurveyReport: '',
+        reportCopiesText: '',
+        contractorRole: 'Подрядчик',
       };
     }
 
     // П.3.1 (краткая физико-географическая характеристика) - определяем по адресу/местоположению
     {
-      const addressFor31 = String(
-        section1Data?.objectLocation || project.objectAddress || '',
-      ).trim();
+      // Собираем адрес и наименование объекта для определения района
+      const objectLocation = String(section1Data?.objectLocation || project.objectAddress || '').trim();
+      const objectName = String(section1Data?.objectName || project.objectName || project.name || '').trim();
+      
+      // Объединяем для анализа — район может быть в наименовании объекта (например "р-н Фили-Давыдково")
+      const textFor31 = [objectName, objectLocation].filter(Boolean).join('\n');
 
-      if (addressFor31) {
+      if (textFor31) {
         try {
-          section31Data = await this.aiService.extractProgramIeiSection31(addressFor31);
+          section31Data = await this.aiService.extractProgramIeiSection31(textFor31);
           console.log('[WordService] AI извлёк данные пункта 3.1:', JSON.stringify(section31Data, null, 2));
         } catch (error) {
           console.error('[WordService] Ошибка AI для пункта 3.1:', error);
@@ -902,16 +922,16 @@ export class WordService {
       }
     }
 
-    // Получаем данные ЕГРН из БД (приоритет) или по координатам
+    // Получаем данные ЕГРН ТОЛЬКО из БД (введены пользователем на странице генерации)
+    // Если данные не заполнены — в шаблоне остаётся "Нет данных"
     let egrnData: EgrnData | null = null;
     
-    // Сначала проверяем есть ли данные в БД (введены пользователем)
     const programIei = await this.prisma.programIei.findUnique({
       where: { projectId },
     });
     
+    // Заполняем egrnData ТОЛЬКО если пользователь явно ввёл данные
     if (programIei?.cadastralNumber || programIei?.egrnDescription) {
-      // Используем данные из БД
       egrnData = {
         cadastralNumber: programIei.cadastralNumber || '',
         category: '',
@@ -925,18 +945,8 @@ export class WordService {
         (egrnData as EgrnData & { customDescription?: string }).customDescription = programIei.egrnDescription;
       }
       console.log('[WordService] Используем данные ЕГРН из БД:', egrnData);
-    } else if (section1Data?.coordinates) {
-      // Fallback на получение по координатам
-      try {
-        egrnData = await this.aiService.getEgrnDataByCoordinates(
-          section1Data.coordinates.lat,
-          section1Data.coordinates.lon,
-          section1Data.cadastralNumber,
-        );
-        console.log('[WordService] Получены данные по координатам:', egrnData);
-      } catch (error) {
-        console.error('[WordService] Ошибка получения данных:', error);
-      }
+    } else {
+      console.log('[WordService] Данные ЕГРН не заполнены — оставляем "Нет данных" в шаблоне');
     }
 
     // Объединяем услуги (services) из основного проекта и допотборов
@@ -989,17 +999,34 @@ export class WordService {
     // Теперь общая замена плейсхолдеров (заполнит технического заказчика)
     docXml = this.replacePlaceholders(docXml, data);
     
+    // Замена "Подрядчик/Исполнитель" на правильную роль из ТЗ
+    docXml = this.replaceContractorRole(docXml, data.РольПодрядчика);
+    
     // Специальные замены блоков текста
     if (section1Data) {
       docXml = this.replaceGoalsAndTasksBlock(docXml, section1Data.goalsAndTasks);
       docXml = this.replacePermanentOccupancyOptions(docXml, section1Data.permanentOccupancy);
       docXml = this.replaceUrbanPlanningActivityOptions(docXml, section1Data.urbanPlanningActivity);
       docXml = this.replaceSiteDescriptionBlock(docXml, section1Data.siteDescription);
+      
+      // Замена пунктов 1.6.2, 1.6.3, 1.6.4 - значения из ТЗ
+      docXml = this.replaceSection162Value(docXml, section1Data.transportInfrastructure);
+      docXml = this.replaceSection163Value(docXml, section1Data.hazardousProduction);
+      docXml = this.replaceSection164Value(docXml, section1Data.fireHazard);
+      
+      // Замена п.1.9.1 "Краткая техническая характеристика объекта" с форматированием списка
+      docXml = this.replaceTechnicalCharacteristicsBlock(docXml, section1Data.technicalCharacteristics);
+      
+      // Замена п.1.9.2 "Глубина ведения земляных работ" с форматированием списка
+      docXml = this.replaceExcavationDepthBlock(docXml, section1Data.excavationDepth);
     }
     
     // Заполняем пункт 1.10 данными ЕГРН
     if (egrnData) {
       docXml = this.replaceEgrnBlock(docXml, egrnData);
+    } else {
+      // Если данные ЕГРН не заполнены — заменяем плейсхолдеры на "Нет данных"
+      docXml = this.replaceEgrnBlockWithNoData(docXml);
     }
     
     // Заполняем пункт 2.1 "Перечень исходных материалов и данных"
@@ -1226,6 +1253,7 @@ export class WordService {
             radiometryAreaHa: Object.keys(quantitiesByRow).length > 0 ? Number(String(quantitiesByRow[16] ?? '').replace(',', '.')) : undefined,
             orderFlags,
             project,
+            distanceFromOfficeKm,
           });
 
           const servicesForQuantities: ServiceMatch[] =
@@ -1359,6 +1387,12 @@ export class WordService {
     docXml = replaceProgramIeiSection71Block({
       xml: docXml,
       orderFlags,
+    });
+
+    // --- П.7.2: Количество экземпляров технических отчетов (из п.21 ТЗ)
+    docXml = replaceProgramIeiSection72Block({
+      xml: docXml,
+      section1Data,
     });
 
     // --- П.8.1: Краткая природно-хозяйственная характеристика территории
@@ -1556,6 +1590,8 @@ export class WordService {
       ДиректорДолжность: aiData?.technicalCustomerDirectorPosition || 'Генеральный директор',
       ДиректорФИО: aiData?.technicalCustomerDirectorName || '',
       НазваниеОрганизации: aiData?.technicalCustomerName || '',
+      // Роль АО «РЭИ-ЭКОАУДИТ» из ТЗ: "Подрядчик" или "Исполнитель"
+      РольПодрядчика: aiData?.contractorRole || 'Подрядчик',
       
       // 1.3 Сведения о заказчике
       Заказчик: clientName,
@@ -1644,64 +1680,427 @@ export class WordService {
   }
 
   /**
+   * Заменяет текст "Подрядчик/Исполнитель" на правильную роль из ТЗ
+   * В шаблоне на титульной странице есть текст "Подрядчик/Исполнитель",
+   * который нужно заменить на "Подрядчик" или "Исполнитель" в зависимости от ТЗ
+   */
+  private replaceContractorRole(xml: string, role: string): string {
+    const normalizedRole = role === 'Исполнитель' ? 'Исполнитель' : 'Подрядчик';
+    
+    // Простой случай: текст целиком в одном теге
+    xml = xml.replace(
+      />Подрядчик\/Исполнитель</g,
+      `>${normalizedRole}<`,
+    );
+    
+    // Случай когда текст разбит Word на части (Подрядчик + /Исполнитель или Подрядчик/ + Исполнитель)
+    // Паттерн: <w:t>Подрядчик</w:t>...<w:t>/Исполнитель</w:t>
+    xml = xml.replace(
+      /(<w:t[^>]*>)Подрядчик(<\/w:t>[\s\S]*?<w:t[^>]*>)\/Исполнитель(<\/w:t>)/g,
+      `$1${normalizedRole}$2$3`,
+    );
+    
+    // Паттерн: <w:t>Подрядчик/</w:t>...<w:t>Исполнитель</w:t>
+    xml = xml.replace(
+      /(<w:t[^>]*>)Подрядчик\/(<\/w:t>[\s\S]*?<w:t[^>]*>)Исполнитель(<\/w:t>)/g,
+      `$1${normalizedRole}$2$3`,
+    );
+    
+    return xml;
+  }
+
+  /**
    * Заменяет блок "Цели и задачи инженерных изысканий" (п.1.5)
-   * Заменяет весь шаблонный текст новым текстом из ТЗ
+   * Находит все теги пункта 1.5, очищает их и вставляет текст из ТЗ
    */
   private replaceGoalsAndTasksBlock(xml: string, newText: string): string {
     if (!newText || newText.trim() === '') {
       return xml;
     }
 
+    // Маркеры границ пункта 1.5
+    const startMarker = 'Инженерно-экологические изыскания';
+    const endMarker = 'Идентификационные сведения';
+    
+    // Находим позиции маркеров в XML
+    const startPos = xml.indexOf(startMarker);
+    const endPos = xml.indexOf(endMarker);
+    
+    if (startPos === -1) {
+      console.warn('[replaceGoalsAndTasksBlock] Не найден начальный маркер п.1.5');
+      return xml;
+    }
+    
+    // Определяем область пункта 1.5
+    const sectionEndPos = endPos !== -1 ? endPos : startPos + 5000; // fallback
+    
+    // Извлекаем секцию п.1.5 для обработки
+    const beforeSection = xml.substring(0, startPos);
+    const sectionXml = xml.substring(startPos, sectionEndPos);
+    const afterSection = xml.substring(sectionEndPos);
+    
+    // Находим первый тег <w:t> в секции и запоминаем его
+    const firstTagMatch = sectionXml.match(/<w:t([^>]*)>([^<]*)</);
+    if (!firstTagMatch) {
+      console.warn('[replaceGoalsAndTasksBlock] Не найден первый тег <w:t> в п.1.5');
+      return xml;
+    }
+    
+    // Очищаем ВСЕ теги <w:t> в секции п.1.5
+    let cleanedSection = sectionXml.replace(/<w:t([^>]*)>[^<]*<\/w:t>/g, '<w:t$1></w:t>');
+    
+    // Вставляем текст из ТЗ в первый тег
     const escapedNewText = this.escapeXml(newText);
-
-    // Заменяем первую часть шаблонного текста на новый текст
-    // Учитываем xml:space="preserve" в атрибутах
-    xml = xml.replace(
-      /(<w:t[^>]*>)Инженерно-экологические изыскания \(ИЭИ\) выполняют для оценки современного состояния\s*(<\/w:t>)/g,
-      `$1${escapedNewText}$2`,
+    cleanedSection = cleanedSection.replace(
+      /<w:t([^>]*)><\/w:t>/,
+      `<w:t$1 xml:space="preserve">${escapedNewText}</w:t>`,
     );
+    
+    return beforeSection + cleanedSection + afterSection;
+  }
 
-    // Удаляем ВСЕ остальные части старого шаблонного текста п.1.5
-    // Эти части идут после первого абзаца и не нужны
-    const partsToRemove = [
-      'территории \\(соврем, грунты\\)',
-      '\\(соврем, грунты\\)',
-      'и прогноза возможных изменений окружающей среды под влиянием техногенной нагрузки',
-      '\\(для полного\\s+отчета\\)',
-      'для полного\\s+отчета',
-      'для экологического обоснования строительства',
-      ', для обеспечения благоприятных условий жизни населения',
-      'для обеспечения благоприятных условий жизни населения',
-      'обеспечения безопасности зданий, сооружений, территории',
-      'и предотвращения, снижения или ликвидации неблагоприятных воздействий на окружающую среду',
-      'предотвращения, снижения или ликвидации неблагоприятных воздействий на окружающую среду',
-    ];
-
-    for (const part of partsToRemove) {
-      const regex = new RegExp(`<w:t[^>]*>[^<]*${part}[^<]*<\\/w:t>`, 'gi');
-      xml = xml.replace(regex, '<w:t></w:t>');
+  /**
+   * Заменяет п.1.9.1 "Краткая техническая характеристика объекта"
+   * Создаёт ненумерованный список с дефисами в правой ячейке таблицы
+   */
+  private replaceTechnicalCharacteristicsBlock(xml: string, text: string): string {
+    if (!text || text.trim() === '') {
+      return xml;
     }
 
-    // Удаляем шаблонный второй абзац "Задачи ИЭИ определены..." из шаблона
-    // (он уже есть в новом тексте из ТЗ)
-    xml = xml.replace(
-      /<w:t[^>]*>Задачи ИЭИ определены видом разрабатываемой градостроительной документации – подготовка проектной документации – и особенностями природной и техногенной обстановки территории изысканий –\s*<\/w:t>/g,
-      '<w:t></w:t>',
-    );
+    // Маркеры границ строки таблицы с п.1.9.1
+    const startMarker = 'Краткая техническая характеристика объекта';
+    const endMarker = 'Глубина ведения земляных работ';
+    
+    const startPos = xml.indexOf(startMarker);
+    if (startPos === -1) {
+      console.warn('[replaceTechnicalCharacteristicsBlock] Не найден маркер п.1.9.1');
+      return xml;
+    }
+    
+    let endPos = xml.indexOf(endMarker, startPos + 1);
+    if (endPos === -1) {
+      endPos = startPos + 10000;
+    }
+    
+    // Извлекаем секцию (строка таблицы)
+    const beforeSection = xml.substring(0, startPos);
+    const sectionXml = xml.substring(startPos, endPos);
+    const afterSection = xml.substring(endPos);
+    
+    // В таблице Word: <w:tc> — ячейка. Левая ячейка содержит название, правая — значение.
+    // Находим вторую ячейку <w:tc> после названия пункта (это правая колонка со значением)
+    
+    // Ищем закрывающий тег ячейки с названием и начало следующей ячейки
+    const tcEndPos = sectionXml.indexOf('</w:tc>');
+    if (tcEndPos === -1) {
+      console.warn('[replaceTechnicalCharacteristicsBlock] Не найдена ячейка таблицы');
+      return xml;
+    }
+    
+    // Правая ячейка начинается после </w:tc> и <w:tc...>
+    const rightCellStart = sectionXml.indexOf('<w:tc', tcEndPos);
+    if (rightCellStart === -1) {
+      console.warn('[replaceTechnicalCharacteristicsBlock] Не найдена правая ячейка');
+      return xml;
+    }
+    
+    // Находим конец правой ячейки
+    const rightCellEnd = sectionXml.indexOf('</w:tc>', rightCellStart);
+    if (rightCellEnd === -1) {
+      console.warn('[replaceTechnicalCharacteristicsBlock] Не найден конец правой ячейки');
+      return xml;
+    }
+    
+    // Извлекаем правую ячейку
+    const rightCell = sectionXml.substring(rightCellStart, rightCellEnd + 7);
+    
+    // Извлекаем свойства ячейки <w:tcPr>
+    const tcPrMatch = rightCell.match(/<w:tcPr>[\s\S]*?<\/w:tcPr>/);
+    const tcPr = tcPrMatch ? tcPrMatch[0] : '';
+    
+    // Извлекаем свойства абзаца из существующего контента
+    const pPrMatch = rightCell.match(/<w:pPr>[\s\S]*?<\/w:pPr>/);
+    const pPr = pPrMatch ? pPrMatch[0] : '';
+    
+    // Извлекаем свойства текста
+    const rPrMatch = rightCell.match(/<w:rPr>[\s\S]*?<\/w:rPr>/);
+    const rPr = rPrMatch ? rPrMatch[0] : '';
+    
+    // Разбиваем текст на строки
+    let lines = text.split(/\n/).map(line => line.trim()).filter(line => line);
+    
+    // Убираем вводную фразу "На участке предусматривается:" и подобные
+    lines = lines.filter(line => {
+      const lower = line.toLowerCase();
+      return !lower.includes('на участке предусматривается') && 
+             !lower.includes('предусматривается:') &&
+             !lower.startsWith('на участке');
+    });
+    
+    // Оставляем только строки с дефисом или добавляем дефис
+    lines = lines.map(line => {
+      // Если строка уже начинается с дефиса — оставляем как есть
+      if (line.startsWith('-') || line.startsWith('–') || line.startsWith('—')) {
+        return line;
+      }
+      // Если это пустая или служебная строка — пропускаем
+      if (line.length < 3) {
+        return null;
+      }
+      // Добавляем дефис к строке
+      return `- ${line}`;
+    }).filter((line): line is string => line !== null);
+    
+    // Создаём новые абзацы для каждой строки
+    const newParagraphs: string[] = [];
+    for (const line of lines) {
+      const escapedLine = this.escapeXml(line);
+      const paragraph = `<w:p>${pPr}<w:r>${rPr}<w:t xml:space="preserve">${escapedLine}</w:t></w:r></w:p>`;
+      newParagraphs.push(paragraph);
+    }
+    
+    // Создаём новую правую ячейку с нашим контентом
+    const newRightCell = `<w:tc>${tcPr}${newParagraphs.join('')}</w:tc>`;
+    
+    // Заменяем правую ячейку на новую
+    const modifiedSection = 
+      sectionXml.substring(0, rightCellStart) + 
+      newRightCell + 
+      sectionXml.substring(rightCellEnd + 7);
+    
+    return beforeSection + modifiedSection + afterSection;
+  }
 
-    // Удаляем варианты типов территории (они были после тире в шаблоне)
-    const territoryTypes = [
-      'бывшие земли с/х назначения',
-      'складывающаяся городская среда',
-      'земли объекта производственного назначения',
-    ];
-
-    for (const type of territoryTypes) {
-      const regex = new RegExp(`<w:t[^>]*>\\s*${type}\\s*<\\/w:t>`, 'gi');
-      xml = xml.replace(regex, '<w:t></w:t>');
+  /**
+   * Заменяет п.1.9.2 "Глубина ведения земляных работ"
+   * Создаёт ненумерованный список с дефисами в правой ячейке таблицы
+   */
+  private replaceExcavationDepthBlock(xml: string, text: string): string {
+    if (!text || text.trim() === '') {
+      return xml;
     }
 
-    return xml;
+    // Маркеры границ строки таблицы с п.1.9.2
+    const startMarker = 'Глубина ведения земляных работ';
+    const endMarker = 'Границы площадки';
+    
+    const startPos = xml.indexOf(startMarker);
+    if (startPos === -1) {
+      console.warn('[replaceExcavationDepthBlock] Не найден маркер п.1.9.2');
+      return xml;
+    }
+    
+    let endPos = xml.indexOf(endMarker, startPos + 1);
+    if (endPos === -1) {
+      endPos = startPos + 10000;
+    }
+    
+    // Извлекаем секцию (строка таблицы)
+    const beforeSection = xml.substring(0, startPos);
+    const sectionXml = xml.substring(startPos, endPos);
+    const afterSection = xml.substring(endPos);
+    
+    // Находим вторую ячейку <w:tc> (правая колонка со значением)
+    const tcEndPos = sectionXml.indexOf('</w:tc>');
+    if (tcEndPos === -1) {
+      console.warn('[replaceExcavationDepthBlock] Не найдена ячейка таблицы');
+      return xml;
+    }
+    
+    const rightCellStart = sectionXml.indexOf('<w:tc', tcEndPos);
+    if (rightCellStart === -1) {
+      console.warn('[replaceExcavationDepthBlock] Не найдена правая ячейка');
+      return xml;
+    }
+    
+    const rightCellEnd = sectionXml.indexOf('</w:tc>', rightCellStart);
+    if (rightCellEnd === -1) {
+      console.warn('[replaceExcavationDepthBlock] Не найден конец правой ячейки');
+      return xml;
+    }
+    
+    // Извлекаем правую ячейку
+    const rightCell = sectionXml.substring(rightCellStart, rightCellEnd + 7);
+    
+    // Извлекаем свойства ячейки
+    const tcPrMatch = rightCell.match(/<w:tcPr>[\s\S]*?<\/w:tcPr>/);
+    const tcPr = tcPrMatch ? tcPrMatch[0] : '';
+    
+    // Извлекаем свойства абзаца
+    const pPrMatch = rightCell.match(/<w:pPr>[\s\S]*?<\/w:pPr>/);
+    const pPr = pPrMatch ? pPrMatch[0] : '';
+    
+    // Извлекаем свойства текста
+    const rPrMatch = rightCell.match(/<w:rPr>[\s\S]*?<\/w:rPr>/);
+    const rPr = rPrMatch ? rPrMatch[0] : '';
+    
+    // Разбиваем текст на строки
+    let lines = text.split(/\n/).map(line => line.trim()).filter(line => line);
+    
+    // Убираем вводную фразу "Глубина ведения земляных работ:" если есть
+    lines = lines.filter(line => {
+      const lower = line.toLowerCase();
+      return !lower.startsWith('глубина ведения земляных работ');
+    });
+    
+    // Добавляем дефис к строкам если его нет
+    lines = lines.map(line => {
+      if (line.startsWith('-') || line.startsWith('–') || line.startsWith('—')) {
+        return line;
+      }
+      if (line.length < 3) {
+        return null;
+      }
+      return `- ${line}`;
+    }).filter((line): line is string => line !== null);
+    
+    // Создаём новые абзацы для каждой строки
+    const newParagraphs: string[] = [];
+    for (const line of lines) {
+      const escapedLine = this.escapeXml(line);
+      const paragraph = `<w:p>${pPr}<w:r>${rPr}<w:t xml:space="preserve">${escapedLine}</w:t></w:r></w:p>`;
+      newParagraphs.push(paragraph);
+    }
+    
+    // Создаём новую правую ячейку с нашим контентом
+    const newRightCell = `<w:tc>${tcPr}${newParagraphs.join('')}</w:tc>`;
+    
+    // Заменяем правую ячейку на новую
+    const modifiedSection = 
+      sectionXml.substring(0, rightCellStart) + 
+      newRightCell + 
+      sectionXml.substring(rightCellEnd + 7);
+    
+    return beforeSection + modifiedSection + afterSection;
+  }
+
+  /**
+   * Заменяет значение п.1.6.2 "Принадлежность к объектам транспортной инфраструктуры"
+   * Текст берётся из п.10.2 ТЗ и вставляется как есть
+   */
+  private replaceSection162Value(xml: string, value: string): string {
+    if (!value || value.trim() === '') {
+      return xml;
+    }
+    return this.replaceTableCellValue(
+      xml, 
+      'Принадлежность к объектам транспортной инфраструктуры',
+      'Принадлежность к опасным',
+      value,
+    );
+  }
+
+  /**
+   * Заменяет значение п.1.6.3 "Принадлежность к опасным производственным объектам"
+   * Текст берётся из п.10.3 ТЗ и вставляется как есть
+   */
+  private replaceSection163Value(xml: string, value: string): string {
+    if (!value || value.trim() === '') {
+      return xml;
+    }
+    return this.replaceTableCellValue(
+      xml,
+      'производственным объектам',
+      'Пожарная и взрывопожарная',
+      value,
+    );
+  }
+
+  /**
+   * Заменяет значение п.1.6.4 "Пожарная и взрывопожарная опасность"
+   * Текст берётся из п.10.4 ТЗ и вставляется как есть
+   */
+  private replaceSection164Value(xml: string, value: string): string {
+    if (!value || value.trim() === '') {
+      return xml;
+    }
+    return this.replaceTableCellValue(
+      xml,
+      'Пожарная и взрывопожарная',
+      'Уровень ответственности',
+      value,
+    );
+  }
+
+  /**
+   * Заменяет значение в ячейке таблицы после заголовка строки
+   * Ищет строку по названию (startMarker), затем заменяет значение в следующей ячейке
+   */
+  private replaceTableCellValue(
+    xml: string, 
+    startMarker: string, 
+    endMarker: string, 
+    newValue: string,
+  ): string {
+    // Находим позицию названия строки
+    const startPos = xml.indexOf(startMarker);
+    if (startPos === -1) {
+      console.warn(`[replaceTableCellValue] Не найден маркер: ${startMarker}`);
+      return xml;
+    }
+    
+    // Находим позицию следующей строки (конец текущей секции)
+    let endPos = xml.indexOf(endMarker, startPos + 1);
+    if (endPos === -1) {
+      endPos = startPos + 3000; // fallback
+    }
+    
+    // Извлекаем секцию между маркерами
+    const beforeSection = xml.substring(0, startPos);
+    const sectionXml = xml.substring(startPos, endPos);
+    const afterSection = xml.substring(endPos);
+    
+    const escapedValue = this.escapeXml(newValue.trim());
+    
+    let modifiedSection = sectionXml;
+    let replaced = false;
+    
+    // 1. Сначала пробуем заменить целые значения в одном теге
+    const singleTagPatterns = [
+      /(<w:t[^>]*>)\s*Не принадлежит\s*(<\/w:t>)/gi,
+      /(<w:t[^>]*>)\s*Не пренадлежит\s*(<\/w:t>)/gi,
+      /(<w:t[^>]*>)\s*Нет данных\s*(<\/w:t>)/gi,
+      /(<w:t[^>]*>)\s*Не определена\s*(<\/w:t>)/gi,
+    ];
+    
+    for (const pattern of singleTagPatterns) {
+      const beforeReplace = modifiedSection;
+      modifiedSection = modifiedSection.replace(pattern, `$1${escapedValue}$2`);
+      if (modifiedSection !== beforeReplace) {
+        replaced = true;
+        break;
+      }
+    }
+    
+    // 2. Если не нашли целое значение, проверяем разбитый текст "Не" + "принадлежит"
+    if (!replaced) {
+      // Заменяем "Не " на значение (с пробелом после или без)
+      const nePattern = /(<w:t[^>]*>)\s*Не\s*(<\/w:t>)/i;
+      const prinadlezhitPattern = /(<w:t[^>]*>)\s*принадлежит\s*(<\/w:t>)/i;
+      
+      if (nePattern.test(modifiedSection) && prinadlezhitPattern.test(modifiedSection)) {
+        // Заменяем "Не" на новое значение
+        modifiedSection = modifiedSection.replace(nePattern, `$1${escapedValue}$2`);
+        // Очищаем "принадлежит"
+        modifiedSection = modifiedSection.replace(prinadlezhitPattern, '$1$2');
+        replaced = true;
+      }
+    }
+    
+    // 3. Если всё ещё не нашли, пробуем заменить одиночное "Нет"
+    if (!replaced && newValue.trim() !== 'Нет') {
+      const beforeReplace = modifiedSection;
+      modifiedSection = modifiedSection.replace(
+        /(<w:t[^>]*>)\s*Нет\s*(<\/w:t>)/i,
+        `$1${escapedValue}$2`,
+      );
+      if (modifiedSection !== beforeReplace) {
+        replaced = true;
+      }
+    }
+    
+    return beforeSection + modifiedSection + afterSection;
   }
 
   /**
@@ -1892,6 +2291,23 @@ export class WordService {
       `>${this.escapeXml(egrnText)}</w:t>`,
     );
 
+    return xml;
+  }
+
+  /**
+   * Заменяет плейсхолдеры п.1.10 на "Нет данных" когда данные ЕГРН не заполнены
+   */
+  private replaceEgrnBlockWithNoData(xml: string): string {
+    // Заменяем "Кадастровый номер участка" на "Нет данных"
+    xml = xml.split('>Кадастровый номер участка</w:t>').join(
+      '>Нет данных</w:t>',
+    );
+    
+    // Удаляем "Прописать сведения из ЕГРН" (делаем пустым)
+    xml = xml.split('>Прописать сведения из ЕГРН</w:t>').join(
+      '></w:t>',
+    );
+    
     return xml;
   }
 
@@ -2088,6 +2504,53 @@ export class WordService {
       new RegExp(`<w:p[^>]*w14:paraId="${paraId}"[^>]*>[\\s\\S]*?<\\/w:p>`, 'g'),
       '',
     );
+  }
+
+  /**
+   * Вставляет новый абзац с текстом после абзаца с указанным paraId
+   * Копирует стиль (pPr, rPr) из исходного абзаца
+   */
+  private insertParagraphAfterParaId(xml: string, paraId: string, newText: string): string {
+    const escaped = this.escapeXml(newText);
+    
+    // Находим абзац с нужным paraId
+    const re = new RegExp(
+      `(<w:p[^>]*w14:paraId="${paraId}"[^>]*>)([\\s\\S]*?)(<\\/w:p>)`,
+      'g',
+    );
+    
+    // Стандартный rPr с курсивом (как в п.3.2)
+    const defaultRPr = '<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:i/><w:iCs/><w:sz w:val="24"/><w:szCs w:val="24"/><w:color w:val="000000"/></w:rPr>';
+    
+    return xml.replace(re, (_m, open, body, close) => {
+      const bodyStr = String(body);
+      
+      // Копируем pPr из исходного абзаца (без красной строки)
+      const pPrMatch = bodyStr.match(/<w:pPr[\s\S]*?<\/w:pPr>/);
+      let pPr = pPrMatch ? pPrMatch[0] : '';
+      // Убираем красную строку если есть
+      pPr = pPr.replace(/<w:ind[^>]*w:firstLine[^>]*\/>/g, '');
+      
+      // Копируем rPr из первого run, добавляем курсив если нет
+      const runMatch = bodyStr.match(/<w:r[^>]*>[\s\S]*?<\/w:r>/);
+      let rPr = defaultRPr;
+      if (runMatch) {
+        const runRprMatch = runMatch[0].match(/<w:rPr>[\s\S]*?<\/w:rPr>/);
+        if (runRprMatch) {
+          rPr = runRprMatch[0];
+          // Добавляем курсив если его нет
+          if (!rPr.includes('<w:i/>') && !rPr.includes('<w:i ')) {
+            rPr = rPr.replace('</w:rPr>', '<w:i/><w:iCs/></w:rPr>');
+          }
+        }
+      }
+      
+      // Создаём новый абзац
+      const newParagraph = `<w:p>${pPr}<w:r>${rPr}<w:t xml:space="preserve">${escaped}</w:t></w:r></w:p>`;
+      
+      // Возвращаем исходный абзац + новый
+      return `${open}${body}${close}${newParagraph}`;
+    });
   }
 
   /**
@@ -2354,6 +2817,14 @@ export class WordService {
       xml = this.replaceParagraphTextByParaId(xml, '7A0BBC43', `К северу: ${north}.`);
     } else {
       xml = this.removeParagraphByParaId(xml, '7A0BBC43');
+    }
+
+    // --- Степень запечатанности (площадь открытого грунта)
+    const openGroundPercent = programIei?.openGroundPercent;
+    if (openGroundPercent !== null && openGroundPercent !== undefined) {
+      const sealingText = `Степень запечатанности и захламленности территории – площадь поверхности открытого грунта на участке составляет около ${openGroundPercent} %.`;
+      // Вставляем после "К северу" — ищем абзац и добавляем после него
+      xml = this.insertParagraphAfterParaId(xml, '7A0BBC43', sealingText);
     }
 
     // Если окружение не заполнено вообще — убираем строку "Вблизи участка изысканий расположены:"

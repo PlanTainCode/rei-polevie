@@ -74,6 +74,7 @@ const isHeaderRow = (title: string): string | null => {
 const isAlwaysKeepRow = (title: string): boolean => {
   const t = title.toLowerCase();
   if (t.includes('подготовка технического отчета')) return true;
+  if (t.includes('расстояние от базы')) return true;
   return false;
 };
 

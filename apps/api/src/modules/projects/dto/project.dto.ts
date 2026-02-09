@@ -86,6 +86,10 @@ export class UpdateProgramIeiDto {
   @IsOptional()
   nearbyNorth?: string;
 
+  // 3.2 - площадь открытого грунта (0-100%)
+  @IsOptional()
+  openGroundPercent?: number | null;
+
   // 8.2 - Обоснование границ изучаемой территории
   @IsString()
   @IsOptional()

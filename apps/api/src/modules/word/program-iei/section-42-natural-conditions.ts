@@ -2,7 +2,8 @@ import type { ProgramIeiOrderFlags, ProgramIeiSection1Data, ServiceMatch } from 
 
 import {
   removeTableRowByTrParaId,
-  replaceParagraphTextByParaIdPreserveRunProps,
+  replaceParagraphTextByParaIdWithItalic,
+  replaceTableCellValueByRowText,
 } from './docx-xml';
 import { extractSiteAreaSentence } from './site-boundaries';
 
@@ -124,6 +125,7 @@ export function applyProgramIeiSection42NaturalConditionsTop10(params: {
   radiometryAreaHa?: number;
   orderFlags: ProgramIeiOrderFlags | null;
   project: any;
+  distanceFromOfficeKm?: number | null;
 }): string {
   let xml = params.xml;
 
@@ -146,6 +148,24 @@ export function applyProgramIeiSection42NaturalConditionsTop10(params: {
     technicalCharacteristics: String(params.section1Data?.technicalCharacteristics || ''),
     siteDescription: String(params.section1Data?.siteDescription || ''),
   });
+
+  // Заполняем значение в строке "Расстояние от базы" (строка уже есть в шаблоне)
+  {
+    console.log('[Section42] distanceFromOfficeKm:', params.distanceFromOfficeKm);
+    
+    // Форматируем расстояние: если есть - показываем с одним знаком после запятой, иначе пусто
+    const distanceValue = params.distanceFromOfficeKm != null 
+      ? String(params.distanceFromOfficeKm).replace('.', ',')
+      : '';
+    
+    console.log('[Section42] Подставляем расстояние:', distanceValue);
+    
+    xml = replaceTableCellValueByRowText(
+      xml,
+      'расстояние от базы',  // Ищем строку с этим текстом
+      distanceValue,
+    );
+  }
 
   // 2/3/6/10 — удаляем строки
   const toRemovePredicates: Array<(t: string) => boolean> = [
@@ -178,7 +198,7 @@ export function applyProgramIeiSection42NaturalConditionsTop10(params: {
       });
 
       const rounded = Math.max(0.1, Math.round(km * 10) / 10);
-      xml = replaceParagraphTextByParaIdPreserveRunProps(xml, row.qtyParaId, formatDecimalComma(rounded, 1));
+      xml = replaceParagraphTextByParaIdWithItalic(xml, row.qtyParaId, formatDecimalComma(rounded, 1));
     }
   }
 
@@ -187,7 +207,7 @@ export function applyProgramIeiSection42NaturalConditionsTop10(params: {
     const row = findRow(params.rows, (t) => t.startsWith('описание точек наблюдений'));
     if (row?.qtyParaId) {
       const cnt = computeObservationPoints(areaHaEffective);
-      xml = replaceParagraphTextByParaIdPreserveRunProps(xml, row.qtyParaId, String(cnt));
+      xml = replaceParagraphTextByParaIdWithItalic(xml, row.qtyParaId, String(cnt));
     }
   }
 
@@ -200,7 +220,7 @@ export function applyProgramIeiSection42NaturalConditionsTop10(params: {
   ]) {
     const row = findRow(params.rows, pred);
     if (row?.qtyParaId) {
-      xml = replaceParagraphTextByParaIdPreserveRunProps(xml, row.qtyParaId, '1');
+      xml = replaceParagraphTextByParaIdWithItalic(xml, row.qtyParaId, '1');
     }
   }
 
@@ -266,7 +286,7 @@ export function applyProgramIeiSection42QuantitiesFromServices(params: {
     // га (радиометрия) — берём из площади участка
     if (radiometryHa != null && u === 'га') {
       if (row.qtyParaId) {
-        xml = replaceParagraphTextByParaIdPreserveRunProps(
+        xml = replaceParagraphTextByParaIdWithItalic(
           xml,
           row.qtyParaId,
           formatDecimalComma(radiometryHa, 2),
@@ -278,7 +298,7 @@ export function applyProgramIeiSection42QuantitiesFromServices(params: {
     // точки (ППР) — row 17
     if (u.includes('точка') && t.includes('ппр')) {
       if (row.qtyParaId && pprCount) {
-        xml = replaceParagraphTextByParaIdPreserveRunProps(xml, row.qtyParaId, String(pprCount));
+        xml = replaceParagraphTextByParaIdWithItalic(xml, row.qtyParaId, String(pprCount));
       }
       continue;
     }
@@ -288,21 +308,21 @@ export function applyProgramIeiSection42QuantitiesFromServices(params: {
     // Вода/донные — по текущей группе
     if (group === 'SURFACE_WATER') {
       if (surfaceWaterCount) {
-        xml = replaceParagraphTextByParaIdPreserveRunProps(xml, row.qtyParaId, surfaceWaterCount);
+        xml = replaceParagraphTextByParaIdWithItalic(xml, row.qtyParaId, surfaceWaterCount);
       }
       continue;
     }
 
     if (group === 'GROUND_WATER' || t.includes('скважин')) {
       if (groundWaterCount) {
-        xml = replaceParagraphTextByParaIdPreserveRunProps(xml, row.qtyParaId, groundWaterCount);
+        xml = replaceParagraphTextByParaIdWithItalic(xml, row.qtyParaId, groundWaterCount);
       }
       continue;
     }
 
     if (group === 'SEDIMENT') {
       if (sedimentCount) {
-        xml = replaceParagraphTextByParaIdPreserveRunProps(xml, row.qtyParaId, sedimentCount);
+        xml = replaceParagraphTextByParaIdWithItalic(xml, row.qtyParaId, sedimentCount);
       }
       continue;
     }
@@ -315,28 +335,28 @@ export function applyProgramIeiSection42QuantitiesFromServices(params: {
     // Подгруппы почвы
     if (t.includes('мух') || t.includes('личинок') || t.includes('куколок')) {
       if (flyCount) {
-        xml = replaceParagraphTextByParaIdPreserveRunProps(xml, row.qtyParaId, flyCount);
+        xml = replaceParagraphTextByParaIdWithItalic(xml, row.qtyParaId, flyCount);
       }
       continue;
     }
 
     if (t.includes('колиформ') || t.includes('микробиолог') || t.includes('бактери') || t.includes('гельминт') || t.includes('цист')) {
       if (soilMicroCount) {
-        xml = replaceParagraphTextByParaIdPreserveRunProps(xml, row.qtyParaId, soilMicroCount);
+        xml = replaceParagraphTextByParaIdWithItalic(xml, row.qtyParaId, soilMicroCount);
       }
       continue;
     }
 
     if (t.includes('токсич') || t.includes('биотест')) {
       if (soilToxicCount) {
-        xml = replaceParagraphTextByParaIdPreserveRunProps(xml, row.qtyParaId, soilToxicCount);
+        xml = replaceParagraphTextByParaIdWithItalic(xml, row.qtyParaId, soilToxicCount);
       }
       continue;
     }
 
     // По умолчанию: почва по СанПиН (ряд 20)
     if (soilCount) {
-      xml = replaceParagraphTextByParaIdPreserveRunProps(xml, row.qtyParaId, soilCount);
+      xml = replaceParagraphTextByParaIdWithItalic(xml, row.qtyParaId, soilCount);
     }
   }
 

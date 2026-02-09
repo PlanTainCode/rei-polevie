@@ -29,6 +29,7 @@ import { PresentationService } from './presentation.service';
 import { ProgramIeiService } from './program-iei.service';
 import { ExcelService } from '../excel/excel.service';
 import { WordService } from '../word/word.service';
+import { DistanceService } from '../distance/distance.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateProjectDto, UpdateSampleDto, UpdatePhotoDto, ReorderPhotosDto, GenerateAlbumDto, UpdateProgramIeiDto } from './dto/project.dto';
 
@@ -65,6 +66,7 @@ export class ProjectsController {
     private programIeiService: ProgramIeiService,
     private excelService: ExcelService,
     private wordService: WordService,
+    private distanceService: DistanceService,
   ) {}
 
   @Post()
@@ -716,6 +718,34 @@ export class ProjectsController {
   ) {
     await this.projectsService.findById(id, req.user.userId);
     return this.programIeiService.deleteOverviewImage(id);
+  }
+
+  // Получить расстояние от офиса до объекта
+  @Get(':id/distance')
+  async getDistanceToObject(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    const project = await this.projectsService.findById(id, req.user.userId);
+    
+    if (!project.objectAddress) {
+      return { distanceKm: null, error: 'Адрес объекта не указан' };
+    }
+
+    const distanceKm = await this.distanceService.getDistanceToAddress(
+      project.objectAddress,
+      project.objectName || undefined,
+    );
+
+    return {
+      distanceKm,
+      fromAddress: 'ул. Островитянова, д.6, Москва',
+      toAddress: project.objectAddress,
+      // Ссылка на Яндекс.Карты для проверки маршрута
+      yandexMapsUrl: distanceKm != null 
+        ? `https://yandex.ru/maps/?rtext=55.6443432,37.4906093~${encodeURIComponent(project.objectAddress)}&rtt=auto`
+        : null,
+    };
   }
 }
 

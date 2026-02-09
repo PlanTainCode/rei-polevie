@@ -1,5 +1,5 @@
 import type { ProgramIeiSection45Data } from '../../ai/ai.service';
-import { replaceParagraphTextByParaIdPreserveRunProps } from './docx-xml';
+import { replaceParagraphTextByParaIdWithItalic } from './docx-xml';
 
 /**
  * Раздел 4.5: Обоснование выбора методик прогноза изменений природных условий
@@ -20,7 +20,7 @@ export function replaceProgramIeiSection45Block(params: {
   const targetParaId = '7A32DBD3';
   
   if (xml.includes(`w14:paraId="${targetParaId}"`)) {
-    xml = replaceParagraphTextByParaIdPreserveRunProps(xml, targetParaId, forecastText);
+    xml = replaceParagraphTextByParaIdWithItalic(xml, targetParaId, forecastText);
   }
 
   return xml;

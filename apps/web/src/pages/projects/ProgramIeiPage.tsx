@@ -102,6 +102,7 @@ export function ProgramIeiPage() {
   const [nearbyEast, setNearbyEast] = useState('');
   const [nearbyWest, setNearbyWest] = useState('');
   const [nearbyNorth, setNearbyNorth] = useState('');
+  const [openGroundPercent, setOpenGroundPercent] = useState<number | null>(null);
   const [section82Text, setSection82Text] = useState('');
   const [hasChanges, setHasChanges] = useState(false);
 
@@ -129,6 +130,13 @@ export function ProgramIeiPage() {
     enabled: !!id,
   });
 
+  // Запрос расстояния от офиса
+  const { data: distanceData, isLoading: distanceLoading, refetch: refetchDistance } = useQuery({
+    queryKey: ['distance', id],
+    queryFn: () => projectsApi.getDistanceToObject(id!),
+    enabled: !!id,
+  });
+
   // Инициализация формы
   useEffect(() => {
     if (programIei) {
@@ -138,6 +146,7 @@ export function ProgramIeiPage() {
       setNearbyEast(programIei.nearbyEast || '');
       setNearbyWest(programIei.nearbyWest || '');
       setNearbyNorth(programIei.nearbyNorth || '');
+      setOpenGroundPercent(programIei.openGroundPercent ?? null);
       setSection82Text(programIei.section82Text || SECTION_82_DEFAULT);
       setHasChanges(false);
     }
@@ -152,6 +161,7 @@ export function ProgramIeiPage() {
       nearbyEast?: string;
       nearbyWest?: string;
       nearbyNorth?: string;
+      openGroundPercent?: number | null;
       section82Text?: string;
     }) =>
       projectsApi.updateProgramIei(id!, data),
@@ -222,6 +232,7 @@ export function ProgramIeiPage() {
       nearbyEast: nearbyEast || undefined,
       nearbyWest: nearbyWest || undefined,
       nearbyNorth: nearbyNorth || undefined,
+      openGroundPercent: openGroundPercent,
       section82Text: section82Text || undefined,
     });
   };
@@ -457,6 +468,86 @@ export function ProgramIeiPage() {
           </CardContent>
         </Card>
 
+        {/* 4.2 Расстояние от офиса */}
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <MapPin className="w-5 h-5 text-green-400" />
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">4.2 Расстояние от офиса до объекта</h2>
+            </div>
+
+            <div className="space-y-3">
+              {/* Информация о маршруте */}
+              <div className="flex items-center justify-between gap-3 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg px-4 py-3">
+                <div className="flex-1">
+                  <div className="text-sm text-[var(--text-secondary)] mb-1">
+                    От: <span className="text-[var(--text-primary)]">ул. Островитянова, д.6, Москва</span>
+                  </div>
+                  <div className="text-sm text-[var(--text-secondary)]">
+                    До: <span className="text-[var(--text-primary)]">{project?.objectAddress || 'Адрес не указан'}</span>
+                  </div>
+                </div>
+                <div className="text-right">
+                  {distanceLoading ? (
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin text-[var(--text-secondary)]" />
+                      <span className="text-sm text-[var(--text-secondary)]">Расчёт...</span>
+                    </div>
+                  ) : distanceData?.distanceKm != null ? (
+                    <div className="text-2xl font-bold text-green-400">{distanceData.distanceKm} км</div>
+                  ) : (
+                    <div className="text-sm text-[var(--text-secondary)]">
+                      {distanceData?.error || 'Не удалось рассчитать'}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Встроенная карта с маршрутом */}
+              {project?.objectAddress && (
+                <div className="rounded-lg overflow-hidden border border-[var(--border-color)] aspect-[16/9]">
+                  <iframe
+                    src={`https://yandex.ru/map-widget/v1/?rtext=55.6443432,37.4906093~${encodeURIComponent(project.objectAddress)}&rtt=auto&z=11`}
+                    width="100%"
+                    height="100%"
+                    frameBorder="0"
+                    allowFullScreen
+                    style={{ display: 'block' }}
+                  />
+                </div>
+              )}
+              
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => refetchDistance()}
+                  disabled={distanceLoading}
+                  className="flex items-center gap-2"
+                >
+                  {distanceLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <MapPin className="w-4 h-4" />}
+                  Пересчитать
+                </Button>
+                {distanceData?.yandexMapsUrl && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => window.open(distanceData.yandexMapsUrl!, '_blank', 'noopener,noreferrer')}
+                    className="flex items-center gap-2"
+                  >
+                    <MapPin className="w-4 h-4" />
+                    Открыть в Яндекс.Картах
+                  </Button>
+                )}
+              </div>
+              
+              <p className="text-xs text-[var(--text-secondary)]">
+                Расстояние рассчитывается автоматически по маршруту на автомобиле и используется в таблице 4.2 программы ИЭИ.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* 3.2 Окружение участка + координаты */}
         <Card>
           <CardContent className="p-6">
@@ -547,7 +638,60 @@ export function ProgramIeiPage() {
                 </div>
               </div>
 
-              <p className="text-xs text-[var(--text-secondary)]">
+              {/* Площадь открытого грунта */}
+              <div className="mt-4 pt-4 border-t border-[var(--border-color)]">
+                <label className="block text-sm font-medium text-[var(--text-primary)] mb-2">
+                  Площадь поверхности открытого грунта: <span className="text-cyan-400 font-semibold">{openGroundPercent !== null ? `${openGroundPercent}%` : 'не указано'}</span>
+                </label>
+                <div className="flex items-center gap-4">
+                  <div className="flex-1 relative">
+                    {/* Шкала под слайдером */}
+                    <div className="absolute -bottom-5 left-0 right-0 flex justify-between text-xs text-[var(--text-secondary)]">
+                      <span>0%</span>
+                      <span>25%</span>
+                      <span>50%</span>
+                      <span>75%</span>
+                      <span>100%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="5"
+                      value={openGroundPercent ?? 50}
+                      onChange={(e) => {
+                        setOpenGroundPercent(Number(e.target.value));
+                        markChanged();
+                      }}
+                      className="w-full h-2 rounded-lg appearance-none cursor-pointer"
+                      style={{
+                        background: `linear-gradient(to right, #06b6d4 0%, #06b6d4 ${openGroundPercent ?? 50}%, var(--bg-tertiary, #374151) ${openGroundPercent ?? 50}%, var(--bg-tertiary, #374151) 100%)`,
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={openGroundPercent ?? ''}
+                      onChange={(e) => {
+                        const val = e.target.value ? Math.min(100, Math.max(0, Number(e.target.value))) : null;
+                        setOpenGroundPercent(val);
+                        markChanged();
+                      }}
+                      className="w-20"
+                      placeholder="—"
+                    />
+                    <span className="text-sm text-[var(--text-secondary)]">%</span>
+                  </div>
+                </div>
+                <p className="text-xs text-[var(--text-secondary)] mt-6">
+                  Используется для текста: «Степень запечатанности и захламленности территории – площадь поверхности открытого грунта на участке составляет около XX %.»
+                </p>
+              </div>
+
+              <p className="text-xs text-[var(--text-secondary)] mt-4">
                 Эти поля используются для заполнения п.3.2 в программе ИЭИ (строки «К югу/востоку/западу/северу»).
               </p>
             </div>
