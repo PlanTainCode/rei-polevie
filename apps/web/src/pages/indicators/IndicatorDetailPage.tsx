@@ -13,7 +13,12 @@ import {
   Flame,
   Droplets,
   Radiation,
+  Atom,
+  Activity,
+  Shield,
 } from 'lucide-react';
+
+type ActiveTab = 'chemistry' | 'radiology';
 
 // ПДК тяжёлых металлов (мг/кг) в зависимости от типа грунта и pH
 const METALS_PDK = {
@@ -133,6 +138,7 @@ export function IndicatorDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [region, setRegion] = useState<RegionType>('moscow');
   const [metalsView, setMetalsView] = useState<MetalsViewType>('excess');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('chemistry');
 
   useEffect(() => {
     if (projectId) {
@@ -206,6 +212,56 @@ export function IndicatorDetailPage() {
       { value: string | number }
     > | null;
     return data?.[key]?.value ?? null;
+  };
+
+  // Получение значения радиации из данных пробы
+  const getRadValue = (
+    sample: IndicatorSample,
+    key: string,
+  ): string | number | null => {
+    const data = sample.radiationData as Record<
+      string,
+      { value: string | number }
+    > | null;
+    return data?.[key]?.value ?? null;
+  };
+
+  // Проверка наличия радиационных данных хотя бы у одной пробы
+  const hasRadiationData = indicator?.samples.some(
+    (s) => s.radiationData && Object.keys(s.radiationData as object).length > 0,
+  ) ?? false;
+
+  // Класс по Аэфф (НРБ-99/2009, ОСПОРБ-99/2010)
+  const getAeffClass = (
+    value: string | number | null,
+  ): { label: string; className: string; description: string } => {
+    if (value === null || value === undefined) {
+      return { label: '—', className: 'text-[var(--text-secondary)]', description: '' };
+    }
+
+    let numValue: number;
+    if (typeof value === 'string') {
+      if (value.toLowerCase().includes('менее')) {
+        return { label: 'I', className: 'bg-green-500 text-white font-bold', description: 'Без ограничений' };
+      }
+      numValue = parseFloat(value.replace(',', '.'));
+      if (isNaN(numValue)) {
+        return { label: '—', className: 'text-[var(--text-secondary)]', description: '' };
+      }
+    } else {
+      numValue = value;
+    }
+
+    if (numValue <= 370) {
+      return { label: 'I', className: 'bg-green-500 text-white font-bold', description: 'Без ограничений' };
+    }
+    if (numValue <= 740) {
+      return { label: 'II', className: 'bg-yellow-500 text-white font-bold', description: 'Дороги в нас. пунктах' };
+    }
+    if (numValue <= 1500) {
+      return { label: 'III', className: 'bg-orange-500 text-white font-bold', description: 'Дороги вне нас. пунктов' };
+    }
+    return { label: 'IV', className: 'bg-red-500 text-white font-bold', description: 'Спецразрешение' };
   };
 
   // ПДК бензапирена = 0.02 мг/кг
@@ -608,6 +664,37 @@ export function IndicatorDetailPage() {
         </div>
       </div>
 
+      {/* Section tabs */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => setActiveTab('chemistry')}
+          className={`flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-medium transition-all ${
+            activeTab === 'chemistry'
+              ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/20'
+              : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-color)] hover:bg-[var(--bg-tertiary)]'
+          }`}
+        >
+          <FlaskConical className="w-4 h-4" />
+          Химия
+        </button>
+        <button
+          onClick={() => setActiveTab('radiology')}
+          className={`flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-medium transition-all ${
+            activeTab === 'radiology'
+              ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/20'
+              : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-color)] hover:bg-[var(--bg-tertiary)]'
+          }`}
+          disabled={!hasRadiationData}
+          title={!hasRadiationData ? 'Нет данных радиологии в протоколе' : undefined}
+        >
+          <Atom className="w-4 h-4" />
+          Радиология
+          {!hasRadiationData && (
+            <span className="text-xs opacity-50">(нет данных)</span>
+          )}
+        </button>
+      </div>
+
       {/* Samples table (collapsible) */}
       <CollapsibleSection
         title="Сопоставление проб"
@@ -671,6 +758,10 @@ export function IndicatorDetailPage() {
           </table>
         </div>
       </CollapsibleSection>
+
+      {/* === CHEMISTRY TAB === */}
+      {activeTab === 'chemistry' && (
+      <>
 
       {/* Chemistry table (collapsible) */}
       <CollapsibleSection
@@ -1370,6 +1461,396 @@ export function IndicatorDetailPage() {
           </div>
         </div>
       </CollapsibleSection>
+
+      </>
+      )}
+
+      {/* === RADIOLOGY TAB === */}
+      {activeTab === 'radiology' && hasRadiationData && (
+      <>
+
+      {/* ERN data table with summary statistics */}
+      <CollapsibleSection
+        title="Радиационные показатели (ЕРН)"
+        icon={Atom}
+        defaultOpen={true}
+      >
+        {(() => {
+          // Собираем числовые значения для статистики (как в Excel: AVERAGE, MIN, MAX)
+          const nuclideKeys = ['Ra226', 'Th232', 'K40', 'Cs137', 'Aeff'] as const;
+          const stats: Record<string, { values: number[]; avg: number; min: number; max: number; stdev: number }> = {};
+          
+          for (const key of nuclideKeys) {
+            const nums: number[] = [];
+            for (const s of indicator.samples) {
+              const v = getRadValue(s, key);
+              if (v === null) continue;
+              let n: number;
+              if (typeof v === 'string') {
+                if (v.toLowerCase().includes('менее')) continue;
+                n = parseFloat(v.replace(',', '.'));
+                if (isNaN(n)) continue;
+              } else {
+                n = v;
+              }
+              nums.push(n);
+            }
+            const avg = nums.length > 0 ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
+            const min = nums.length > 0 ? Math.min(...nums) : 0;
+            const max = nums.length > 0 ? Math.max(...nums) : 0;
+            const variance = nums.length > 1 
+              ? nums.reduce((sum, x) => sum + (x - avg) ** 2, 0) / (nums.length - 1) 
+              : 0;
+            const stdev = Math.sqrt(variance);
+            stats[key] = { values: nums, avg, min, max, stdev };
+          }
+
+          return (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/30">
+                      <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                        №
+                      </th>
+                      <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                        Номер пробы
+                      </th>
+                      <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                        Слой
+                      </th>
+                      <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                        Ra-226
+                      </th>
+                      <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                        Th-232
+                      </th>
+                      <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                        K-40
+                      </th>
+                      <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap bg-primary-500/20">
+                        Аэфф
+                      </th>
+                      <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                        Cs-137
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortSamplesByLayer(indicator.samples).map((sample, index) => {
+                      const ra226 = getRadValue(sample, 'Ra226');
+                      const th232 = getRadValue(sample, 'Th232');
+                      const k40 = getRadValue(sample, 'K40');
+                      const cs137 = getRadValue(sample, 'Cs137');
+                      const aeff = getRadValue(sample, 'Aeff');
+
+                      return (
+                        <tr
+                          key={sample.id}
+                          className="border-b border-[var(--border-color)] hover:bg-[var(--bg-tertiary)]/50"
+                        >
+                          <td className="px-3 py-2 text-[var(--text-secondary)]">
+                            {index + 1}
+                          </td>
+                          <td className="px-3 py-2 font-medium">
+                            {sample.sampleCipher}
+                          </td>
+                          <td className="px-3 py-2 text-[var(--text-secondary)]">
+                            {sample.matchedSample?.depthLabel || '—'}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {formatValue(ra226)}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {formatValue(th232)}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {formatValue(k40)}
+                          </td>
+                          <td className="px-3 py-2 text-center bg-primary-500/10 font-medium">
+                            {formatValue(aeff)}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {formatValue(cs137)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  {/* Summary statistics like Excel: AVERAGE, MIN, MAX, STDEV */}
+                  <tfoot>
+                    {[
+                      { label: 'Среднее', fn: 'avg' as const },
+                      { label: 'Мин', fn: 'min' as const },
+                      { label: 'Макс', fn: 'max' as const },
+                      { label: 'δ (ст.откл.)', fn: 'stdev' as const },
+                    ].map((row) => (
+                      <tr
+                        key={row.label}
+                        className="border-t border-[var(--border-color)] bg-[var(--bg-tertiary)]/50"
+                      >
+                        <td className="px-3 py-2" />
+                        <td className="px-3 py-2 font-medium text-[var(--text-secondary)]" colSpan={2}>
+                          {row.label}
+                        </td>
+                        <td className="px-3 py-2 text-center font-medium">
+                          {stats.Ra226.values.length > 0 ? formatValue(stats.Ra226[row.fn]) : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-center font-medium">
+                          {stats.Th232.values.length > 0 ? formatValue(stats.Th232[row.fn]) : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-center font-medium">
+                          {stats.K40.values.length > 0 ? formatValue(stats.K40[row.fn]) : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-center bg-primary-500/10 font-medium">
+                          {stats.Aeff.values.length > 0 ? formatValue(stats.Aeff[row.fn]) : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-center font-medium">
+                          {stats.Cs137.values.length > 0 ? formatValue(stats.Cs137[row.fn]) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tfoot>
+                </table>
+              </div>
+              <div className="p-3 border-t border-[var(--border-color)] text-xs text-[var(--text-secondary)]">
+                Единицы измерения: Ra-226, Th-232, K-40, Cs-137, Аэфф — Бк/кг. 
+                ЕРН — естественные радионуклиды. δ — стандартное отклонение (как STDEV в Excel).
+              </div>
+            </>
+          );
+        })()}
+      </CollapsibleSection>
+
+      {/* Aeff assessment */}
+      <CollapsibleSection
+        title="Оценка Аэфф — класс грунта"
+        icon={Shield}
+        defaultOpen={true}
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/30">
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Номер пробы
+                </th>
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Слой
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Аэфф, Бк/кг
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Класс
+                </th>
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Область применения
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortSamplesByLayer(indicator.samples).map((sample) => {
+                const aeff = getRadValue(sample, 'Aeff');
+                const aeffClass = getAeffClass(aeff);
+
+                return (
+                  <tr
+                    key={sample.id}
+                    className="border-b border-[var(--border-color)] last:border-b-0 hover:bg-[var(--bg-tertiary)]/50"
+                  >
+                    <td className="px-3 py-2 font-medium">
+                      {sample.sampleCipher}
+                    </td>
+                    <td className="px-3 py-2 text-[var(--text-secondary)]">
+                      {sample.matchedSample?.depthLabel || '—'}
+                    </td>
+                    <td className="px-3 py-2 text-center font-medium">
+                      {formatValue(aeff)}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <span className={`inline-block px-3 py-1 rounded ${aeffClass.className}`}>
+                        {aeffClass.label}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-[var(--text-secondary)]">
+                      {aeffClass.description}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="p-3 border-t border-[var(--border-color)]">
+          <div className="flex flex-wrap items-center gap-4 text-xs">
+            <span className="text-[var(--text-secondary)]">Классы по Аэфф (НРБ-99/2009):</span>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-green-500 text-white font-bold">I</span>
+              <span className="text-[var(--text-secondary)]">— ≤370 Бк/кг (без ограничений)</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-yellow-500 text-white font-bold">II</span>
+              <span className="text-[var(--text-secondary)]">— 370–740 Бк/кг (дороги в нас. пунктах)</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-orange-500 text-white font-bold">III</span>
+              <span className="text-[var(--text-secondary)]">— 740–1500 Бк/кг (дороги вне нас. пунктов)</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-red-500 text-white font-bold">IV</span>
+              <span className="text-[var(--text-secondary)]">— &gt;1500 Бк/кг (спецразрешение)</span>
+            </div>
+          </div>
+        </div>
+      </CollapsibleSection>
+
+      {/* Cs-137 assessment */}
+      <CollapsibleSection
+        title="Оценка Cs-137 — техногенное загрязнение"
+        icon={Activity}
+        defaultOpen={true}
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/30">
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Номер пробы
+                </th>
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Слой
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Cs-137, Бк/кг
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Оценка
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortSamplesByLayer(indicator.samples).map((sample) => {
+                const cs137 = getRadValue(sample, 'Cs137');
+                
+                // Оценка Cs-137: фоновые значения для Москвы ~5-15 Бк/кг
+                let assessment: { label: string; className: string };
+                if (cs137 === null) {
+                  assessment = { label: '—', className: 'text-[var(--text-secondary)]' };
+                } else if (typeof cs137 === 'string') {
+                  if (cs137.toLowerCase().includes('менее')) {
+                    assessment = { label: 'Фон', className: 'bg-green-500 text-white font-bold' };
+                  } else {
+                    const numValue = parseFloat(cs137.replace(',', '.'));
+                    if (isNaN(numValue)) {
+                      assessment = { label: '—', className: 'text-[var(--text-secondary)]' };
+                    } else if (numValue <= 25) {
+                      assessment = { label: 'Фон', className: 'bg-green-500 text-white font-bold' };
+                    } else if (numValue <= 100) {
+                      assessment = { label: 'Повышен', className: 'bg-yellow-500 text-white font-bold' };
+                    } else {
+                      assessment = { label: 'Загрязнение', className: 'bg-red-500 text-white font-bold' };
+                    }
+                  }
+                } else {
+                  if (cs137 <= 25) {
+                    assessment = { label: 'Фон', className: 'bg-green-500 text-white font-bold' };
+                  } else if (cs137 <= 100) {
+                    assessment = { label: 'Повышен', className: 'bg-yellow-500 text-white font-bold' };
+                  } else {
+                    assessment = { label: 'Загрязнение', className: 'bg-red-500 text-white font-bold' };
+                  }
+                }
+
+                return (
+                  <tr
+                    key={sample.id}
+                    className="border-b border-[var(--border-color)] last:border-b-0 hover:bg-[var(--bg-tertiary)]/50"
+                  >
+                    <td className="px-3 py-2 font-medium">
+                      {sample.sampleCipher}
+                    </td>
+                    <td className="px-3 py-2 text-[var(--text-secondary)]">
+                      {sample.matchedSample?.depthLabel || '—'}
+                    </td>
+                    <td className="px-3 py-2 text-center font-medium">
+                      {formatValue(cs137)}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <span className={`inline-block px-3 py-1 rounded ${assessment.className}`}>
+                        {assessment.label}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="p-3 border-t border-[var(--border-color)]">
+          <div className="flex flex-wrap items-center gap-4 text-xs">
+            <span className="text-[var(--text-secondary)]">Оценка Cs-137:</span>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-green-500 text-white font-bold">Фон</span>
+              <span className="text-[var(--text-secondary)]">— ≤25 Бк/кг (фоновый уровень)</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-yellow-500 text-white font-bold">Повышен</span>
+              <span className="text-[var(--text-secondary)]">— 25–100 Бк/кг</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-red-500 text-white font-bold">Загрязнение</span>
+              <span className="text-[var(--text-secondary)]">— &gt;100 Бк/кг</span>
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-[var(--text-secondary)]">
+            Cs-137 — техногенный радионуклид. Фоновый уровень для Московского региона ≈5–15 Бк/кг.
+          </div>
+        </div>
+      </CollapsibleSection>
+
+      {/* МЭД ГИ section — placeholder, field measurements */}
+      <CollapsibleSection
+        title="МЭД ГИ (мощность дозы гамма-излучения)"
+        icon={Radiation}
+        defaultOpen={false}
+      >
+        <div className="p-6 text-center">
+          <Radiation className="w-10 h-10 text-[var(--text-secondary)] mx-auto mb-3 opacity-40" />
+          <p className="text-[var(--text-secondary)] mb-2">
+            Данные МЭД ГИ — результаты полевых измерений дозиметром
+          </p>
+          <p className="text-xs text-[var(--text-secondary)] opacity-70">
+            Формулы из расчёта: H+d(H) = значение + погрешность, среднее = AVERAGE, δ = STDEV, макс = MAX, мин = MIN.
+            <br />
+            Критерий: среднее + δ сравнивается с фоновым значением МЭД ГИ.
+          </p>
+        </div>
+      </CollapsibleSection>
+
+      {/* ППР section — placeholder, field measurements */}
+      <CollapsibleSection
+        title="ППР (плотность потока радона)"
+        icon={Activity}
+        defaultOpen={false}
+      >
+        <div className="p-6 text-center">
+          <Activity className="w-10 h-10 text-[var(--text-secondary)] mx-auto mb-3 opacity-40" />
+          <p className="text-[var(--text-secondary)] mb-2">
+            Данные ППР — результаты полевых измерений радонометром
+          </p>
+          <p className="text-xs text-[var(--text-secondary)] opacity-70 max-w-xl mx-auto">
+            Формулы из расчёта: R+d(R) = значение + погрешность, среднее = AVERAGE, δ = STDEV, 
+            среднее+δ = SUM(среднее, δ).
+            <br />
+            Пороги: R+d(R) &gt; 80 мБк/(м²·с) — повышенный уровень, R+d(R) &gt; 250 мБк/(м²·с) — опасный уровень.
+          </p>
+        </div>
+      </CollapsibleSection>
+
+      </>
+      )}
 
     </div>
   );

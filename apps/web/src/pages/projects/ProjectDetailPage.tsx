@@ -31,8 +31,8 @@ import {
   ExternalLink,
   Send,
 } from 'lucide-react';
-import { projectsApi, type GenerateExcelResult } from '@/api/projects';
-import { Button, Input, Card, CardHeader, CardTitle, CardContent } from '@/components/ui';
+import { projectsApi, type GenerateExcelResult, type ExcelGenerateMode } from '@/api/projects';
+import { Button, Input, Card, CardHeader, CardTitle, CardContent, Select } from '@/components/ui';
 
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -48,6 +48,7 @@ export function ProjectDetailPage() {
     dates: false,
   });
   const [excelResult, setExcelResult] = useState<GenerateExcelResult | null>(null);
+  const [excelMode, setExcelMode] = useState<ExcelGenerateMode>('full');
   
   // Даты документов
   const [documentDates, setDocumentDates] = useState<{
@@ -123,7 +124,7 @@ export function ProjectDetailPage() {
         }
       }
       // Затем генерируем Excel
-      return projectsApi.generateExcel(id!);
+      return projectsApi.generateExcel(id!, excelMode);
     },
     onSuccess: (result) => {
       setExcelResult(result);
@@ -207,7 +208,7 @@ export function ProjectDetailPage() {
   const hasChildren = project.childProjects && project.childProjects.length > 0;
 
   return (
-    <div className="max-w-4xl animate-fade-in">
+    <div className="w-full animate-fade-in page-content">
       {/* Индикатор допотбора (если это дочерний проект) */}
       {isChildProject && project.parentProject && (
         <div className="mb-4 p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg flex items-center gap-3">
@@ -675,16 +676,16 @@ export function ProjectDetailPage() {
               </div>
 
               {/* Кнопка генерации */}
-              <div className="flex items-center justify-between p-4 bg-[var(--bg-tertiary)] rounded-lg">
-                <div>
-                  <p className="font-medium">Задание ПБ</p>
-                  <p className="text-sm text-[var(--text-secondary)]">
-                    {project.generatedAt
-                      ? `Последняя генерация: ${new Date(project.generatedAt).toLocaleString('ru')}`
-                      : 'Ещё не генерировалась'}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
+              <div className="p-4 bg-[var(--bg-tertiary)] rounded-lg space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium">Задание ПБ</p>
+                    <p className="text-sm text-[var(--text-secondary)]">
+                      {project.generatedAt
+                        ? `Последняя генерация: ${new Date(project.generatedAt).toLocaleString('ru')}`
+                        : 'Ещё не генерировалась'}
+                    </p>
+                  </div>
                   {project.generatedFileName && (
                     <Button
                       size="sm"
@@ -695,8 +696,23 @@ export function ProjectDetailPage() {
                       Скачать
                     </Button>
                   )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Select
+                    className="flex-1 h-9 text-sm"
+                    value={excelMode}
+                    onChange={(e) => setExcelMode(e.target.value as ExcelGenerateMode)}
+                    options={[
+                      { value: 'full', label: 'Полное задание' },
+                      { value: 'acts', label: 'Только акты' },
+                      { value: 'requests', label: 'Только заявки (ИЛЦ + ФМБА)' },
+                      { value: 'tags', label: 'Только бирки (БОП)' },
+                      { value: 'field-tables', label: 'Только таблички в поле' },
+                    ]}
+                  />
                   <Button
                     size="sm"
+                    className="whitespace-nowrap"
                     onClick={() => generateExcelMutation.mutate()}
                     isLoading={generateExcelMutation.isPending}
                   >

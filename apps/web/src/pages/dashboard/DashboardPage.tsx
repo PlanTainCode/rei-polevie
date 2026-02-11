@@ -9,22 +9,51 @@ import {
   Plus,
   AlertTriangle,
   X,
+  FolderOpen,
+  BarChart3,
+  CheckCircle2,
+  Clock,
+  User,
+  Beaker,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthStore } from '@/store/auth';
 import { companiesApi } from '@/api/companies';
+import { projectsApi, type DashboardStats } from '@/api/projects';
 import { Button, Card, CardContent } from '@/components/ui';
+
+const STATUS_LABELS: Record<string, string> = {
+  DRAFT: 'Черновик',
+  ACTIVE: 'Активный',
+  IN_PROGRESS: 'В работе',
+  COMPLETED: 'Завершён',
+  ARCHIVED: 'В архиве',
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  DRAFT: 'bg-gray-500/20 text-gray-400',
+  ACTIVE: 'bg-blue-500/20 text-blue-400',
+  IN_PROGRESS: 'bg-yellow-500/20 text-yellow-400',
+  COMPLETED: 'bg-primary-500/20 text-primary-400',
+  ARCHIVED: 'bg-gray-500/20 text-gray-400',
+};
 
 export function DashboardPage() {
   const { user } = useAuthStore();
   const navigate = useNavigate();
 
-  const { data: company, isLoading } = useQuery({
+  const { data: company, isLoading: companyLoading } = useQuery({
     queryKey: ['myCompany'],
     queryFn: companiesApi.getMyCompany,
   });
 
-  if (isLoading) {
+  const { data: stats, isLoading: statsLoading } = useQuery({
+    queryKey: ['dashboardStats'],
+    queryFn: projectsApi.getDashboardStats,
+    enabled: !!company,
+  });
+
+  if (companyLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="animate-spin w-8 h-8 border-2 border-primary-500 border-t-transparent rounded-full" />
@@ -65,9 +94,11 @@ export function DashboardPage() {
     );
   }
 
+  const isAdmin = ['OWNER', 'ADMIN'].includes(stats?.role || company.myRole);
+
   // Основная страница дашборда
   return (
-    <div className="animate-fade-in">
+    <div className="w-full animate-fade-in page-content">
       {/* Beta информация */}
       <BetaNotice />
 
@@ -80,36 +111,153 @@ export function DashboardPage() {
         </p>
       </div>
 
-      {/* Быстрые действия */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-8">
-        <QuickActionCard
-          icon={FileText}
-          title="Новый объект"
-          description="Создать объект и загрузить документы"
-          onClick={() => navigate('/projects/create')}
-        />
-        <QuickActionCard
-          icon={FlaskConical}
-          title="Пробы"
-          description="Просмотр и редактирование проб"
-          onClick={() => navigate('/samples')}
-        />
-        <QuickActionCard
-          icon={Users}
-          title="Сотрудники"
-          description="Управление командой"
-          onClick={() => navigate('/company')}
-        />
+      {/* Статистика */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
+        {statsLoading ? (
+          <>
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+          </>
+        ) : stats ? (
+          <>
+            <StatCard
+              icon={FolderOpen}
+              title={isAdmin ? 'Всего объектов' : 'Моих объектов'}
+              value={stats.totalProjects}
+              subtitle={`Активных: ${stats.activeProjects}`}
+              color="blue"
+            />
+            <StatCard
+              icon={FlaskConical}
+              title="Проб в работе"
+              value={stats.samplesInProgress}
+              color="yellow"
+            />
+            {isAdmin ? (
+              <StatCard
+                icon={Users}
+                title="Сотрудников"
+                value={stats.membersCount}
+                color="purple"
+              />
+            ) : (
+              <StatCard
+                icon={Beaker}
+                title="Завершено проб"
+                value={stats.completedThisMonth}
+                subtitle="За 30 дней"
+                color="green"
+              />
+            )}
+            <StatCard
+              icon={CheckCircle2}
+              title="Завершено за месяц"
+              value={stats.completedThisMonth}
+              subtitle="Объектов"
+              color="green"
+            />
+          </>
+        ) : null}
       </div>
 
-      {/* Статистика */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="Активных объектов" value="0" />
-        <StatCard title="Проб в работе" value="0" />
-        <StatCard title="Сотрудников" value={String(company.members?.length || 1)} />
-        <StatCard title="Завершено за месяц" value="0" />
-      </div>
+      {/* Быстрые действия (только для OWNER/ADMIN/MANAGER — у WORKER таблица недавних объектов) */}
+      {company.myRole !== 'WORKER' && (
+        <div className="mb-8">
+          <h2 className="text-lg font-semibold mb-4">Быстрые действия</h2>
+          <div className={`grid gap-4 md:grid-cols-2 ${isAdmin ? 'lg:grid-cols-3' : ''}`}>
+            <QuickActionCard
+              icon={FileText}
+              title="Новый объект"
+              description="Создать объект и загрузить документы"
+              onClick={() => navigate('/projects/create')}
+            />
+            {isAdmin && (
+              <QuickActionCard
+                icon={Users}
+                title="Сотрудники"
+                description="Управление командой"
+                onClick={() => navigate('/company')}
+              />
+            )}
+            <QuickActionCard
+              icon={BarChart3}
+              title="Показатели"
+              description="Справочник показателей"
+              onClick={() => navigate('/indicators')}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Недавние объекты */}
+      {stats && stats.recentProjects.length > 0 && (
+        <RecentProjectsSection
+          projects={stats.recentProjects}
+          onNavigate={navigate}
+        />
+      )}
     </div>
+  );
+}
+
+// === Компоненты ===
+
+function StatCard({
+  icon: Icon,
+  title,
+  value,
+  subtitle,
+  color,
+}: {
+  icon: typeof FolderOpen;
+  title: string;
+  value: number;
+  subtitle?: string;
+  color: 'blue' | 'yellow' | 'green' | 'purple';
+}) {
+  const colorMap = {
+    blue: 'bg-blue-500/20 text-blue-400',
+    yellow: 'bg-yellow-500/20 text-yellow-400',
+    green: 'bg-emerald-500/20 text-emerald-400',
+    purple: 'bg-purple-500/20 text-purple-400',
+  };
+
+  const iconColorMap = {
+    blue: 'text-blue-400',
+    yellow: 'text-yellow-400',
+    green: 'text-emerald-400',
+    purple: 'text-purple-400',
+  };
+
+  return (
+    <Card>
+      <CardContent className="py-5">
+        <div className="flex items-center justify-between mb-3">
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${colorMap[color]}`}>
+            <Icon className={`w-5 h-5 ${iconColorMap[color]}`} />
+          </div>
+        </div>
+        <p className="text-2xl font-bold mb-0.5">{value}</p>
+        <p className="text-sm text-[var(--text-secondary)]">{title}</p>
+        {subtitle && (
+          <p className="text-xs text-[var(--text-tertiary)] mt-1">{subtitle}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function StatCardSkeleton() {
+  return (
+    <Card>
+      <CardContent className="py-5">
+        <div className="w-10 h-10 rounded-xl bg-[var(--bg-tertiary)] animate-pulse mb-3" />
+        <div className="h-7 w-12 bg-[var(--bg-tertiary)] animate-pulse rounded mb-1" />
+        <div className="h-4 w-24 bg-[var(--bg-tertiary)] animate-pulse rounded" />
+      </CardContent>
+    </Card>
   );
 }
 
@@ -143,15 +291,123 @@ function QuickActionCard({
   );
 }
 
-function StatCard({ title, value }: { title: string; value: string }) {
+function RecentProjectsSection({
+  projects,
+  onNavigate,
+}: {
+  projects: DashboardStats['recentProjects'];
+  onNavigate: (path: string) => void;
+}) {
   return (
-    <Card>
-      <CardContent className="py-5">
-        <p className="text-sm text-[var(--text-secondary)] mb-1">{title}</p>
-        <p className="text-2xl font-bold">{value}</p>
-      </CardContent>
-    </Card>
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold">Недавние объекты</h2>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onNavigate('/projects')}
+          className="text-sm"
+        >
+          Все объекты
+          <ArrowRight className="w-4 h-4 ml-1" />
+        </Button>
+      </div>
+
+      <Card>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-[var(--border-primary)]">
+                <th className="text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider px-4 py-3">
+                  Объект
+                </th>
+                <th className="text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider px-4 py-3 hidden md:table-cell">
+                  Адрес
+                </th>
+                <th className="text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider px-4 py-3">
+                  Статус
+                </th>
+                <th className="text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider px-4 py-3 hidden lg:table-cell">
+                  Проб
+                </th>
+                <th className="text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider px-4 py-3 hidden lg:table-cell">
+                  Обновлён
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {projects.map((project) => (
+                <tr
+                  key={project.id}
+                  className="border-b border-[var(--border-primary)] last:border-0 hover:bg-[var(--bg-secondary)] cursor-pointer transition-colors"
+                  onClick={() => onNavigate(`/projects/${project.id}`)}
+                >
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-primary-500/20 flex items-center justify-center flex-shrink-0">
+                        <FolderOpen className="w-4 h-4 text-primary-400" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{project.name}</p>
+                        {project.createdBy && (
+                          <p className="text-xs text-[var(--text-secondary)] flex items-center gap-1 mt-0.5">
+                            <User className="w-3 h-3" />
+                            {project.createdBy.firstName} {project.createdBy.lastName}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 hidden md:table-cell">
+                    <p className="text-sm text-[var(--text-secondary)] truncate max-w-xs">
+                      {project.objectAddress || '—'}
+                    </p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
+                        STATUS_COLORS[project.status] || STATUS_COLORS.DRAFT
+                      }`}
+                    >
+                      {STATUS_LABELS[project.status] || project.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 hidden lg:table-cell">
+                    <div className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)]">
+                      <FlaskConical className="w-3.5 h-3.5" />
+                      {project.samplesCount}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 hidden lg:table-cell">
+                    <div className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)]">
+                      <Clock className="w-3.5 h-3.5" />
+                      {formatRelativeDate(project.updatedAt)}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
   );
+}
+
+function formatRelativeDate(dateStr: string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return 'Сегодня';
+  if (diffDays === 1) return 'Вчера';
+  if (diffDays < 7) return `${diffDays} дн. назад`;
+
+  return date.toLocaleDateString('ru-RU', {
+    day: 'numeric',
+    month: 'short',
+  });
 }
 
 function BetaNotice() {
@@ -197,4 +453,3 @@ function BetaNotice() {
     </div>
   );
 }
-

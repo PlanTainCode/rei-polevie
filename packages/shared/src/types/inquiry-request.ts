@@ -13,6 +13,7 @@ export interface InquiryType {
   templateFile: string;
   order: number; // порядок в списке
   description?: string;
+  email?: string; // Email ведомства для отправки запроса
 }
 
 // Справки для г. Москвы
@@ -32,6 +33,7 @@ export const MOSCOW_INQUIRIES: InquiryType[] = [
     templateFile: '1. ДПиООС Москвы.docx',
     order: 1,
     description: 'ООПТ, водные объекты, зеленые насаждения',
+    email: 'depmospriroda@mos.ru',
   },
   {
     id: 'DKN',
@@ -40,6 +42,7 @@ export const MOSCOW_INQUIRIES: InquiryType[] = [
     templateFile: '2. ДКН г.Москвы.docx',
     order: 2,
     description: 'Объекты культурного наследия',
+    email: 'dkn_info@mos.ru',
   },
   {
     id: 'VETERINARY',
@@ -48,6 +51,7 @@ export const MOSCOW_INQUIRIES: InquiryType[] = [
     templateFile: '3. Комитет ветеринарии г.Москвы.docx',
     order: 3,
     description: 'Сибирская язва, скотомогильники',
+    email: 'moskomvet@mos.ru',
   },
   {
     id: 'MVK_ZSO',
@@ -64,6 +68,7 @@ export const MOSCOW_INQUIRIES: InquiryType[] = [
     templateFile: '5. ДепТорговли Москвы.docx',
     order: 5,
     description: 'Рынки, ярмарки',
+    email: 'dtu@mos.ru',
   },
   {
     id: 'DEP_GKH',
@@ -174,41 +179,55 @@ export function getInquiriesByRegion(region: InquiryRegion): InquiryType[] {
 
 // Определить регион по адресу
 export function detectRegionFromAddress(address: string): InquiryRegion {
-  const addressLower = address.toLowerCase();
-  
-  // Признаки Московской области
+  const addressLower = address.toLowerCase().trim();
+
+  // Признаки Московской области (проверяем первыми — приоритет)
   const moPatterns = [
     'московская область',
-    'моск. обл',
-    'мо,',
+    'московская обл.',
+    'московская обл,',
     'московской области',
-    'г.о.',
+    'московской обл.',
+    'московскую область',
+    'моск. обл',
+    'моск.обл',
+    'м.о.',
+    'м.о,',
+    'г.о.',      // городской округ (структура МО)
+    'г. о.',
     'городской округ',
+    'муниципальный район',
+    'сельское поселение',
+    'городское поселение',
     'район московской',
   ];
-  
-  // Признаки г. Москвы (проверяем если нет признаков МО)
+
+  for (const pattern of moPatterns) {
+    if (addressLower.includes(pattern)) {
+      return 'MOSCOW_OBLAST';
+    }
+  }
+
+  // Проверяем "мо" как отдельное слово/аббревиатуру (не часть другого слова)
+  // Примеры: "МО, г. Подольск", "...район МО", "МО " и т.д.
+  if (/(?:^|[\s,;.(])мо(?:[\s,;.)]|$)/i.test(addressLower)) {
+    return 'MOSCOW_OBLAST';
+  }
+
+  // Признаки г. Москвы (явные)
   const moscowPatterns = [
     'г. москва',
     'г.москва',
     'город москва',
     'москва,',
   ];
-  
-  // Сначала проверяем на МО (приоритет)
-  for (const pattern of moPatterns) {
-    if (addressLower.includes(pattern)) {
-      return 'MOSCOW_OBLAST';
-    }
-  }
-  
-  // Затем на Москву
+
   for (const pattern of moscowPatterns) {
     if (addressLower.includes(pattern)) {
       return 'MOSCOW';
     }
   }
-  
+
   // По умолчанию — Москва
   return 'MOSCOW';
 }

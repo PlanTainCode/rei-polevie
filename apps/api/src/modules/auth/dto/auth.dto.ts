@@ -32,3 +32,23 @@ export class RefreshTokenDto {
   refreshToken: string;
 }
 
+export class UpdateProfileDto {
+  @IsString()
+  @IsNotEmpty({ message: 'Имя обязательно' })
+  firstName: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'Фамилия обязательна' })
+  lastName: string;
+}
+
+export class ChangePasswordDto {
+  @IsString()
+  @IsNotEmpty({ message: 'Текущий пароль обязателен' })
+  currentPassword: string;
+
+  @IsString()
+  @MinLength(6, { message: 'Новый пароль должен быть не менее 6 символов' })
+  newPassword: string;
+}
+

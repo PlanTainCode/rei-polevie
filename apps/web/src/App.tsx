@@ -22,6 +22,7 @@ import { TechnicalTaskDetailPage } from '@/pages/technical-tasks/TechnicalTaskDe
 import { IndicatorsPage } from '@/pages/indicators/IndicatorsPage';
 import { CreateIndicatorPage } from '@/pages/indicators/CreateIndicatorPage';
 import { IndicatorDetailPage } from '@/pages/indicators/IndicatorDetailPage';
+import { SettingsPage } from '@/pages/settings/SettingsPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuthStore();
@@ -105,6 +106,7 @@ export default function App() {
         <Route path="/indicators" element={<IndicatorsPage />} />
         <Route path="/indicators/create" element={<CreateIndicatorPage />} />
         <Route path="/indicators/:projectId" element={<IndicatorDetailPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="/technical-tasks" element={<TechnicalTasksPage />} />
         <Route path="/technical-tasks/create" element={<CreateTechnicalTaskPage />} />
         <Route path="/technical-tasks/:id" element={<TechnicalTaskDetailPage />} />

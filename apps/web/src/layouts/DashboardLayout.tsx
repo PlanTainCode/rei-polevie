@@ -12,6 +12,7 @@ import {
   LogOut,
   User,
   ChevronDown,
+  Settings,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 
@@ -123,6 +124,16 @@ export function DashboardLayout() {
 
               {userMenuOpen && (
                 <div className="absolute bottom-full left-0 right-0 mb-2 py-1 bg-[var(--bg-tertiary)] rounded-lg border border-[var(--border-color)] shadow-lg">
+                  <button
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      navigate('/settings');
+                    }}
+                  >
+                    <Settings className="w-4 h-4" />
+                    <span>Настройки</span>
+                  </button>
                   <button
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10"
                     onClick={handleLogout}

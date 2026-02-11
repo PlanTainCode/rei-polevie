@@ -205,7 +205,7 @@ export function ProjectPhotosPage() {
   }
 
   return (
-    <div className="max-w-6xl animate-fade-in">
+    <div className="w-full animate-fade-in page-content">
       {/* Заголовок */}
       <div className="mb-8">
         <Link

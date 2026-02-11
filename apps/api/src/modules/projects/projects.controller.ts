@@ -91,6 +91,11 @@ export class ProjectsController {
     return this.projectsService.create(dto, files, req.user.userId);
   }
 
+  @Get('dashboard-stats')
+  async getDashboardStats(@Request() req: { user: { userId: string } }) {
+    return this.projectsService.getDashboardStats(req.user.userId);
+  }
+
   @Get()
   async findAll(@Request() req: { user: { userId: string } }) {
     return this.projectsService.findAll(req.user.userId);
@@ -287,19 +292,21 @@ export class ProjectsController {
     return this.projectsService.refreshWeather(id, req.user.userId);
   }
 
-  // Генерация Excel (все листы)
+  // Генерация Excel (все листы или выборочно по mode)
   @Post(':id/generate-excel')
   async generateExcel(
     @Request() req: { user: { userId: string } },
     @Param('id') id: string,
+    @Body() dto: { mode?: 'full' | 'acts' | 'requests' | 'tags' | 'field-tables' },
   ) {
     // Проверяем доступ к проекту
     await this.projectsService.findById(id, req.user.userId);
 
-    // Генерируем полный Excel с заявкой ИЛЦ и актом отбора проб
+    // Генерируем Excel (полностью или частично по режиму)
     const result = await this.excelService.generateFullExcel({
       projectId: id,
       userId: req.user.userId,
+      mode: dto?.mode || 'full',
     });
 
     return {

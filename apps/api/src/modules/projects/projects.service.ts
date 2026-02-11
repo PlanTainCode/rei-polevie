@@ -382,6 +382,85 @@ export class ProjectsService {
     return `801-${Math.floor(Math.random() * 900) + 100}-${year}`;
   }
 
+  async getDashboardStats(userId: string) {
+    const membership = await this.prisma.companyMember.findFirst({
+      where: { userId },
+      include: { company: { include: { members: true } } },
+    });
+
+    if (!membership) {
+      throw new ForbiddenException('Вы не состоите в компании');
+    }
+
+    const isAdmin = ['OWNER', 'ADMIN'].includes(membership.role);
+    const companyId = membership.companyId;
+
+    // Фильтр: для OWNER/ADMIN — вся компания, для остальных — только свои
+    const projectWhere = isAdmin
+      ? { companyId }
+      : { companyId, createdById: userId };
+
+    const sampleWhere = isAdmin
+      ? { project: { companyId } }
+      : { project: { companyId, createdById: userId } };
+
+    // 30 дней назад (для "завершено за месяц")
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const [
+      totalProjects,
+      activeProjects,
+      samplesInProgress,
+      completedThisMonth,
+      recentProjects,
+    ] = await Promise.all([
+      this.prisma.project.count({ where: projectWhere }),
+      this.prisma.project.count({
+        where: { ...projectWhere, status: { in: ['ACTIVE', 'IN_PROGRESS'] } },
+      }),
+      this.prisma.sample.count({
+        where: { ...sampleWhere, status: { in: ['PENDING', 'COLLECTED'] } },
+      }),
+      this.prisma.project.count({
+        where: {
+          ...projectWhere,
+          status: 'COMPLETED',
+          updatedAt: { gte: thirtyDaysAgo },
+        },
+      }),
+      this.prisma.project.findMany({
+        where: projectWhere,
+        take: 7,
+        orderBy: { updatedAt: 'desc' },
+        include: {
+          createdBy: { select: { id: true, firstName: true, lastName: true } },
+          _count: { select: { samples: true } },
+        },
+      }),
+    ]);
+
+    return {
+      role: membership.role,
+      totalProjects,
+      activeProjects,
+      samplesInProgress,
+      completedThisMonth,
+      membersCount: membership.company.members.length,
+      recentProjects: recentProjects.map((p) => ({
+        id: p.id,
+        name: p.name,
+        objectName: p.objectName,
+        objectAddress: p.objectAddress,
+        status: p.status,
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+        samplesCount: p._count.samples,
+        createdBy: p.createdBy,
+      })),
+    };
+  }
+
   async findAll(userId: string) {
     const membership = await this.prisma.companyMember.findFirst({
       where: { userId },

@@ -179,23 +179,52 @@ export function getInquiriesByRegion(region: InquiryRegion): InquiryType[] {
 
 // Определить регион по адресу
 export function detectRegionFromAddress(address: string): InquiryRegion {
-  const addressLower = address.toLowerCase();
+  const addressLower = address.toLowerCase().trim();
 
-  // Признаки Московской области
+  // Признаки Московской области (проверяем первыми — приоритет)
   const moPatterns = [
     'московская область',
-    'моск. обл',
-    'мо,',
+    'московская обл.',
+    'московская обл,',
     'московской области',
-    'г.о.',
+    'московской обл.',
+    'московскую область',
+    'моск. обл',
+    'моск.обл',
+    'м.о.',
+    'м.о,',
+    'г.о.',      // городской округ (структура МО)
+    'г. о.',
     'городской округ',
+    'муниципальный район',
+    'сельское поселение',
+    'городское поселение',
     'район московской',
   ];
 
-  // Сначала проверяем на МО (приоритет)
   for (const pattern of moPatterns) {
     if (addressLower.includes(pattern)) {
       return 'MOSCOW_OBLAST';
+    }
+  }
+
+  // Проверяем "мо" как отдельное слово/аббревиатуру (не часть другого слова)
+  // Примеры: "МО, г. Подольск", "...район МО", "МО " и т.д.
+  if (/(?:^|[\s,;.(])мо(?:[\s,;.)]|$)/i.test(addressLower)) {
+    return 'MOSCOW_OBLAST';
+  }
+
+  // Признаки г. Москвы (явные)
+  const moscowPatterns = [
+    'г. москва',
+    'г.москва',
+    'город москва',
+    'москва,',
+  ];
+
+  for (const pattern of moscowPatterns) {
+    if (addressLower.includes(pattern)) {
+      return 'MOSCOW';
     }
   }
 

@@ -1,9 +1,9 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../prisma/prisma.service';
-import { RegisterDto, LoginDto } from './dto/auth.dto';
+import { RegisterDto, LoginDto, UpdateProfileDto, ChangePasswordDto } from './dto/auth.dto';
 
 @Injectable()
 export class AuthService {
@@ -105,6 +105,41 @@ export class AuthService {
       companyId: membership?.companyId || null,
       companyName: membership?.company?.name || null,
     };
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+      },
+    });
+
+    return this.getProfile(userId);
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Пользователь не найден');
+    }
+
+    const isCurrentValid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+    if (!isCurrentValid) {
+      throw new BadRequestException('Неверный текущий пароль');
+    }
+
+    const newHash = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: newHash },
+    });
+
+    return { message: 'Пароль успешно изменён' };
   }
 
   private async generateTokens(userId: string) {

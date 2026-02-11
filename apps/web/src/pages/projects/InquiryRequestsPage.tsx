@@ -523,7 +523,7 @@ export function InquiryRequestsPage() {
     hasValidExecutor;
 
   return (
-    <div className="max-w-4xl animate-fade-in">
+    <div className="w-full animate-fade-in page-content">
       {/* Модальное окно просмотра PDF */}
       <PdfViewerModal
         isOpen={pdfViewer.isOpen}

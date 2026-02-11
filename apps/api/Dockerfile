@@ -1,7 +1,8 @@
 FROM oven/bun:1-alpine AS base
 
 # Установка необходимых системных пакетов
-RUN apk add --no-cache openssl
+# LibreOffice нужен для конвертации Word -> PDF (справки)
+RUN apk add --no-cache openssl libreoffice-writer ttf-liberation font-noto
 
 WORKDIR /app
 

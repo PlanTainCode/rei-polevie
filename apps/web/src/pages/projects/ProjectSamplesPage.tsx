@@ -171,7 +171,7 @@ export function ProjectSamplesPage() {
   const collectedSamples = samples?.filter(s => s.status === 'COLLECTED').length || 0;
 
   return (
-    <div className="max-w-4xl animate-fade-in">
+    <div className="w-full animate-fade-in page-content">
       {/* Заголовок */}
       <div className="mb-8">
         <Link

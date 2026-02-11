@@ -77,6 +77,28 @@ export interface ServiceMatch {
   matchedText?: string;
 }
 
+export type ExcelGenerateMode = 'full' | 'acts' | 'requests' | 'tags' | 'field-tables';
+
+export interface DashboardStats {
+  role: string;
+  totalProjects: number;
+  activeProjects: number;
+  samplesInProgress: number;
+  completedThisMonth: number;
+  membersCount: number;
+  recentProjects: Array<{
+    id: string;
+    name: string;
+    objectName: string | null;
+    objectAddress: string | null;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+    samplesCount: number;
+    createdBy: { id: string; firstName: string; lastName: string } | null;
+  }>;
+}
+
 export interface GenerateExcelResult {
   fileName: string;
   downloadUrl: string;
@@ -265,6 +287,11 @@ export interface PhotoUploadResult {
 }
 
 export const projectsApi = {
+  getDashboardStats: async (): Promise<DashboardStats> => {
+    const response = await apiClient.get<DashboardStats>('/projects/dashboard-stats');
+    return response.data;
+  },
+
   create: async (formData: FormData): Promise<Project> => {
     const response = await apiClient.post<Project>('/projects', formData, {
       headers: {
@@ -357,9 +384,10 @@ export const projectsApi = {
     return `/api/projects/${projectId}/files/${type}`;
   },
 
-  generateExcel: async (projectId: string): Promise<GenerateExcelResult> => {
+  generateExcel: async (projectId: string, mode: ExcelGenerateMode = 'full'): Promise<GenerateExcelResult> => {
     const response = await apiClient.post<GenerateExcelResult>(
       `/projects/${projectId}/generate-excel`,
+      { mode },
     );
     return response.data;
   },

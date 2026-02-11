@@ -67,6 +67,13 @@ body {
   }
 }
 
+/* Масштабирование контента на широких мониторах (>1920px) */
+@media (min-width: 1920px) {
+  .page-content {
+    font-size: calc(1rem * (100vw / 1920));
+  }
+}
+
 /* Анимации */
 @keyframes fadeIn {
   from {

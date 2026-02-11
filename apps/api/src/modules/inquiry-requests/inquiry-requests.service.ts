@@ -13,7 +13,7 @@ import {
   getInquiriesByRegion,
   detectRegionFromAddress,
 } from './inquiry-requests.types';
-import { processInquiryWithPdf } from './pdf.utils';
+import { processInquiryWithPdf, processInquiryToPdfOnly } from './pdf.utils';
 import { generateCgmsInquiry } from './generators/cgms-generator';
 import { generateDpioosInquiry } from './generators/dpioos-generator';
 import { generateDknInquiry } from './generators/dkn-generator';
@@ -601,17 +601,18 @@ export class InquiryRequestsService {
 
   /**
    * Обрабатывает сгенерированный документ:
-   * - Если есть attachmentPdf: конвертирует Word в PDF и объединяет с приложением
-   * - Если нет attachmentPdf: возвращает исходный Word файл
+   * - Всегда конвертирует Word в PDF
+   * - Если есть attachmentPdf: объединяет с приложением
+   * - При ошибке конвертации: возвращает исходный Word файл как фоллбэк
    */
   private async processGeneratedDocument(
     result: { fileName: string; filePath: string; buffer: Buffer },
     inquiry: InquiryType,
     attachmentPdf?: Buffer,
   ): Promise<GeneratedInquiryFile> {
-    // Если есть PDF приложение - конвертируем и объединяем
-    if (attachmentPdf) {
-      try {
+    try {
+      if (attachmentPdf) {
+        // Конвертируем Word в PDF и объединяем с приложением
         this.logger.log(`Конвертация и объединение PDF для ${inquiry.id}...`);
         const pdfResult = await processInquiryWithPdf(
           result.filePath,
@@ -627,27 +628,34 @@ export class InquiryRequestsService {
           fileUrl: `/generated/inquiries/${pdfResult.fileName}`,
           generatedAt: new Date().toISOString(),
         };
-      } catch (error) {
-        this.logger.error(`Ошибка конвертации PDF для ${inquiry.id}:`, error);
-        // Если ошибка конвертации - возвращаем оригинальный Word документ
+      } else {
+        // Конвертируем Word в PDF без приложения
+        this.logger.log(`Конвертация в PDF для ${inquiry.id}...`);
+        const pdfResult = await processInquiryToPdfOnly(
+          result.filePath,
+          this.outputDir,
+          result.fileName,
+        );
+
         return {
           inquiryId: inquiry.id,
           inquiryName: inquiry.shortName,
-          fileName: result.fileName,
-          fileUrl: `/generated/inquiries/${result.fileName}`,
+          fileName: pdfResult.fileName,
+          fileUrl: `/generated/inquiries/${pdfResult.fileName}`,
           generatedAt: new Date().toISOString(),
         };
       }
+    } catch (error) {
+      this.logger.error(`Ошибка конвертации PDF для ${inquiry.id}:`, error);
+      // Фоллбэк: возвращаем оригинальный Word документ
+      return {
+        inquiryId: inquiry.id,
+        inquiryName: inquiry.shortName,
+        fileName: result.fileName,
+        fileUrl: `/generated/inquiries/${result.fileName}`,
+        generatedAt: new Date().toISOString(),
+      };
     }
-
-    // Без PDF приложения - возвращаем Word файл как есть
-    return {
-      inquiryId: inquiry.id,
-      inquiryName: inquiry.shortName,
-      fileName: result.fileName,
-      fileUrl: `/generated/inquiries/${result.fileName}`,
-      generatedAt: new Date().toISOString(),
-    };
   }
 
   /**

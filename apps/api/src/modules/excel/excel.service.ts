@@ -6,9 +6,12 @@ import { ServiceMatch, AiService } from '../ai/ai.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WeatherService } from '../weather/weather.service';
 
+type ExcelGenerateMode = 'full' | 'acts' | 'requests' | 'tags' | 'field-tables';
+
 interface GenerateOptions {
   projectId: string;
   userId: string;
+  mode?: ExcelGenerateMode;
 }
 
 interface GeneratedExcelResult {
@@ -58,7 +61,7 @@ const TIMES_FONT: Partial<ExcelJS.Font> = {
 @Injectable()
 export class ExcelService {
   private readonly templatePath = join(process.cwd(), 'templates', 'Задание ПБ2-шб.xlsx');
-  private readonly fmbaTemplatePath = join(process.cwd(), 'templates', 'Задание ПБ (фмба).xltm');
+  private readonly fmbaTemplatePath = join(process.cwd(), 'templates', 'Задание ПБ (фмба 2).xltm');
   private readonly outputDir = join(process.cwd(), 'generated');
   
   // Кэш для проверки адреса в названии (чтобы не вызывать AI многократно)
@@ -343,21 +346,21 @@ export class ExcelService {
 
   /**
    * Форматирует дату в формат DD.MM.YYYY
+   * Использует UTC-методы, т.к. все даты хранятся как UTC midnight
    */
   private formatDate(date: Date): string {
-    const day = date.getDate().toString().padStart(2, '0');
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const year = date.getFullYear();
+    const day = date.getUTCDate().toString().padStart(2, '0');
+    const month = (date.getUTCMonth() + 1).toString().padStart(2, '0');
+    const year = date.getUTCFullYear();
     return `${day}.${month}.${year}`;
   }
 
   /**
-   * Возвращает завтрашнюю дату
+   * Возвращает завтрашнюю дату (UTC midnight)
    */
   private getTomorrowDate(): Date {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    return tomorrow;
+    const now = new Date();
+    return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate() + 1));
   }
 
   /**
@@ -1616,7 +1619,7 @@ export class ExcelService {
 
     // Копируем данные из шаблона ФМБА (ячейки, стили, объединения)
     // Копируем ширину столбцов
-    for (let c = 1; c <= 10; c++) {
+    for (let c = 1; c <= 12; c++) {
       const srcCol = fmbaSheet.getColumn(c);
       const dstCol = sheet.getColumn(c);
       dstCol.width = srcCol.width;
@@ -1628,7 +1631,7 @@ export class ExcelService {
       const dstRow = sheet.getRow(r);
       dstRow.height = srcRow.height;
 
-      for (let c = 1; c <= 10; c++) {
+      for (let c = 1; c <= 12; c++) {
         const srcCell = srcRow.getCell(c);
         const dstCell = dstRow.getCell(c);
         
@@ -1683,65 +1686,73 @@ export class ExcelService {
     // ========== ЗАПОЛНЯЕМ ДАННЫЕ ==========
     
     // Получаем даты из проекта
-    const { fmbaDate, samplingDate } = this.getProjectDates(project);
+    // Для заявки ФМБА используем fmbaDate для всех дат на этом листе,
+    // чтобы введённая пользователем дата была единообразной
+    const { fmbaDate } = this.getProjectDates(project);
     
-    // Номер заявки (E7) — формат "З А Я В К А № XXX-XXX-XX от DD.MM.YYYY"
+    // Номер заявки (F8) — формат "З А Я В К А № XXX-XXX-XX от DD.MM.YYYY"
     const year = new Date().getFullYear().toString().slice(-2);
     const documentNumber = project.documentNumber || `801-000-${year}`;
     const requestTitle = `З А Я В К А № ${documentNumber} от ${this.formatDate(fmbaDate)}`;
-    this.setCellValue(sheet.getCell('E7'), requestTitle);
+    this.setCellValue(sheet.getCell('F8'), requestTitle);
     
-    // Дата отбора проб (D32) — дата отбора, убираем фон
-    const d32Cell = sheet.getCell('D32');
-    this.setCellValue(d32Cell, this.formatDate(samplingDate));
-    d32Cell.fill = { type: 'pattern', pattern: 'none' }; // Прозрачный фон
+    // Дата отбора проб (D33) — используем дату заявки ФМБА
+    const dateCell = sheet.getCell('D33');
+    this.setCellValue(dateCell, this.formatDate(fmbaDate));
+    dateCell.fill = { type: 'pattern', pattern: 'none' }; // Прозрачный фон
     
-    // Дата доставки образцов (E68) — та же дата что и отбора
-    this.setCellValue(sheet.getCell('E68'), this.formatDate(samplingDate));
+    // Дата доставки образцов (G69) — та же дата что и отбора
+    this.setCellValue(sheet.getCell('G69'), this.formatDate(fmbaDate));
 
-    // Место и адрес отбора проб (D35) — объединённая ячейка
+    // Место и адрес отбора проб (D36) — объединённая ячейка
     const objectField = await this.formatObjectField(
       project.objectName || project.name,
       project.objectAddress,
     );
-    const d35Cell = sheet.getCell('D35');
-    this.setCellValue(d35Cell, objectField);
-    d35Cell.fill = { type: 'pattern', pattern: 'none' }; // Прозрачный фон
-    d35Cell.alignment = { wrapText: true, vertical: 'top' };
+    const addrCell = sheet.getCell('D36');
+    this.setCellValue(addrCell, objectField);
+    addrCell.fill = { type: 'pattern', pattern: 'none' }; // Прозрачный фон
+    addrCell.alignment = { wrapText: true, vertical: 'top' };
     
-    // Подстраиваем высоту строк 35-38 под текст адреса
+    // Подстраиваем высоту строк 36-39 под текст адреса
     const addressCharsPerLine = 70; // Примерно столько символов в объединённой ячейке D-J
     const addressLines = Math.ceil(objectField.length / addressCharsPerLine);
     const addressRowHeight = Math.max(14.25, addressLines * 14);
-    // Распределяем высоту между строками 35-38 (объединены)
+    // Распределяем высоту между строками 36-39 (объединены)
     const heightPerRow = addressRowHeight / 4;
-    for (let r = 35; r <= 38; r++) {
+    for (let r = 36; r <= 39; r++) {
       sheet.getRow(r).height = heightPerRow;
     }
 
     // ========== ЗАПОЛНЯЕМ ТАБЛИЦУ ПРОБ АМ (микробиология) ==========
     
-    const AM_START_ROW = 47;
-    const AM_MAX_ROWS = 10; // Строки 47-56
+    const AM_START_ROW = 48;
+    const AM_MAX_ROWS = 10; // Строки 48-57
 
     for (let i = 0; i < amSamples.length && i < AM_MAX_ROWS; i++) {
       const sample = amSamples[i];
       const rowNum = AM_START_ROW + i;
 
-      // A: Площадка и шифр ("ПП1, 01АМ.01")
-      this.setCellValue(sheet.getCell(`A${rowNum}`), `${sample.platform.label}, ${sample.cipher}`);
+      // A: Номер п/п
+      this.setCellValue(sheet.getCell(`A${rowNum}`), i + 1);
       
-      // B: Глубина отбора
-      this.setCellValue(sheet.getCell(`B${rowNum}`), sample.depthLabel);
+      // B: Маркировка (шифр пробы)
+      this.setCellValue(sheet.getCell(`B${rowNum}`), sample.cipher);
       
-      // C-D: Характеристика почвы (объединены) — оставляем "-"
-      this.setCellValue(sheet.getCell(`C${rowNum}`), '-');
+      // C: Название объекта / точка отбора (площадка)
+      this.setCellValue(sheet.getCell(`C${rowNum}`), sample.platform.label);
       
-      // E: Масса
-      this.setCellValue(sheet.getCell(`E${rowNum}`), '1 кг');
+      // D: Глубина отбора
+      this.setCellValue(sheet.getCell(`D${rowNum}`), sample.depthLabel);
       
-      // F-G: Показатели — уже в шаблоне (ОКБ, ТКБ, энтерококки...)
-      // H-J: НД — уже в шаблоне (СанПиН 1.2.3685-21)
+      // E-F: Характеристика почвы — оставляем "-"
+      this.setCellValue(sheet.getCell(`E${rowNum}`), '-');
+      
+      // G: Масса
+      this.setCellValue(sheet.getCell(`G${rowNum}`), '1 кг');
+      
+      // H-I: Показатели — уже в шаблоне (ОКБ, ТКБ, энтерококки...)
+      // J-L: НД — уже в шаблоне (СанПиН 1.2.3685-21)
     }
 
     // Скрываем пустые строки АМ и убираем границы
@@ -1749,15 +1760,15 @@ export class ExcelService {
       const rowNum = AM_START_ROW + i;
       sheet.getRow(rowNum).hidden = true;
       // Убираем границы у скрытых ячеек
-      for (const col of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']) {
+      for (const col of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']) {
         sheet.getCell(`${col}${rowNum}`).border = {};
       }
     }
 
     // ========== ЗАПОЛНЯЕМ ТАБЛИЦУ ПРОБ АП (паразитология) ==========
     
-    const AP_START_ROW = 57;
-    const AP_MAX_ROWS = 10; // Строки 57-66
+    const AP_START_ROW = 58;
+    const AP_MAX_ROWS = 10; // Строки 58-67
 
     // Проверяем, есть ли упоминание цист простейших в поручении
     // Проверяем:
@@ -1797,21 +1808,27 @@ export class ExcelService {
       const sample = apSamples[i];
       const rowNum = AP_START_ROW + i;
 
-      // A: Площадка и шифр ("ПП1, 01АП.01")
-      this.setCellValue(sheet.getCell(`A${rowNum}`), `${sample.platform.label}, ${sample.cipher}`);
+      // A: Номер п/п (продолжаем нумерацию после АМ)
+      this.setCellValue(sheet.getCell(`A${rowNum}`), amSamples.length + i + 1);
       
-      // B: Глубина отбора
-      this.setCellValue(sheet.getCell(`B${rowNum}`), sample.depthLabel);
+      // B: Маркировка (шифр пробы)
+      this.setCellValue(sheet.getCell(`B${rowNum}`), sample.cipher);
       
-      // C-D: Характеристика почвы — оставляем "-"
-      this.setCellValue(sheet.getCell(`C${rowNum}`), '-');
+      // C: Название объекта / точка отбора (площадка)
+      this.setCellValue(sheet.getCell(`C${rowNum}`), sample.platform.label);
       
-      // E: Масса
-      this.setCellValue(sheet.getCell(`E${rowNum}`), '1 кг');
+      // D: Глубина отбора
+      this.setCellValue(sheet.getCell(`D${rowNum}`), sample.depthLabel);
       
-      // F-G: Показатели — модифицируем в зависимости от наличия услуги "цисты"
+      // E-F: Характеристика почвы — оставляем "-"
+      this.setCellValue(sheet.getCell(`E${rowNum}`), '-');
+      
+      // G: Масса
+      this.setCellValue(sheet.getCell(`G${rowNum}`), '1 кг');
+      
+      // H-I: Показатели — модифицируем в зависимости от наличия услуги "цисты"
       // Если услуга есть, оставляем текст из шаблона как есть: "яйца и личинки гельминтов, цисты кишечных патогенных простейших"
-      const fCell = sheet.getCell(`F${rowNum}`);
+      const fCell = sheet.getCell(`H${rowNum}`);
       const cellValue = fCell.value;
       
       if (i === 0) {
@@ -1901,7 +1918,7 @@ export class ExcelService {
         // Если цисты уже есть в тексте - ничего не делаем, оставляем как есть
       }
       
-      // H-J: НД — уже в шаблоне
+      // J-L: НД — уже в шаблоне
     }
 
     // Скрываем пустые строки АП и убираем границы
@@ -1909,22 +1926,22 @@ export class ExcelService {
       const rowNum = AP_START_ROW + i;
       sheet.getRow(rowNum).hidden = true;
       // Убираем границы у скрытых ячеек
-      for (const col of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']) {
+      for (const col of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']) {
         sheet.getCell(`${col}${rowNum}`).border = {};
       }
     }
 
     // ========== АВТОПОДСТРОЙКА ВЫСОТЫ СТРОК ПОД КОНТЕНТ ==========
     
-    // Для строк с показателями (F-G) подстраиваем высоту
+    // Для строк с показателями (H-I) подстраиваем высоту
     const allDataRows = [
       ...Array.from({ length: amSamples.length }, (_, i) => AM_START_ROW + i),
       ...Array.from({ length: apSamples.length }, (_, i) => AP_START_ROW + i),
     ];
     
     for (const rowNum of allDataRows) {
-      // Получаем текст показателей (ячейка F объединена с G)
-      const cell = sheet.getCell(`F${rowNum}`);
+      // Получаем текст показателей (ячейка H объединена с I)
+      const cell = sheet.getCell(`H${rowNum}`);
       const cellValue = cell.value;
       let text = '';
       
@@ -1935,7 +1952,7 @@ export class ExcelService {
         text = cellValue;
       }
       
-      // Примерно 40 символов на строку в объединённой ячейке F-G
+      // Примерно 40 символов на строку в объединённой ячейке H-I
       const charsPerLine = 40;
       const lines = Math.max(1, Math.ceil(text.length / charsPerLine));
       const minHeight = 14.25; // Стандартная высота строки
@@ -1947,14 +1964,14 @@ export class ExcelService {
     // ========== УБИРАЕМ ГРАНИЦЫ ЗА ПРЕДЕЛАМИ ТАБЛИЦЫ ==========
     
     // Убираем границы у строк после таблицы данных
-    // Скрываем лишние строки между данными и футером (строки 68+)
-    const FOOTER_START = 68;
+    // Скрываем лишние строки между данными и футером (строки 69+)
+    const FOOTER_START = 69;
     
     // Если таблица АП короче 10 строк, скрываем строки между данными и футером
     if (apSamples.length < AP_MAX_ROWS) {
       for (let rowNum = AP_START_ROW + apSamples.length; rowNum < FOOTER_START; rowNum++) {
         sheet.getRow(rowNum).hidden = true;
-        for (const col of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']) {
+        for (const col of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']) {
           sheet.getCell(`${col}${rowNum}`).border = {};
         }
       }
@@ -1999,11 +2016,12 @@ export class ExcelService {
    */
   async generateFullExcel(options: GenerateOptions): Promise<GeneratedExcelResult> {
     const { projectId } = options;
+    const mode: ExcelGenerateMode = options.mode || 'full';
 
     // Автоматически получаем метеоданные если их ещё нет
     await this.ensureWeatherData(projectId);
 
-    // Сначала генерируем заявку ИЛЦ
+    // Загружаем шаблон через generateIlcRequest (она создаёт базовый файл)
     const ilcResult = await this.generateIlcRequest(options);
 
     // Загружаем сгенерированный файл
@@ -2013,85 +2031,104 @@ export class ExcelService {
     // Удаляем устаревшие листы
     this.removeObsoleteSheets(workbook);
 
-    // Заполняем лист "Заявка в ФМБА" (если есть пробы АМ) — вторым после ИЛЦ
-    await this.fillFmbaRequestSheet(workbook, projectId);
+    // Определяем, какие группы листов нужно заполнять
+    const fillRequests = mode === 'full' || mode === 'requests';
+    const fillActs = mode === 'full' || mode === 'acts';
+    const fillTags = mode === 'full' || mode === 'tags';
+    const fillFieldTables = mode === 'full' || mode === 'field-tables';
 
-    // Заполняем лист "Акт отбора проб Почва"
-    await this.fillSoilActSheet(workbook, projectId);
+    // --- Заявки ---
+    if (fillRequests) {
+      await this.fillFmbaRequestSheet(workbook, projectId);
+    }
 
-    // Заполняем лист "Акт отбора проб МБ" (если есть пробы АМ)
-    await this.fillMbActSheet(workbook, projectId);
+    // --- Акты отбора проб ---
+    if (fillActs) {
+      await this.fillSoilActSheet(workbook, projectId);
+      await this.fillMbActSheet(workbook, projectId);
+      await this.fillSedimentActSheet(workbook, projectId);
+      await this.fillWaterActSheet(workbook, projectId);
+    }
 
-    // Заполняем лист "Акт отбора проб ДО" (если есть пробы БХ)
-    await this.fillSedimentActSheet(workbook, projectId);
+    // --- Бирки (БОП) ---
+    if (fillTags) {
+      await this.fillSoilTagsSheet(workbook, projectId);
+      await this.fillMbTagsSheet(workbook, projectId);
+      await this.fillBakTagsSheet(workbook, projectId);
+      await this.fillDoTagsSheet(workbook, projectId);
+      await this.fillWaterTagsSheet(workbook, projectId);
+    }
 
-    // Заполняем лист "Акт отбора проб Вода" (если есть пробы ВХ)
-    await this.fillWaterActSheet(workbook, projectId);
+    // --- Таблички в поле ---
+    if (fillFieldTables) {
+      await this.fillFieldTableSheet(workbook, projectId);
+    }
 
-    // Заполняем лист "БОП" (бирки для проб почвы АХ)
-    await this.fillSoilTagsSheet(workbook, projectId);
-
-    // Заполняем лист "БОП МБ" (бирки для проб микробиологии АМ)
-    await this.fillMbTagsSheet(workbook, projectId);
-
-    // Заполняем лист "БОП БАК" (бирки для проб паразитологии АП)
-    await this.fillBakTagsSheet(workbook, projectId);
-
-    // Заполняем лист "БОП ДО" (бирки для донных отложений БХ)
-    await this.fillDoTagsSheet(workbook, projectId);
-
-    // Заполняем лист "БОП Вода" (бирки для воды ВХ)
-    await this.fillWaterTagsSheet(workbook, projectId);
-
-    // Заполняем лист "Табличка в поле" (таблички для фото)
-    await this.fillFieldTableSheet(workbook, projectId);
-
-    // Проверяем, есть ли пробы для каждого типа, и скрываем/удаляем пустые листы
+    // Проверяем, есть ли пробы для каждого типа
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
       include: { samples: true },
     });
 
-    if (project) {
-      const hasAX = project.samples.some((s) => s.analysisCode === 'АХ');
-      const hasAM = project.samples.some((s) => s.analysisCode === 'АМ');
-      const hasAP = project.samples.some((s) => s.analysisCode === 'АП');
-      const hasBX = project.samples.some((s) => s.analysisCode === 'БХ');
-      const hasVX = project.samples.some((s) => s.analysisCode === 'ВХ');
+    const hasAX = project?.samples.some((s) => s.analysisCode === 'АХ') ?? false;
+    const hasAM = project?.samples.some((s) => s.analysisCode === 'АМ') ?? false;
+    const hasAP = project?.samples.some((s) => s.analysisCode === 'АП') ?? false;
+    const hasBX = project?.samples.some((s) => s.analysisCode === 'БХ') ?? false;
+    const hasVX = project?.samples.some((s) => s.analysisCode === 'ВХ') ?? false;
 
-      // Скрываем листы без данных
+    // Имена листов по группам
+    const REQUEST_SHEETS = ['Заявка в ИЛЦ', 'Заявка в ФМБА'];
+    const ACT_SHEETS = ['Акт отбора проб Почва', 'Акт отбора проб МБ', 'Акт отбора проб ДО', 'Акт отбора проб Вода'];
+    const TAG_SHEETS = ['БОП', 'БОП МБ', 'БОП БАК', 'БОП ДО', 'БОП Вода'];
+    const FIELD_TABLE_SHEETS = ['Табличка в поле', 'Табличка в поле (2)'];
+
+    // Собираем листы, которые нужно скрыть (не входят в выбранный режим)
+    const sheetsToHide = new Set<string>();
+
+    if (!fillRequests) {
+      REQUEST_SHEETS.forEach((n) => sheetsToHide.add(n));
+    }
+    if (!fillActs) {
+      ACT_SHEETS.forEach((n) => sheetsToHide.add(n));
+    }
+    if (!fillTags) {
+      TAG_SHEETS.forEach((n) => sheetsToHide.add(n));
+    }
+    if (!fillFieldTables) {
+      FIELD_TABLE_SHEETS.forEach((n) => sheetsToHide.add(n));
+    }
+
+    // Скрываем листы без данных (пустые по типу проб) — для заполненных групп
+    if (fillActs || fillTags) {
       if (!hasAX) {
-        const soilSheet = workbook.getWorksheet('Акт отбора проб Почва');
-        if (soilSheet) soilSheet.state = 'hidden';
-        const bopSheet = workbook.getWorksheet('БОП');
-        if (bopSheet) bopSheet.state = 'hidden';
+        sheetsToHide.add('Акт отбора проб Почва');
+        sheetsToHide.add('БОП');
       }
-
       if (!hasAM) {
-        const mbSheet = workbook.getWorksheet('Акт отбора проб МБ');
-        if (mbSheet) mbSheet.state = 'hidden';
-        const bopMbSheet = workbook.getWorksheet('БОП МБ');
-        if (bopMbSheet) bopMbSheet.state = 'hidden';
+        sheetsToHide.add('Акт отбора проб МБ');
+        sheetsToHide.add('БОП МБ');
       }
-
       if (!hasAP) {
-        const bopBakSheet = workbook.getWorksheet('БОП БАК');
-        if (bopBakSheet) bopBakSheet.state = 'hidden';
+        sheetsToHide.add('БОП БАК');
       }
-
       if (!hasBX) {
-        const doSheet = workbook.getWorksheet('Акт отбора проб ДО');
-        if (doSheet) doSheet.state = 'hidden';
-        const bopDoSheet = workbook.getWorksheet('БОП ДО');
-        if (bopDoSheet) bopDoSheet.state = 'hidden';
+        sheetsToHide.add('Акт отбора проб ДО');
+        sheetsToHide.add('БОП ДО');
       }
-
       if (!hasVX) {
-        const waterSheet = workbook.getWorksheet('Акт отбора проб Вода');
-        if (waterSheet) waterSheet.state = 'hidden';
-        const bopWaterSheet = workbook.getWorksheet('БОП Вода');
-        if (bopWaterSheet) bopWaterSheet.state = 'hidden';
+        sheetsToHide.add('Акт отбора проб Вода');
+        sheetsToHide.add('БОП Вода');
       }
+    }
+
+    if (fillRequests && !hasAM) {
+      sheetsToHide.add('Заявка в ФМБА');
+    }
+
+    // Применяем скрытие
+    for (const sheetName of sheetsToHide) {
+      const ws = workbook.getWorksheet(sheetName);
+      if (ws) ws.state = 'hidden';
     }
 
     // Сохраняем обратно
