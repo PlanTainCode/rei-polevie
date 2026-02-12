@@ -739,14 +739,16 @@ export class WordService {
       objectName: project.objectName,
     });
 
-    // Вычисляем расстояние от офиса до объекта
-    let distanceFromOfficeKm: number | null = null;
-    if (project.objectAddress) {
+    // Расстояние от офиса: берём сохранённое или вычисляем
+    let distanceFromOfficeKm: number | null = project.distanceKm ?? null;
+    if (distanceFromOfficeKm == null && project.objectAddress) {
       distanceFromOfficeKm = await this.distanceService.getDistanceToAddress(
         project.objectAddress,
         project.objectName || undefined,
       );
-      console.log(`[WordService] Расстояние от офиса: ${distanceFromOfficeKm} км`);
+      console.log(`[WordService] Расстояние от офиса (рассчитано): ${distanceFromOfficeKm} км`);
+    } else {
+      console.log(`[WordService] Расстояние от офиса (сохранённое): ${distanceFromOfficeKm} км`);
     }
     
     if (project.tzFileUrl) {

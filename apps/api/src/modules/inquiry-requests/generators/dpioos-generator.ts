@@ -65,11 +65,15 @@ export async function generateDpioosInquiry(
   // 4. Расширяем текстовые поля для номера
   docXml = widenTextboxes(docXml);
 
-  // 5. Заменяем адрес объекта
-  docXml = replaceAddress(docXml, params.objectAddress);
+  // Убираем «» из входных данных — шаблон сам добавляет кавычки
+  const cleanObjectName = params.objectName.replace(/[«»]/g, '').trim();
+  const cleanAddress = params.objectAddress.replace(/[«»]/g, '').trim();
+
+  // 5. Заменяем адрес объекта (до названия, чтобы «Отрадное» в адресе не пострадало)
+  docXml = replaceAddress(docXml, cleanAddress);
 
   // 6. Заменяем название объекта
-  docXml = replaceObjectName(docXml, params.objectName);
+  docXml = replaceObjectName(docXml, cleanObjectName);
 
   // 7. Заменяем исполнителей
   docXml = replaceExecutors(docXml, params.executors);
@@ -184,10 +188,10 @@ function widenTextboxes(xml: string): string {
  * Оригинал: "Отрадное СВАО г.Москвы напротив ул.Декабристов 15Б"
  */
 function replaceAddress(xml: string, newAddress: string): string {
-  // Адрес теперь в одном теге - просто заменяем
+  // Адрес в одном теге — заменяем строковым поиском
   xml = xml.replace(
-    />Отрадное СВАО г\.Москвы напротив ул\.Декабристов 15Б<\/w:t>/g,
-    `>${escapeXml(newAddress)}</w:t>`,
+    'Отрадное СВАО г.Москвы напротив ул.Декабристов 15Б',
+    escapeXml(newAddress),
   );
   
   return xml;
@@ -195,28 +199,39 @@ function replaceAddress(xml: string, newAddress: string): string {
 
 /**
  * Заменяет название объекта
- * Находит текст после "по объекту:" и заменяет на новое название
+ * В шаблоне текст разбит на несколько XML-ранов:
+ *   Run1: "Вынос сетей связи по объекту: «"
+ *   Run2: "ТПУ "
+ *   Run3: "«"
+ *   Run4: "Отрадное"
+ *   Run5: "»"
+ *   Run6: "»."
+ * Заменяем Run1 на новое название + точку, удаляем Run2-Run6
  */
 function replaceObjectName(xml: string, newObjectName: string): string {
-  // Паттерн: "по объекту: «старое название»"
-  // Заменяем содержимое между « и »
+  // В шаблоне название разбито на раны:
+  //   Run1: "Вынос сетей связи по объекту: «"
+  //   Run2: "ТПУ "
+  //   Run3: "«"
+  //   Run4: "Отрадное"
+  //   Run5: "»"
+  //   Run6: "»."
   
-  // Ищем "Вынос сетей связи по объекту: «ТПУ «Отрадное»»"
-  // и заменяем на новое название
-  const pattern = /(по объекту:\s*«)[^»]*(»[^»]*»*)/g;
-  
-  // Упрощённо: заменяем известный текст
+  // Шаг 1: Заменяем текст первого рана
+  // Run A (предыдущий) заканчивается на «, поэтому ставим только название + »  + .
   xml = xml.replace(
-    /Вынос сетей связи по объекту: «ТПУ/g,
-    escapeXml(newObjectName),
+    'Вынос сетей связи по объекту: «</w:t>',
+    `${escapeXml(newObjectName)}\u00BB.</w:t>`,
   );
-  
-  // Также заменяем в других местах где может быть название
-  xml = xml.replace(
-    />Вынос сетей связи по объекту: «</g,
-    `>${escapeXml(newObjectName)}<`,
-  );
-  
+
+  // Шаг 2: Очищаем текст остаточных ранов (не удаляем раны целиком — это безопаснее)
+  // Каждый паттерн точно соответствует содержимому <w:t> тега
+  xml = xml.replace(/>ТПУ <\/w:t>/g, '></w:t>');
+  xml = xml.replace(/>«<\/w:t>/g, '></w:t>');
+  xml = xml.replace(/>Отрадное<\/w:t>/g, '></w:t>');
+  xml = xml.replace(/>»<\/w:t>/g, '></w:t>');
+  xml = xml.replace(/>»\.<\/w:t>/g, '></w:t>');
+
   return xml;
 }
 

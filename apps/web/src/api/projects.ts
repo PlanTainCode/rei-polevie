@@ -159,6 +159,7 @@ export interface DistanceResult {
   fromAddress: string;
   toAddress: string;
   yandexMapsUrl: string | null;
+  isManual?: boolean;
   error?: string;
 }
 
@@ -638,6 +639,17 @@ export const projectsApi = {
   // Получить расстояние от офиса до объекта
   getDistanceToObject: async (projectId: string): Promise<DistanceResult> => {
     const response = await apiClient.get<DistanceResult>(`/projects/${projectId}/distance`);
+    return response.data;
+  },
+
+  // Сохранить расстояние вручную
+  updateDistance: async (projectId: string, distanceKm: number | null): Promise<void> => {
+    await apiClient.patch(`/projects/${projectId}/distance`, { distanceKm });
+  },
+
+  // Пересчитать расстояние через API
+  recalculateDistance: async (projectId: string): Promise<DistanceResult> => {
+    const response = await apiClient.post<DistanceResult>(`/projects/${projectId}/distance/recalculate`);
     return response.data;
   },
 

@@ -1047,6 +1047,13 @@ export class ProjectsService {
     });
   }
 
+  async updateDistance(projectId: string, distanceKm: number | null) {
+    return this.prisma.project.update({
+      where: { id: projectId },
+      data: { distanceKm },
+    });
+  }
+
   /**
    * Устанавливает даты документов и получает метеоданные для даты отбора
    */

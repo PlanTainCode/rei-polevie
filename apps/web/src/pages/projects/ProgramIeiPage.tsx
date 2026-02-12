@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
   FileText,
@@ -13,7 +13,7 @@ import {
   Loader2,
   AlertTriangle,
 } from 'lucide-react';
-import { projectsApi } from '@/api/projects';
+import { projectsApi, type DistanceResult } from '@/api/projects';
 import { Button, Input, Card, CardContent } from '@/components/ui';
 
 // Утилиты для кадастрового номера
@@ -131,7 +131,7 @@ export function ProgramIeiPage() {
   });
 
   // Запрос расстояния от офиса
-  const { data: distanceData, isLoading: distanceLoading, refetch: refetchDistance } = useQuery({
+  const { data: distanceData, isLoading: distanceLoading } = useQuery({
     queryKey: ['distance', id],
     queryFn: () => projectsApi.getDistanceToObject(id!),
     enabled: !!id,
@@ -469,84 +469,13 @@ export function ProgramIeiPage() {
         </Card>
 
         {/* 4.2 Расстояние от офиса */}
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <MapPin className="w-5 h-5 text-green-400" />
-              <h2 className="text-lg font-semibold text-[var(--text-primary)]">4.2 Расстояние от офиса до объекта</h2>
-            </div>
-
-            <div className="space-y-3">
-              {/* Информация о маршруте */}
-              <div className="flex items-center justify-between gap-3 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg px-4 py-3">
-                <div className="flex-1">
-                  <div className="text-sm text-[var(--text-secondary)] mb-1">
-                    От: <span className="text-[var(--text-primary)]">ул. Островитянова, д.6, Москва</span>
-                  </div>
-                  <div className="text-sm text-[var(--text-secondary)]">
-                    До: <span className="text-[var(--text-primary)]">{project?.objectAddress || 'Адрес не указан'}</span>
-                  </div>
-                </div>
-                <div className="text-right">
-                  {distanceLoading ? (
-                    <div className="flex items-center gap-2">
-                      <Loader2 className="w-4 h-4 animate-spin text-[var(--text-secondary)]" />
-                      <span className="text-sm text-[var(--text-secondary)]">Расчёт...</span>
-                    </div>
-                  ) : distanceData?.distanceKm != null ? (
-                    <div className="text-2xl font-bold text-green-400">{distanceData.distanceKm} км</div>
-                  ) : (
-                    <div className="text-sm text-[var(--text-secondary)]">
-                      {distanceData?.error || 'Не удалось рассчитать'}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Встроенная карта с маршрутом */}
-              {project?.objectAddress && (
-                <div className="rounded-lg overflow-hidden border border-[var(--border-color)] aspect-[16/9]">
-                  <iframe
-                    src={`https://yandex.ru/map-widget/v1/?rtext=55.6443432,37.4906093~${encodeURIComponent(project.objectAddress)}&rtt=auto&z=11`}
-                    width="100%"
-                    height="100%"
-                    frameBorder="0"
-                    allowFullScreen
-                    style={{ display: 'block' }}
-                  />
-                </div>
-              )}
-              
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => refetchDistance()}
-                  disabled={distanceLoading}
-                  className="flex items-center gap-2"
-                >
-                  {distanceLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <MapPin className="w-4 h-4" />}
-                  Пересчитать
-                </Button>
-                {distanceData?.yandexMapsUrl && (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => window.open(distanceData.yandexMapsUrl!, '_blank', 'noopener,noreferrer')}
-                    className="flex items-center gap-2"
-                  >
-                    <MapPin className="w-4 h-4" />
-                    Открыть в Яндекс.Картах
-                  </Button>
-                )}
-              </div>
-              
-              <p className="text-xs text-[var(--text-secondary)]">
-                Расстояние рассчитывается автоматически по маршруту на автомобиле и используется в таблице 4.2 программы ИЭИ.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        <DistanceSection
+          projectId={id!}
+          objectAddress={project?.objectAddress || null}
+          distanceData={distanceData}
+          distanceLoading={distanceLoading}
+          queryClient={queryClient}
+        />
 
         {/* 3.2 Окружение участка + координаты */}
         <Card>
@@ -790,5 +719,194 @@ export function ProgramIeiPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+function DistanceSection({
+  projectId,
+  objectAddress,
+  distanceData,
+  distanceLoading,
+  queryClient,
+}: {
+  projectId: string;
+  objectAddress: string | null;
+  distanceData: DistanceResult | undefined;
+  distanceLoading: boolean;
+  queryClient: QueryClient;
+}) {
+  const [editValue, setEditValue] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+
+  // Синхронизируем инпут при загрузке данных
+  useEffect(() => {
+    if (distanceData?.distanceKm != null) {
+      setEditValue(String(distanceData.distanceKm));
+    }
+  }, [distanceData?.distanceKm]);
+
+  const saveMutation = useMutation({
+    mutationFn: (km: number) => projectsApi.updateDistance(projectId, km),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['distance', projectId] });
+      setIsEditing(false);
+    },
+  });
+
+  const recalcMutation = useMutation({
+    mutationFn: () => projectsApi.recalculateDistance(projectId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['distance', projectId] });
+    },
+  });
+
+  const handleSave = () => {
+    const num = parseFloat(editValue.replace(',', '.'));
+    if (!isNaN(num) && num > 0) {
+      saveMutation.mutate(num);
+    }
+  };
+
+  return (
+    <Card>
+      <CardContent className="p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <MapPin className="w-5 h-5 text-green-400" />
+          <h2 className="text-lg font-semibold text-[var(--text-primary)]">4.2 Расстояние от офиса до объекта</h2>
+        </div>
+
+        <div className="space-y-3">
+          {/* Маршрут + расстояние */}
+          <div className="flex items-center justify-between gap-3 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg px-4 py-3">
+            <div className="flex-1">
+              <div className="text-sm text-[var(--text-secondary)] mb-1">
+                От: <span className="text-[var(--text-primary)]">ул. Островитянова, д.6, Москва</span>
+              </div>
+              <div className="text-sm text-[var(--text-secondary)]">
+                До: <span className="text-[var(--text-primary)]">{objectAddress || 'Адрес не указан'}</span>
+              </div>
+            </div>
+            <div className="text-right">
+              {distanceLoading || recalcMutation.isPending ? (
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-[var(--text-secondary)]" />
+                  <span className="text-sm text-[var(--text-secondary)]">Расчёт...</span>
+                </div>
+              ) : isEditing ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    className="w-20 h-9 px-2 text-right text-lg font-bold rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-primary-500"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSave();
+                      if (e.key === 'Escape') setIsEditing(false);
+                    }}
+                    autoFocus
+                  />
+                  <span className="text-sm text-[var(--text-secondary)]">км</span>
+                </div>
+              ) : distanceData?.distanceKm != null ? (
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="group cursor-pointer"
+                  title="Нажмите для редактирования"
+                >
+                  <div className="text-2xl font-bold text-green-400 group-hover:text-green-300 transition-colors">
+                    {distanceData.distanceKm} км
+                  </div>
+                </button>
+              ) : (
+                <div className="text-sm text-[var(--text-secondary)]">
+                  {distanceData?.error || 'Не удалось рассчитать'}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Карта */}
+          {objectAddress && (
+            <div className="rounded-lg overflow-hidden border border-[var(--border-color)] aspect-[16/9]">
+              <iframe
+                src={`https://yandex.ru/map-widget/v1/?rtext=55.6443432,37.4906093~${encodeURIComponent(objectAddress)}&rtt=auto&z=11`}
+                width="100%"
+                height="100%"
+                frameBorder="0"
+                allowFullScreen
+                style={{ display: 'block' }}
+              />
+            </div>
+          )}
+
+          {/* Кнопки */}
+          <div className="flex items-center gap-2">
+            {isEditing ? (
+              <>
+                <Button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={saveMutation.isPending}
+                  isLoading={saveMutation.isPending}
+                  className="flex items-center gap-2"
+                >
+                  <Save className="w-4 h-4" />
+                  Сохранить
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    setIsEditing(false);
+                    if (distanceData?.distanceKm != null) {
+                      setEditValue(String(distanceData.distanceKm));
+                    }
+                  }}
+                >
+                  Отмена
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setIsEditing(true)}
+                  className="flex items-center gap-2"
+                >
+                  <Save className="w-4 h-4" />
+                  Указать вручную
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => recalcMutation.mutate()}
+                  disabled={distanceLoading || recalcMutation.isPending}
+                  className="flex items-center gap-2"
+                >
+                  {recalcMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <MapPin className="w-4 h-4" />}
+                  Пересчитать
+                </Button>
+                {distanceData?.yandexMapsUrl && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => window.open(distanceData.yandexMapsUrl!, '_blank', 'noopener,noreferrer')}
+                    className="flex items-center gap-2"
+                  >
+                    <MapPin className="w-4 h-4" />
+                    Яндекс.Карты
+                  </Button>
+                )}
+              </>
+            )}
+          </div>
+
+          <p className="text-xs text-[var(--text-secondary)]">
+            Расстояние используется в таблице 4.2 программы ИЭИ. Можно отредактировать вручную или пересчитать по маршруту.
+          </p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

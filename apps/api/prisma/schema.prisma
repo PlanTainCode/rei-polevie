@@ -131,6 +131,9 @@ model Project {
   weatherHumidity      String?   // Влажность, % (напр. "80...75")
   weatherSnowDepth     String?   // Высота снежного покрова, м (напр. "0...0")
   
+  // Расстояние от офиса до объекта (км), редактируется вручную или рассчитывается
+  distanceKm           Float?
+  
   // Сгенерированный файл
   generatedFileName String?
   generatedFileUrl  String?

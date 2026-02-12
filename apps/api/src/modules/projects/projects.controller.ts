@@ -735,6 +735,19 @@ export class ProjectsController {
   ) {
     const project = await this.projectsService.findById(id, req.user.userId);
     
+    // Если расстояние уже сохранено — возвращаем его
+    if (project.distanceKm != null) {
+      return {
+        distanceKm: project.distanceKm,
+        fromAddress: 'ул. Островитянова, д.6, Москва',
+        toAddress: project.objectAddress,
+        isManual: true,
+        yandexMapsUrl: project.objectAddress
+          ? `https://yandex.ru/maps/?rtext=55.6443432,37.4906093~${encodeURIComponent(project.objectAddress)}&rtt=auto`
+          : null,
+      };
+    }
+
     if (!project.objectAddress) {
       return { distanceKm: null, error: 'Адрес объекта не указан' };
     }
@@ -748,7 +761,51 @@ export class ProjectsController {
       distanceKm,
       fromAddress: 'ул. Островитянова, д.6, Москва',
       toAddress: project.objectAddress,
-      // Ссылка на Яндекс.Карты для проверки маршрута
+      isManual: false,
+      yandexMapsUrl: distanceKm != null 
+        ? `https://yandex.ru/maps/?rtext=55.6443432,37.4906093~${encodeURIComponent(project.objectAddress)}&rtt=auto`
+        : null,
+    };
+  }
+
+  // Сохранить/обновить расстояние вручную
+  @Patch(':id/distance')
+  async updateDistance(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @Body() dto: { distanceKm: number | null },
+  ) {
+    await this.projectsService.findById(id, req.user.userId);
+    return this.projectsService.updateDistance(id, dto.distanceKm);
+  }
+
+  // Пересчитать расстояние через API (сбросить ручное)
+  @Post(':id/distance/recalculate')
+  async recalculateDistance(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    const project = await this.projectsService.findById(id, req.user.userId);
+    
+    if (!project.objectAddress) {
+      return { distanceKm: null, error: 'Адрес объекта не указан' };
+    }
+
+    const distanceKm = await this.distanceService.getDistanceToAddress(
+      project.objectAddress,
+      project.objectName || undefined,
+    );
+
+    // Сохраняем рассчитанное значение
+    if (distanceKm != null) {
+      await this.projectsService.updateDistance(id, distanceKm);
+    }
+
+    return {
+      distanceKm,
+      fromAddress: 'ул. Островитянова, д.6, Москва',
+      toAddress: project.objectAddress,
+      isManual: false,
       yandexMapsUrl: distanceKm != null 
         ? `https://yandex.ru/maps/?rtext=55.6443432,37.4906093~${encodeURIComponent(project.objectAddress)}&rtt=auto`
         : null,

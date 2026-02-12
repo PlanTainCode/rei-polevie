@@ -66,5 +66,5 @@ ENV PORT=3001
 EXPOSE 3001
 
 # Запуск с миграциями
-CMD ["sh", "-c", "bunx prisma migrate deploy && bun run start:prod"]
+CMD ["sh", "-c", "bunx prisma db push --skip-generate && bun run start:prod"]
 
