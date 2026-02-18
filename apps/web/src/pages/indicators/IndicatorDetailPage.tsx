@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -15,7 +15,8 @@ import {
   Radiation,
   Atom,
   Activity,
-  Shield,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 type ActiveTab = 'chemistry' | 'radiology';
@@ -39,42 +40,104 @@ const BACKGROUND_VALUES = {
 };
 
 type RegionType = 'moscow' | 'mo';
-type MetalsViewType = 'excess' | 'k_moscow' | 'k_mo';
+type MetalsViewType = 'excess' | 'k';
+
+function detectRegionFromAddress(address: string | null | undefined): RegionType {
+  if (!address) return 'moscow';
+  const lower = address.toLowerCase();
+  if (
+    lower.includes('московская область') ||
+    lower.includes('московская обл') ||
+    lower.includes('моск. обл') ||
+    /\bмо\b/.test(lower)
+  ) {
+    return 'mo';
+  }
+  return 'moscow';
+}
 
 import { indicatorsApi, IndicatorDetail, IndicatorSample } from '@/api/indicators';
 
-// Компонент сворачиваемой секции
+function copyTableFromContainer(container: HTMLDivElement) {
+  const tables = container.querySelectorAll('table');
+  if (tables.length === 0) return;
+
+  const allRows: string[] = [];
+  tables.forEach((table) => {
+    table.querySelectorAll('tr').forEach((row) => {
+      const cells: string[] = [];
+      row.querySelectorAll('th, td').forEach((cell) => {
+        cells.push((cell as HTMLElement).innerText.trim());
+      });
+      if (cells.some((c) => c !== '')) {
+        allRows.push(cells.join('\t'));
+      }
+    });
+  });
+
+  return allRows.join('\n');
+}
+
 function CollapsibleSection({
   title,
   icon: Icon,
   defaultOpen = true,
+  copyable = false,
   children,
 }: {
   title: string;
   icon: React.ElementType;
   defaultOpen?: boolean;
+  copyable?: boolean;
   children: React.ReactNode;
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  const [copied, setCopied] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!contentRef.current) return;
+    const text = copyTableFromContainer(contentRef.current);
+    if (!text) return;
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
     <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-color)] overflow-hidden">
-      <button
+      <div
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between p-4 hover:bg-[var(--bg-tertiary)]/50 transition-colors"
+        className="w-full flex items-center justify-between p-4 hover:bg-[var(--bg-tertiary)]/50 transition-colors cursor-pointer"
       >
         <div className="flex items-center gap-3">
           <Icon className="w-5 h-5 text-primary-400" />
           <span className="font-medium">{title}</span>
         </div>
-        {isOpen ? (
-          <ChevronUp className="w-5 h-5 text-[var(--text-secondary)]" />
-        ) : (
-          <ChevronDown className="w-5 h-5 text-[var(--text-secondary)]" />
-        )}
-      </button>
+        <div className="flex items-center gap-2">
+          {copyable && isOpen && (
+            <button
+              onClick={handleCopy}
+              className={`p-1.5 rounded-lg transition-colors ${
+                copied
+                  ? 'text-green-400 bg-green-500/10'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+              }`}
+              title={copied ? 'Скопировано' : 'Копировать таблицу'}
+            >
+              {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            </button>
+          )}
+          {isOpen ? (
+            <ChevronUp className="w-5 h-5 text-[var(--text-secondary)]" />
+          ) : (
+            <ChevronDown className="w-5 h-5 text-[var(--text-secondary)]" />
+          )}
+        </div>
+      </div>
       {isOpen && (
-        <div className="border-t border-[var(--border-color)]">{children}</div>
+        <div ref={contentRef} className="border-t border-[var(--border-color)]">{children}</div>
       )}
     </div>
   );
@@ -151,6 +214,7 @@ export function IndicatorDetailPage() {
       setLoading(true);
       const data = await indicatorsApi.getByProjectId(projectId!);
       setIndicator(data);
+      setRegion(detectRegionFromAddress(data.project.objectAddress));
     } catch (err) {
       setError('Ошибка загрузки данных');
       console.error(err);
@@ -231,38 +295,6 @@ export function IndicatorDetailPage() {
     (s) => s.radiationData && Object.keys(s.radiationData as object).length > 0,
   ) ?? false;
 
-  // Класс по Аэфф (НРБ-99/2009, ОСПОРБ-99/2010)
-  const getAeffClass = (
-    value: string | number | null,
-  ): { label: string; className: string; description: string } => {
-    if (value === null || value === undefined) {
-      return { label: '—', className: 'text-[var(--text-secondary)]', description: '' };
-    }
-
-    let numValue: number;
-    if (typeof value === 'string') {
-      if (value.toLowerCase().includes('менее')) {
-        return { label: 'I', className: 'bg-green-500 text-white font-bold', description: 'Без ограничений' };
-      }
-      numValue = parseFloat(value.replace(',', '.'));
-      if (isNaN(numValue)) {
-        return { label: '—', className: 'text-[var(--text-secondary)]', description: '' };
-      }
-    } else {
-      numValue = value;
-    }
-
-    if (numValue <= 370) {
-      return { label: 'I', className: 'bg-green-500 text-white font-bold', description: 'Без ограничений' };
-    }
-    if (numValue <= 740) {
-      return { label: 'II', className: 'bg-yellow-500 text-white font-bold', description: 'Дороги в нас. пунктах' };
-    }
-    if (numValue <= 1500) {
-      return { label: 'III', className: 'bg-orange-500 text-white font-bold', description: 'Дороги вне нас. пунктов' };
-    }
-    return { label: 'IV', className: 'bg-red-500 text-white font-bold', description: 'Спецразрешение' };
-  };
 
   // ПДК бензапирена = 0.02 мг/кг
   const BENZOPYRENE_PDK = 0.02;
@@ -297,9 +329,9 @@ export function IndicatorDetailPage() {
     concentration: string | number | null,
     excess: string | number,
   ): { label: string; className: string } => {
-    // Если превышения нет
+    // Если превышения нет — чистый
     if (excess === 'нет') {
-      return { label: 'Д', className: 'bg-white/10 text-white' };
+      return { label: 'Ч', className: 'bg-green-600 text-white font-bold' };
     }
 
     // Если концентрация <0.005 -> Д
@@ -508,9 +540,24 @@ export function IndicatorDetailPage() {
     return sum + 1;
   };
 
-  // Категория по Zc
-  const getZcCategory = (zc: number): { label: string; className: string } => {
-    if (zc < 16) return { label: 'Д', className: 'bg-white/10 text-white' };
+  // Проверка наличия хотя бы одного превышения ПДК у пробы
+  const hasAnyMetalExcess = (sample: IndicatorSample): boolean => {
+    const soilType = sample.soilTypeCode;
+    const pH = getChemValue(sample, 'pH');
+    const pHNum = typeof pH === 'number' ? pH : (typeof pH === 'string' ? parseFloat(pH.replace(',', '.')) : null);
+    const metals: (keyof typeof METALS_PDK)[] = ['Cd', 'Cu', 'As', 'Ni', 'Hg', 'Pb', 'Zn'];
+    return metals.some(metal => {
+      const excess = calcMetalExcess(metal, getChemValue(sample, metal), soilType, pHNum);
+      return typeof excess === 'number';
+    });
+  };
+
+  // Категория по Zc с учётом наличия превышений ПДК
+  const getZcCategory = (zc: number, hasExcess: boolean): { label: string; className: string } => {
+    if (zc < 16) {
+      if (!hasExcess) return { label: 'Ч', className: 'bg-green-600 text-white font-bold' };
+      return { label: 'Д', className: 'bg-white/10 text-white' };
+    }
     if (zc <= 32) return { label: 'УО', className: 'bg-yellow-500 text-white font-bold' };
     if (zc <= 128) return { label: 'О', className: 'bg-orange-500 text-white font-bold' };
     return { label: 'ЧО', className: 'bg-red-500 text-white font-bold' };
@@ -768,6 +815,7 @@ export function IndicatorDetailPage() {
         title="Химические показатели (тяжёлые металлы)"
         icon={FlaskConical}
         defaultOpen={true}
+        copyable
       >
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -887,6 +935,7 @@ export function IndicatorDetailPage() {
         title="Бенз(а)пирен"
         icon={Flame}
         defaultOpen={true}
+        copyable
       >
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -964,6 +1013,10 @@ export function IndicatorDetailPage() {
           <div className="flex flex-wrap items-center gap-4 text-xs">
             <span className="text-[var(--text-secondary)]">Категории:</span>
             <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-green-600 text-white font-bold">Ч</span>
+              <span className="text-[var(--text-secondary)]">— чистый</span>
+            </div>
+            <div className="flex items-center gap-1">
               <span className="inline-block px-2 py-0.5 rounded bg-white/10 text-white">Д</span>
               <span className="text-[var(--text-secondary)]">— допустимый</span>
             </div>
@@ -987,6 +1040,7 @@ export function IndicatorDetailPage() {
         title="Нефтепродукты"
         icon={Droplets}
         defaultOpen={true}
+        copyable
       >
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -1090,6 +1144,7 @@ export function IndicatorDetailPage() {
         title="Тяжёлые металлы"
         icon={Radiation}
         defaultOpen={true}
+        copyable
       >
         {/* View selector */}
         <div className="p-4 border-b border-[var(--border-color)] flex flex-wrap items-center gap-4">
@@ -1105,49 +1160,18 @@ export function IndicatorDetailPage() {
               Превышения ПДК
             </button>
             <button
-              onClick={() => setMetalsView('k_moscow')}
+              onClick={() => setMetalsView('k')}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                metalsView === 'k_moscow'
+                metalsView === 'k'
                   ? 'bg-primary-500 text-white'
                   : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]/80'
               }`}
             >
-              K (Москва)
-            </button>
-            <button
-              onClick={() => setMetalsView('k_mo')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                metalsView === 'k_mo'
-                  ? 'bg-primary-500 text-white'
-                  : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]/80'
-              }`}
-            >
-              K (МО)
+              K (фон {region === 'moscow' ? 'Москва' : 'МО'})
             </button>
           </div>
-          {/* Region selector for Zc calculation */}
-          <div className="flex items-center gap-2 ml-auto">
-            <span className="text-sm text-[var(--text-secondary)]">Zc:</span>
-            <button
-              onClick={() => setRegion('moscow')}
-              className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                region === 'moscow'
-                  ? 'bg-primary-500 text-white'
-                  : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]/80'
-              }`}
-            >
-              МСК
-            </button>
-            <button
-              onClick={() => setRegion('mo')}
-              className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                region === 'mo'
-                  ? 'bg-primary-500 text-white'
-                  : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]/80'
-              }`}
-            >
-              МО
-            </button>
+          <div className="ml-auto text-xs text-[var(--text-secondary)]">
+            Регион: <span className="font-medium text-[var(--text-primary)]">{region === 'moscow' ? 'Москва' : 'Московская область'}</span>
           </div>
         </div>
         <div className="overflow-x-auto">
@@ -1199,11 +1223,8 @@ export function IndicatorDetailPage() {
                 const getValueForView = (metal: keyof typeof BACKGROUND_VALUES.moscow) => {
                   if (metalsView === 'excess') {
                     return calcMetalExcess(metal, getChemValue(sample, metal), soilType, pHNum);
-                  } else if (metalsView === 'k_moscow') {
-                    return calcMetalK(metal, getChemValue(sample, metal), soilType, 'moscow');
-                  } else {
-                    return calcMetalK(metal, getChemValue(sample, metal), soilType, 'mo');
                   }
+                  return calcMetalK(metal, getChemValue(sample, metal), soilType, region);
                 };
 
                 const cdVal = getValueForView('Cd');
@@ -1215,7 +1236,7 @@ export function IndicatorDetailPage() {
                 const znVal = getValueForView('Zn');
                 
                 const zc = calcZc(sample, region);
-                const zcCategory = getZcCategory(zc);
+                const zcCategory = getZcCategory(zc, metalsView === 'excess' ? hasAnyMetalExcess(sample) : true);
 
                 const formatCellValue = (v: string | number) => {
                   if (metalsView === 'excess') {
@@ -1294,8 +1315,12 @@ export function IndicatorDetailPage() {
           <div className="flex flex-wrap items-center gap-4 text-xs">
             <span className="text-[var(--text-secondary)]">Категории по Zc:</span>
             <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-green-600 text-white font-bold">Ч</span>
+              <span className="text-[var(--text-secondary)]">— чистый (Zc&lt;16, нет превышений ПДК)</span>
+            </div>
+            <div className="flex items-center gap-1">
               <span className="inline-block px-2 py-0.5 rounded bg-white/10 text-white">Д</span>
-              <span className="text-[var(--text-secondary)]">— допустимый (&lt;16)</span>
+              <span className="text-[var(--text-secondary)]">— допустимый (Zc&lt;16, есть превышения)</span>
             </div>
             <div className="flex items-center gap-1">
               <span className="inline-block px-2 py-0.5 rounded bg-yellow-500 text-white font-bold">УО</span>
@@ -1312,8 +1337,8 @@ export function IndicatorDetailPage() {
           </div>
           <div className="mt-2 text-xs text-[var(--text-secondary)]">
             {metalsView === 'excess' && 'Превышения ПДК с учётом типа грунта и pH.'}
-            {metalsView === 'k_moscow' && 'K = концентрация / фон (Москва). Фон: Cd=0.3, Cu=27, As=6.6, Ni=20, Hg=0.1, Pb=26, Zn=52'}
-            {metalsView === 'k_mo' && `K = концентрация / фон (МО). Фон зависит от типа грунта: ПС или СГ`}
+            {metalsView === 'k' && region === 'moscow' && 'K = концентрация / фон (Москва). Фон: Cd=0.3, Cu=27, As=6.6, Ni=20, Hg=0.1, Pb=26, Zn=52'}
+            {metalsView === 'k' && region === 'mo' && 'K = концентрация / фон (МО). Фон зависит от типа грунта: ПС или СГ'}
             {' '}Zc рассчитан по фону: {region === 'moscow' ? 'Москва' : 'МО'}.
           </div>
         </div>
@@ -1324,6 +1349,7 @@ export function IndicatorDetailPage() {
         title="Общая оценка загрязнения"
         icon={AlertCircle}
         defaultOpen={true}
+        copyable
       >
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -1364,7 +1390,7 @@ export function IndicatorDetailPage() {
 
                 // Категория ТМ (по Zc)
                 const zc = calcZc(sample, region);
-                const tmCategory = getZcCategory(zc);
+                const tmCategory = getZcCategory(zc, hasAnyMetalExcess(sample));
 
                 // Категория бензапирена
                 const benzapyreneConc = getChemValue(sample, 'benzapyrene');
@@ -1377,7 +1403,7 @@ export function IndicatorDetailPage() {
                 const oilCategory = getOilProductsCategory(oilExcess);
 
                 // Общая категория = максимум из ТМ и Б/п
-                const categoryOrder = ['Д', 'УО', 'О', 'ЧО'];
+                const categoryOrder = ['Ч', 'Д', 'УО', 'О', 'ЧО'];
                 const tmIdx = categoryOrder.indexOf(tmCategory.label);
                 const bpIdx = categoryOrder.indexOf(benzapyreneCategory.label);
                 const maxIdx = Math.max(tmIdx, bpIdx);
@@ -1388,6 +1414,7 @@ export function IndicatorDetailPage() {
                     case 'ЧО': return 'bg-red-500 text-white font-bold';
                     case 'О': return 'bg-orange-500 text-white font-bold';
                     case 'УО': return 'bg-yellow-500 text-white font-bold';
+                    case 'Ч': return 'bg-green-600 text-white font-bold';
                     default: return 'bg-white/10 text-white';
                   }
                 };
@@ -1425,9 +1452,13 @@ export function IndicatorDetailPage() {
                       {oilCategory.label}
                     </td>
                     <td className="px-3 py-2 text-center">
-                      <span className="inline-block px-2 py-0.5 rounded bg-green-500 text-white font-medium">
-                        V
-                      </span>
+                      {overallLabel === 'ЧО' ? (
+                        <span className="inline-block px-2 py-0.5 rounded bg-red-500 text-white font-bold">
+                          V
+                        </span>
+                      ) : (
+                        <span className="text-[var(--text-secondary)]">—</span>
+                      )}
                     </td>
                   </tr>
                 );
@@ -1438,6 +1469,10 @@ export function IndicatorDetailPage() {
         <div className="p-3 border-t border-[var(--border-color)]">
           <div className="flex flex-wrap items-center gap-4 text-xs">
             <span className="text-[var(--text-secondary)]">Категории:</span>
+            <div className="flex items-center gap-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-green-600 text-white font-bold">Ч</span>
+              <span className="text-[var(--text-secondary)]">— чистый</span>
+            </div>
             <div className="flex items-center gap-1">
               <span className="inline-block px-2 py-0.5 rounded bg-white/10 text-white">Д</span>
               <span className="text-[var(--text-secondary)]">— допустимый</span>
@@ -1474,6 +1509,7 @@ export function IndicatorDetailPage() {
         title="Радиационные показатели (ЕРН)"
         icon={Atom}
         defaultOpen={true}
+        copyable
       >
         {(() => {
           // Собираем числовые значения для статистики (как в Excel: AVERAGE, MIN, MAX)
@@ -1621,193 +1657,6 @@ export function IndicatorDetailPage() {
             </>
           );
         })()}
-      </CollapsibleSection>
-
-      {/* Aeff assessment */}
-      <CollapsibleSection
-        title="Оценка Аэфф — класс грунта"
-        icon={Shield}
-        defaultOpen={true}
-      >
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/30">
-                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
-                  Номер пробы
-                </th>
-                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
-                  Слой
-                </th>
-                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
-                  Аэфф, Бк/кг
-                </th>
-                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
-                  Класс
-                </th>
-                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
-                  Область применения
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortSamplesByLayer(indicator.samples).map((sample) => {
-                const aeff = getRadValue(sample, 'Aeff');
-                const aeffClass = getAeffClass(aeff);
-
-                return (
-                  <tr
-                    key={sample.id}
-                    className="border-b border-[var(--border-color)] last:border-b-0 hover:bg-[var(--bg-tertiary)]/50"
-                  >
-                    <td className="px-3 py-2 font-medium">
-                      {sample.sampleCipher}
-                    </td>
-                    <td className="px-3 py-2 text-[var(--text-secondary)]">
-                      {sample.matchedSample?.depthLabel || '—'}
-                    </td>
-                    <td className="px-3 py-2 text-center font-medium">
-                      {formatValue(aeff)}
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      <span className={`inline-block px-3 py-1 rounded ${aeffClass.className}`}>
-                        {aeffClass.label}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-[var(--text-secondary)]">
-                      {aeffClass.description}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <div className="p-3 border-t border-[var(--border-color)]">
-          <div className="flex flex-wrap items-center gap-4 text-xs">
-            <span className="text-[var(--text-secondary)]">Классы по Аэфф (НРБ-99/2009):</span>
-            <div className="flex items-center gap-1">
-              <span className="inline-block px-2 py-0.5 rounded bg-green-500 text-white font-bold">I</span>
-              <span className="text-[var(--text-secondary)]">— ≤370 Бк/кг (без ограничений)</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="inline-block px-2 py-0.5 rounded bg-yellow-500 text-white font-bold">II</span>
-              <span className="text-[var(--text-secondary)]">— 370–740 Бк/кг (дороги в нас. пунктах)</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="inline-block px-2 py-0.5 rounded bg-orange-500 text-white font-bold">III</span>
-              <span className="text-[var(--text-secondary)]">— 740–1500 Бк/кг (дороги вне нас. пунктов)</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="inline-block px-2 py-0.5 rounded bg-red-500 text-white font-bold">IV</span>
-              <span className="text-[var(--text-secondary)]">— &gt;1500 Бк/кг (спецразрешение)</span>
-            </div>
-          </div>
-        </div>
-      </CollapsibleSection>
-
-      {/* Cs-137 assessment */}
-      <CollapsibleSection
-        title="Оценка Cs-137 — техногенное загрязнение"
-        icon={Activity}
-        defaultOpen={true}
-      >
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/30">
-                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
-                  Номер пробы
-                </th>
-                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
-                  Слой
-                </th>
-                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
-                  Cs-137, Бк/кг
-                </th>
-                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
-                  Оценка
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortSamplesByLayer(indicator.samples).map((sample) => {
-                const cs137 = getRadValue(sample, 'Cs137');
-                
-                // Оценка Cs-137: фоновые значения для Москвы ~5-15 Бк/кг
-                let assessment: { label: string; className: string };
-                if (cs137 === null) {
-                  assessment = { label: '—', className: 'text-[var(--text-secondary)]' };
-                } else if (typeof cs137 === 'string') {
-                  if (cs137.toLowerCase().includes('менее')) {
-                    assessment = { label: 'Фон', className: 'bg-green-500 text-white font-bold' };
-                  } else {
-                    const numValue = parseFloat(cs137.replace(',', '.'));
-                    if (isNaN(numValue)) {
-                      assessment = { label: '—', className: 'text-[var(--text-secondary)]' };
-                    } else if (numValue <= 25) {
-                      assessment = { label: 'Фон', className: 'bg-green-500 text-white font-bold' };
-                    } else if (numValue <= 100) {
-                      assessment = { label: 'Повышен', className: 'bg-yellow-500 text-white font-bold' };
-                    } else {
-                      assessment = { label: 'Загрязнение', className: 'bg-red-500 text-white font-bold' };
-                    }
-                  }
-                } else {
-                  if (cs137 <= 25) {
-                    assessment = { label: 'Фон', className: 'bg-green-500 text-white font-bold' };
-                  } else if (cs137 <= 100) {
-                    assessment = { label: 'Повышен', className: 'bg-yellow-500 text-white font-bold' };
-                  } else {
-                    assessment = { label: 'Загрязнение', className: 'bg-red-500 text-white font-bold' };
-                  }
-                }
-
-                return (
-                  <tr
-                    key={sample.id}
-                    className="border-b border-[var(--border-color)] last:border-b-0 hover:bg-[var(--bg-tertiary)]/50"
-                  >
-                    <td className="px-3 py-2 font-medium">
-                      {sample.sampleCipher}
-                    </td>
-                    <td className="px-3 py-2 text-[var(--text-secondary)]">
-                      {sample.matchedSample?.depthLabel || '—'}
-                    </td>
-                    <td className="px-3 py-2 text-center font-medium">
-                      {formatValue(cs137)}
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      <span className={`inline-block px-3 py-1 rounded ${assessment.className}`}>
-                        {assessment.label}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <div className="p-3 border-t border-[var(--border-color)]">
-          <div className="flex flex-wrap items-center gap-4 text-xs">
-            <span className="text-[var(--text-secondary)]">Оценка Cs-137:</span>
-            <div className="flex items-center gap-1">
-              <span className="inline-block px-2 py-0.5 rounded bg-green-500 text-white font-bold">Фон</span>
-              <span className="text-[var(--text-secondary)]">— ≤25 Бк/кг (фоновый уровень)</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="inline-block px-2 py-0.5 rounded bg-yellow-500 text-white font-bold">Повышен</span>
-              <span className="text-[var(--text-secondary)]">— 25–100 Бк/кг</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="inline-block px-2 py-0.5 rounded bg-red-500 text-white font-bold">Загрязнение</span>
-              <span className="text-[var(--text-secondary)]">— &gt;100 Бк/кг</span>
-            </div>
-          </div>
-          <div className="mt-2 text-xs text-[var(--text-secondary)]">
-            Cs-137 — техногенный радионуклид. Фоновый уровень для Московского региона ≈5–15 Бк/кг.
-          </div>
-        </div>
       </CollapsibleSection>
 
       {/* МЭД ГИ section — placeholder, field measurements */}

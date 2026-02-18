@@ -25,7 +25,7 @@ interface ChatMessage {
   content: string;
 }
 
-interface DeepSeekResponse {
+interface AiChatResponse {
   choices: Array<{
     message: {
       content: string;
@@ -229,7 +229,6 @@ export interface ServiceMatch {
 @Injectable()
 export class AiService {
   private readonly apiKey: string;
-  // DeepSeek-V3.2 - самая актуальная модель DeepSeek (deepseek-chat = non-thinking mode)
   private readonly model = 'deepseek-chat';
   private readonly baseUrl = 'https://api.deepseek.com';
 
@@ -237,9 +236,8 @@ export class AiService {
     this.apiKey = this.configService.get<string>('DEEPSEEK_API_KEY') || '';
     if (!this.apiKey) {
       console.error('[AiService] ⚠️ DEEPSEEK_API_KEY не установлен! AI функции не будут работать.');
-      console.error('[AiService] Получите ключ на https://platform.deepseek.com/api_keys и добавьте в .env');
     } else {
-      console.log(`[AiService] DeepSeek API initialized, key: ${this.apiKey.substring(0, 8)}...`);
+      console.log(`[AiService] DeepSeek API initialized (${this.model}), key: ${this.apiKey.substring(0, 8)}...`);
     }
   }
 
@@ -311,11 +309,10 @@ export class AiService {
     if (!response.ok) {
       const errorBody = await response.text();
       console.error(`[AiService] DeepSeek error ${response.status}:`, errorBody);
-      console.error(`[AiService] Model: ${this.model}, API key starts with: ${this.apiKey?.substring(0, 10)}...`);
       throw new Error(`DeepSeek API error: ${response.status} - ${errorBody}`);
     }
 
-    const data = (await response.json()) as DeepSeekResponse;
+    const data = (await response.json()) as AiChatResponse;
     return data.choices[0]?.message?.content || '';
   }
 
@@ -1447,14 +1444,11 @@ territoryConditionText:
   }
 
   /**
-   * Извлекает GPS координаты с фотографии GPS-трекера через Vision AI
-   * 
-   * ВНИМАНИЕ: DeepSeek-V3.2 не поддерживает Vision (мультимодальность).
-   * Для распознавания координат с фото необходимо использовать другой сервис.
-   * Метод временно отключен и возвращает null.
+   * Извлекает GPS координаты с фотографии GPS-трекера через Vision AI (Qwen-Max поддерживает мультимодальность).
+   * TODO: реализовать после тестирования основного переключения на Qwen
    */
   async extractCoordinatesFromPhoto(_imageBase64: string): Promise<ExtractedCoordinates | null> {
-    console.warn('[AiService] extractCoordinatesFromPhoto: DeepSeek не поддерживает Vision API. Метод отключен.');
+    console.warn('[AiService] extractCoordinatesFromPhoto: пока не реализован для Qwen Vision.');
     return null;
   }
 

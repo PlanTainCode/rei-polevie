@@ -21,7 +21,6 @@ interface ChatMessage {
 export class TzProcessingService {
   private readonly logger = new Logger(TzProcessingService.name);
   private readonly apiKey: string;
-  // DeepSeek-V3.2 - самая актуальная модель DeepSeek
   private readonly model = 'deepseek-chat';
   private readonly baseUrl = 'https://api.deepseek.com';
 
@@ -438,9 +437,6 @@ export class TzProcessingService {
     return result;
   }
 
-  /**
-   * Вызов AI через DeepSeek API
-   */
   private async chat(messages: ChatMessage[]): Promise<string> {
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',

@@ -517,52 +517,60 @@ export function ProgramIeiPage() {
                   <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
                     К югу
                   </label>
-                  <Input
+                  <textarea
                     value={nearbySouth}
                     onChange={(e) => {
                       setNearbySouth(e.target.value);
                       markChanged();
                     }}
                     placeholder="улица ..., автостоянка"
+                    rows={3}
+                    className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 resize-none transition-colors"
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
                     К востоку
                   </label>
-                  <Input
+                  <textarea
                     value={nearbyEast}
                     onChange={(e) => {
                       setNearbyEast(e.target.value);
                       markChanged();
                     }}
                     placeholder="улица ..., автосервис"
+                    rows={3}
+                    className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 resize-none transition-colors"
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
                     К западу
                   </label>
-                  <Input
+                  <textarea
                     value={nearbyWest}
                     onChange={(e) => {
                       setNearbyWest(e.target.value);
                       markChanged();
                     }}
                     placeholder="улица ..., объект"
+                    rows={3}
+                    className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 resize-none transition-colors"
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
                     К северу
                   </label>
-                  <Input
+                  <textarea
                     value={nearbyNorth}
                     onChange={(e) => {
                       setNearbyNorth(e.target.value);
                       markChanged();
                     }}
                     placeholder="объект ..."
+                    rows={3}
+                    className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 resize-none transition-colors"
                   />
                 </div>
               </div>
