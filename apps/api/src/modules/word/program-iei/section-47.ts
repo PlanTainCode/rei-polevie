@@ -157,6 +157,9 @@ function replaceLayersParagraphs(xml: string, layers: SoilLayer[]): string {
     xml = removeParagraphByParaId(xml, paraId);
   }
 
+  // Исключаем поверхностный слой 0,0-0,2 — он уже описан в тексте основного абзаца
+  const deepLayers = layers.filter(l => !(l.from < 0.01 && l.to <= 0.21));
+
   // Находим позицию после основного параграфа (308E5161) для вставки новых слоёв
   const mainParaPattern = new RegExp(
     `(<w:p\\b[^>]*w14:paraId="${PARA_IDS.soilSamplingMain}"[^>]*>[\\s\\S]*?</w:p>)`,
@@ -169,7 +172,7 @@ function replaceLayersParagraphs(xml: string, layers: SoilLayer[]): string {
   }
 
   // Генерируем XML для новых слоёв
-  const layersXml = layers
+  const layersXml = deepLayers
     .map((layer, index) => {
       // Если есть номера площадок — добавляем их в скобках
       const platformsSuffix = layer.platformNumbers && layer.platformNumbers.length > 0

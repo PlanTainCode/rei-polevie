@@ -59,6 +59,7 @@ import { replaceProgramIeiSection81Block } from './program-iei/section-81';
 import { extractSection81FromTz } from '../ai/program-iei/section-81';
 import { replaceProgramIeiSection82Block } from './program-iei/section-82';
 import { replaceProgramIeiSection83And84Block } from './program-iei/section-83-84';
+import { replaceTitleSignatories } from './program-iei/title-signatories';
 
 interface GenerateOptions {
   projectId: string;
@@ -834,6 +835,7 @@ export class WordService {
         previousSurveyReport: '',
         reportCopiesText: '',
         contractorRole: 'Подрядчик',
+        titleSignatories: [],
       };
     }
 
@@ -992,17 +994,68 @@ export class WordService {
     // Логируем данные для п.1.9.1 (technicalCharacteristics -> XrObject)
     console.log('[WordService] XrObject (technicalCharacteristics) для замены:', data.XrObject);
     
-    // ВАЖНО: Сначала заменяем блок ЗАКАЗЧИКА по paraId (до общей замены!)
-    // Потому что в шаблоне одинаковые плейсхолдеры для технического заказчика и заказчика
-    if (section1Data) {
-      docXml = this.replaceCustomerTitleBlock(docXml, section1Data);
+    // Подписанты на титульной странице: генерируем из массива titleSignatories
+    if (section1Data?.titleSignatories && section1Data.titleSignatories.length > 0) {
+      // Валидация: если в ТЗ есть «УТВЕРЖДАЮ», но AI не назначил его ни одному подписанту —
+      // назначаем первому (в стандартных ТЗ УТВЕРЖДАЮ всегда у первого подписанта)
+      if (tzText && /УТВЕРЖДА/i.test(tzText)) {
+        const hasApproval = section1Data.titleSignatories.some(
+          s => /УТВЕРЖДА/i.test(s.header),
+        );
+        if (!hasApproval && section1Data.titleSignatories.length > 0) {
+          console.log('[WordService] AI не распознал УТВЕРЖДАЮ — назначаем первому подписанту');
+          section1Data.titleSignatories[0].header = 'УТВЕРЖДАЮ';
+        }
+      }
+      // Фолбэк: если у подписанта нет ФИО — ищем его ТОЛЬКО в тексте ТЗ
+      // рядом с организацией этого конкретного подписанта (не подставляем чужие данные)
+      for (const sig of section1Data.titleSignatories) {
+        if (sig.name || !tzText || !sig.organization) continue;
+
+        const orgShort = sig.organization
+          .replace(/^(ООО|АО|ЗАО|ПАО|ГУП|МУП|ФГУП|ФГБУ)\s*[«"]/i, '')
+          .replace(/[»"]\s*$/, '')
+          .trim();
+        if (orgShort.length < 3) continue;
+
+        // Ищем ВСЕ вхождения организации в ТЗ и для каждого пробуем найти ФИО
+        let searchFrom = 0;
+        while (searchFrom < tzText.length) {
+          const orgIdx = tzText.indexOf(orgShort, searchFrom);
+          if (orgIdx === -1) break;
+
+          // ФИО должно быть ПОСЛЕ организации (в пределах 150 символов) — на титуле имя идёт под организацией
+          const afterOrg = tzText.substring(orgIdx, orgIdx + orgShort.length + 150);
+          const nameMatch = afterOrg.match(/([А-ЯЁ]\.[А-ЯЁ]\.[\s]?[А-ЯЁ][а-яё]{2,})/);
+          if (nameMatch) {
+            sig.name = nameMatch[1].trim();
+            console.log(`[WordService] ФИО "${sig.name}" извлечено из ТЗ для "${sig.organization}"`);
+            break;
+          }
+          searchFrom = orgIdx + orgShort.length;
+        }
+
+        if (!sig.name) {
+          console.warn(`[WordService] Подписант "${sig.label}" / "${sig.organization}" — ФИО не найдено в ТЗ`);
+        }
+      }
+
+      console.log('[WordService] titleSignatories:', JSON.stringify(section1Data.titleSignatories, null, 2));
+      docXml = replaceTitleSignatories({
+        xml: docXml,
+        signatories: section1Data.titleSignatories,
+        contractorRole: data.РольПодрядчика,
+      });
+    } else {
+      // Фолбэк: если titleSignatories нет — используем старую логику
+      if (section1Data) {
+        docXml = this.replaceCustomerTitleBlock(docXml, section1Data);
+      }
+      docXml = this.replaceContractorRole(docXml, data.РольПодрядчика);
     }
-    
-    // Теперь общая замена плейсхолдеров (заполнит технического заказчика)
+
+    // Общая замена плейсхолдеров (для полей внутри документа, НЕ титула)
     docXml = this.replacePlaceholders(docXml, data);
-    
-    // Замена "Подрядчик/Исполнитель" на правильную роль из ТЗ
-    docXml = this.replaceContractorRole(docXml, data.РольПодрядчика);
     
     // Специальные замены блоков текста
     if (section1Data) {
@@ -1351,6 +1404,11 @@ export class WordService {
       
       console.log('[WordService п.4.7] Platforms:', platforms.map(p => p.label), 'Уникальных:', uniquePlatformCount);
 
+      // П.4.2 текст: «В связи с запечатанностью...» — только если ≥3 уникальных площадок
+      if (uniquePlatformCount < 3) {
+        docXml = this.removeParagraphByParaId(docXml, '053B59A9');
+      }
+
       docXml = replaceProgramIeiSection47Block({
         xml: docXml,
         orderFlags,
@@ -1436,6 +1494,20 @@ export class WordService {
     docXml = normalizeDocumentStyles(docXml);
     // 2. Дополнительная нормализация для старого кода
     docXml = this.normalizeGeneratedTextFormatting(docXml);
+
+    // п.1.3 Наименование заказчика — подчёркивание всех ранов (HYPERLINK-раны теряют
+    // подчёркивание после удаления rStyle "24", но они должны быть underlined)
+    docXml = this.ensureUnderlineInParagraph(docXml, '64AE6358');
+
+    // Заголовок «Программа инженерно-экологических изысканий» — uppercase
+    docXml = docXml.replace(
+      /(<w:p[^>]*w14:paraId="4A7786BB"[^>]*>[\s\S]*?<w:t[^>]*>)Программа\s*(<\/w:t>)/,
+      '$1ПРОГРАММА $2',
+    );
+    docXml = docXml.replace(
+      /(<w:p[^>]*w14:paraId="1231F572"[^>]*>[\s\S]*?<w:t[^>]*>)инженерно-экологических изысканий(<\/w:t>)/,
+      '$1ИНЖЕНЕРНО-ЭКОЛОГИЧЕСКИХ ИЗЫСКАНИЙ$2',
+    );
     
     zip.file('word/document.xml', docXml);
 
@@ -1720,44 +1792,39 @@ export class WordService {
       return xml;
     }
 
-    // Маркеры границ пункта 1.5
     const startMarker = 'Инженерно-экологические изыскания';
     const endMarker = 'Идентификационные сведения';
-    
-    // Находим позиции маркеров в XML
-    const startPos = xml.indexOf(startMarker);
+
+    const markerPos = xml.indexOf(startMarker);
     const endPos = xml.indexOf(endMarker);
-    
-    if (startPos === -1) {
+
+    if (markerPos === -1) {
       console.warn('[replaceGoalsAndTasksBlock] Не найден начальный маркер п.1.5');
       return xml;
     }
-    
-    // Определяем область пункта 1.5
-    const sectionEndPos = endPos !== -1 ? endPos : startPos + 5000; // fallback
-    
-    // Извлекаем секцию п.1.5 для обработки
-    const beforeSection = xml.substring(0, startPos);
-    const sectionXml = xml.substring(startPos, sectionEndPos);
-    const afterSection = xml.substring(sectionEndPos);
-    
-    // Находим первый тег <w:t> в секции и запоминаем его
-    const firstTagMatch = sectionXml.match(/<w:t([^>]*)>([^<]*)</);
-    if (!firstTagMatch) {
-      console.warn('[replaceGoalsAndTasksBlock] Не найден первый тег <w:t> в п.1.5');
+
+    // Отступаем до начала <w:t> тега, содержащего маркер
+    const tTagStart = xml.lastIndexOf('<w:t', markerPos);
+    if (tTagStart === -1) {
       return xml;
     }
-    
-    // Очищаем ВСЕ теги <w:t> в секции п.1.5
+
+    const sectionEndPos = endPos !== -1 ? endPos : markerPos + 5000;
+
+    const beforeSection = xml.substring(0, tTagStart);
+    const sectionXml = xml.substring(tTagStart, sectionEndPos);
+    const afterSection = xml.substring(sectionEndPos);
+
+    // Очищаем ВСЕ теги <w:t>...</w:t> в секции п.1.5
     let cleanedSection = sectionXml.replace(/<w:t([^>]*)>[^<]*<\/w:t>/g, '<w:t$1></w:t>');
-    
+
     // Вставляем текст из ТЗ в первый тег
     const escapedNewText = this.escapeXml(newText);
     cleanedSection = cleanedSection.replace(
       /<w:t([^>]*)><\/w:t>/,
       `<w:t$1 xml:space="preserve">${escapedNewText}</w:t>`,
     );
-    
+
     return beforeSection + cleanedSection + afterSection;
   }
 
@@ -1832,7 +1899,7 @@ export class WordService {
     // Разбиваем текст на строки
     let lines = text.split(/\n/).map(line => line.trim()).filter(line => line);
     
-    // Убираем вводную фразу "На участке предусматривается:" и подобные
+    // Убираем вводную фразу из данных ТЗ (она будет добавлена отдельно с подчёркиванием)
     lines = lines.filter(line => {
       const lower = line.toLowerCase();
       return !lower.includes('на участке предусматривается') && 
@@ -1854,8 +1921,14 @@ export class WordService {
       return `- ${line}`;
     }).filter((line): line is string => line !== null);
     
-    // Создаём новые абзацы для каждой строки
-    const newParagraphs: string[] = [];
+    // Первый абзац — «На участке предусматривается:» с подчёркиванием
+    const underlineRPr = rPr
+      ? rPr.replace('</w:rPr>', '<w:u w:val="single"/></w:rPr>')
+      : '<w:rPr><w:u w:val="single"/></w:rPr>';
+    const headerPara = `<w:p>${pPr}<w:r>${underlineRPr}<w:t xml:space="preserve">На участке предусматривается:</w:t></w:r></w:p>`;
+
+    // Создаём абзацы для каждой строки списка
+    const newParagraphs: string[] = [headerPara];
     for (const line of lines) {
       const escapedLine = this.escapeXml(line);
       const paragraph = `<w:p>${pPr}<w:r>${rPr}<w:t xml:space="preserve">${escapedLine}</w:t></w:r></w:p>`;
@@ -2283,6 +2356,11 @@ export class WordService {
       xml = xml.split('>Кадастровый номер участка</w:t>').join(
         `>Кадастровый номер участка: ${this.escapeXml(egrnData.cadastralNumber)}</w:t>`,
       );
+    } else {
+      // Нет кадастрового номера — убираем надпись, оставляем только описание
+      xml = xml.split('>Кадастровый номер участка</w:t>').join(
+        '></w:t>',
+      );
     }
 
     // Формируем текст сведений из ЕГРН
@@ -2365,16 +2443,16 @@ export class WordService {
     }
     
     // П.4 - Технический отчет по результатам ИЭИ (п.22.3 ТЗ)
-    if (section1Data.previousSurveyReport) {
-      // Есть данные - заменяем текст
+    const reportText = (section1Data.previousSurveyReport || '').trim();
+    const isTemplateText = reportText.includes('736-00046-52018-19') || reportText.includes('РЭИ-Регион');
+    if (reportText && !isTemplateText) {
       xml = xml.replace(
         />Технический отчет по результатам инженерно-экологических изысканий для подготовки проектной документации № 736-00046-52018-19[^<]*<\/w:t>/g,
-        `>${this.escapeXml(section1Data.previousSurveyReport)}</w:t>`,
+        `>${this.escapeXml(reportText)}</w:t>`,
       );
     } else {
-      // Нет данных - удаляем весь параграф (paraId="792BA78F")
       xml = xml.replace(
-        /<w:p w14:paraId="792BA78F"[^>]*>[\s\S]*?<\/w:p>/g,
+        /<w:p[^>]*w14:paraId="792BA78F"[^>]*>[\s\S]*?<\/w:p>/g,
         ''
       );
     }
@@ -2415,7 +2493,9 @@ export class WordService {
     // Абзац 4: "В ____ г. ... – Технический отчет (см. выше)."
     // Оставляем только если в п.2.1 присутствует техотчёт (previousSurveyReport),
     // при этом переписываем под наш техотчёт из ТЗ.
-    const hasPreviousSurveyReport = Boolean(section1Data.previousSurveyReport?.trim());
+    const rawReport = (section1Data.previousSurveyReport || '').trim();
+    const isReportTemplateText = rawReport.includes('736-00046-52018-19') || rawReport.includes('РЭИ-Регион');
+    const hasPreviousSurveyReport = Boolean(rawReport) && !isReportTemplateText;
     if (hasPreviousSurveyReport) {
       const refText = this.formatPreviousSurveyReference(section1Data.previousSurveyReport);
       xml = this.replaceParagraphTextByParaId(xml, '61DBF39E', refText);
@@ -2606,6 +2686,19 @@ export class WordService {
    * Финальная нормализация оформления:
    * - перекрашиваем красный текст в чёрный, чтобы заполненные поля не выделялись
    */
+  private ensureUnderlineInParagraph(xml: string, paraId: string): string {
+    const paraRegex = new RegExp(
+      `(<w:p[^>]*w14:paraId="${paraId}"[^>]*>[\\s\\S]*?</w:p>)`,
+    );
+    return xml.replace(paraRegex, (paraXml) => {
+      // Добавляем <w:u w:val="single"/> в каждый rPr, где его ещё нет
+      return paraXml.replace(/<w:rPr>([\s\S]*?)<\/w:rPr>/g, (match, inner) => {
+        if (inner.includes('<w:u ')) return match;
+        return `<w:rPr>${inner}<w:u w:val="single"/></w:rPr>`;
+      });
+    });
+  }
+
   private normalizeGeneratedTextFormatting(xml: string): string {
     xml = xml.replace(/(<w:color[^>]*w:val=")FF0000(")/g, '$1000000$2');
     xml = xml.replace(/(<w:color[^>]*w:val=")ff0000(")/g, '$1000000$2');

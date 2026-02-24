@@ -126,8 +126,8 @@ export function replaceParagraphTextByParaIdWithItalic(
     'g',
   );
 
-  // rPr с курсивом
-  const italicRPr = '<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:i/><w:iCs/><w:sz w:val="24"/><w:szCs w:val="24"/><w:color w:val="000000"/></w:rPr>';
+  // rPr с курсивом, 11pt для колонки количества
+  const italicRPr = '<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:i/><w:iCs/><w:sz w:val="22"/><w:szCs w:val="22"/><w:color w:val="000000"/></w:rPr>';
 
   return String(xml).replace(re, (_m, open, body, close) => {
     const bodyStr = String(body);
@@ -333,7 +333,7 @@ export function replaceTableCellValueByRowText(
     });
   } else {
     // Нет <w:t> тегов — вставляем run с текстом перед </w:p> в ячейке
-    const rPr = '<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:i/><w:iCs/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr>';
+    const rPr = '<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:i/><w:iCs/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>';
     const newRun = `<w:r>${rPr}<w:t xml:space="preserve">${escapedValue}</w:t></w:r>`;
     // Вставляем перед последним </w:p> в ячейке
     const lastPClose = newCellContent.lastIndexOf('</w:p>');
@@ -589,8 +589,9 @@ export function normalizeDocumentStyles(xml: string): string {
   result = result.replace(/w:val="0000FF"/gi, 'w:val="000000"');
   result = result.replace(/w:val="999999"/gi, 'w:val="000000"');
 
-  // 0.1. Убираем стиль Hyperlink (синий подчёркнутый текст)
+  // 0.1. Убираем стиль Hyperlink (синий подчёркнутый текст) — все варианты ID
   result = result.replace(/<w:rStyle w:val="ae"\/>/g, '');
+  result = result.replace(/<w:rStyle w:val="24"\/>/g, '');
   result = result.replace(/<w:rStyle w:val="Hyperlink"\/>/gi, '');
 
   // 1. Убираем все highlight (подсветка текста)
@@ -672,9 +673,9 @@ export function normalizeDocumentStyles(xml: string): string {
   result = result.replace(/w:themeTint="[^"]*"/g, '');
   result = result.replace(/w:themeShade="[^"]*"/g, '');
 
-  // 7. Убираем ВСЕ подчёркивания текста (single, double, wave, dotted и т.д.)
-  result = result.replace(/<w:u[^>]*\/>/g, '');
-  result = result.replace(/<w:u[^>]*>[^<]*<\/w:u>/g, '');
+  // 7. Подчёркивания НЕ удаляем — они используются осмысленно (п.1.3, колонтитулы и т.д.).
+  // Подчёркивание HYPERLINK'ов убирается через удаление rStyle "24"/"ae"/"Hyperlink" (шаг 0.1)
+  // и очистку стиля Hyperlink в styles.xml.
 
   return result;
 }

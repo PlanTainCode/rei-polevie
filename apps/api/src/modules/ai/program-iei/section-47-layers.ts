@@ -114,9 +114,9 @@ function extractLayersDeterministically(orderText: string): Section47LayersData 
   const text = orderText || '';
 
   // Сначала пробуем формат с номерами площадок в скобках:
-  // "В слое 0,0-0,2 (1,2,3,4,5)" или "В слое 0,5-1,0 (1,4,5)"
+  // "В слое 0,0-0,2 (1,2,3,4,5)" или "В слое 0,5-1,0 м (1,4,5)"
   const layerWithPlatformsPattern =
-    /[Вв]\s*слое\s*(\d+[.,]\d+)\s*[-–]\s*(\d+[.,]\d+)\s*\(([0-9,\s]+)\)/gi;
+    /[Вв]\s*слое\s*(\d+[.,]\d+)\s*[-–]\s*(\d+[.,]\d+)\s*м?\s*\(([0-9,\s]+)\)/gi;
 
   const layers: SoilLayer[] = [];
   let match;
@@ -124,10 +124,13 @@ function extractLayersDeterministically(orderText: string): Section47LayersData 
   while ((match = layerWithPlatformsPattern.exec(text)) !== null) {
     const from = parseFloat(match[1].replace(',', '.'));
     const to = parseFloat(match[2].replace(',', '.'));
-    const platformNumbers = match[3]
+    const rawPlatforms = match[3];
+    const platformNumbers = rawPlatforms
       .split(/[,\s]+/)
       .map((s: string) => parseInt(s.trim(), 10))
       .filter((n: number) => !isNaN(n) && n > 0);
+
+    console.log(`[section-47-layers] Слой ${match[1]}-${match[2]}: raw="(${rawPlatforms})" → platforms=[${platformNumbers}] count=${platformNumbers.length}`);
 
     if (!isNaN(from) && !isNaN(to) && from < to && platformNumbers.length > 0) {
       layers.push({ from, to, count: platformNumbers.length, platformNumbers });
@@ -145,8 +148,55 @@ function extractLayersDeterministically(orderText: string): Section47LayersData 
       const to = parseFloat(match[2].replace(',', '.'));
       const count = parseInt(match[3], 10);
 
+      console.log(`[section-47-layers] Старый формат: ${match[1]}-${match[2]} м – ${match[3]} шт → count=${count}`);
+
       if (!isNaN(from) && !isNaN(to) && !isNaN(count) && from < to) {
         layers.push({ from, to, count });
+      }
+    }
+  }
+
+  // Табличный формат: слои идут отдельно от чисел (mammoth извлекает столбцы последовательно)
+  // "В слое 0,0-0,2\n В слое 0,2-0,5\n ... \n проб\n -\n -\n ... \n 4\n 4\n ..."
+  if (layers.length === 0) {
+    const layerNamesPattern = /[Вв]\s*слое\s*(\d+[.,]\d+)\s*[-–]\s*(\d+[.,]\d+)/g;
+    const layerDepths: Array<{ from: number; to: number }> = [];
+
+    while ((match = layerNamesPattern.exec(text)) !== null) {
+      const from = parseFloat(match[1].replace(',', '.'));
+      const to = parseFloat(match[2].replace(',', '.'));
+      if (!isNaN(from) && !isNaN(to) && from < to) {
+        layerDepths.push({ from, to });
+      }
+    }
+
+    if (layerDepths.length > 0) {
+      // Ищем числа после последнего «В слое» — колонка «Кол-во» из таблицы
+      const lastLayerIdx = text.lastIndexOf('В слое');
+      const afterLayers = text.substring(lastLayerIdx);
+
+      // Построчный парсинг: берём строки, содержащие только число (1-4 цифры)
+      const numbersInBlock: number[] = [];
+      for (const line of afterLayers.split(/\n/)) {
+        const trimmed = line.trim();
+        if (/^\d{1,4}$/.test(trimmed)) {
+          const n = parseInt(trimmed, 10);
+          if (n > 0) numbersInBlock.push(n);
+        }
+      }
+
+      console.log(`[section-47-layers] Табличный формат: ${layerDepths.length} слоёв, числа: [${numbersInBlock}]`);
+
+      // Берём ровно N чисел (по количеству слоёв), лишние — из другой секции
+      if (numbersInBlock.length >= layerDepths.length) {
+        for (let i = 0; i < layerDepths.length; i++) {
+          layers.push({
+            from: layerDepths[i].from,
+            to: layerDepths[i].to,
+            count: numbersInBlock[i],
+          });
+        }
+        console.log(`[section-47-layers] Табличный формат: маппинг слоёв`, layers.map(l => `${l.from}-${l.to}=${l.count}`));
       }
     }
   }
