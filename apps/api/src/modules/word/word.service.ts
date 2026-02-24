@@ -1814,17 +1814,14 @@ export class WordService {
     const sectionXml = xml.substring(tTagStart, sectionEndPos);
     const afterSection = xml.substring(sectionEndPos);
 
-    // Очищаем ВСЕ теги <w:t>...</w:t> в секции п.1.5
-    let cleanedSection = sectionXml.replace(/<w:t([^>]*)>[^<]*<\/w:t>/g, '<w:t$1></w:t>');
+    // Очищаем ВСЕ теги <w:t>...</w:t> в секции п.1.5 (убираем и атрибуты, и текст)
+    let cleanedSection = sectionXml.replace(/<w:t[^>]*>[^<]*<\/w:t>/g, '<w:t></w:t>');
 
-    // Вставляем текст из ТЗ в первый тег
+    // Вставляем текст из ТЗ в первый пустой тег
     const escapedNewText = this.escapeXml(newText);
     cleanedSection = cleanedSection.replace(
-      /<w:t([^>]*)><\/w:t>/,
-      (_match, attrs: string) => {
-        const cleanAttrs = attrs.replace(/\s*xml:space="[^"]*"/, '');
-        return `<w:t${cleanAttrs} xml:space="preserve">${escapedNewText}</w:t>`;
-      },
+      /<w:t><\/w:t>/,
+      `<w:t xml:space="preserve">${escapedNewText}</w:t>`,
     );
 
     return beforeSection + cleanedSection + afterSection;
