@@ -1543,9 +1543,8 @@ export class WordService {
       let stylesXml = stylesFile.asText();
       // Убираем синий цвет из стилей
       stylesXml = stylesXml.replace(/w:val="0000FF"/gi, 'w:val="000000"');
-      // Убираем подчёркивание из стилей
-      stylesXml = stylesXml.replace(/<w:u w:val="single"\/>/g, '');
-      stylesXml = stylesXml.replace(/<w:u[^>]*\/>/g, '');
+      // Убираем подчёркивание из стилей (только <w:u w:val="..."/>, не <w:uiPriority>)
+      stylesXml = stylesXml.replace(/<w:u w:val="[^"]*"\/>/g, '');
       zip.file('word/styles.xml', stylesXml);
     }
 
