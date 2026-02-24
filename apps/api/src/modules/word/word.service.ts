@@ -1821,7 +1821,10 @@ export class WordService {
     const escapedNewText = this.escapeXml(newText);
     cleanedSection = cleanedSection.replace(
       /<w:t([^>]*)><\/w:t>/,
-      `<w:t$1 xml:space="preserve">${escapedNewText}</w:t>`,
+      (_match, attrs: string) => {
+        const cleanAttrs = attrs.replace(/\s*xml:space="[^"]*"/, '');
+        return `<w:t${cleanAttrs} xml:space="preserve">${escapedNewText}</w:t>`;
+      },
     );
 
     return beforeSection + cleanedSection + afterSection;
