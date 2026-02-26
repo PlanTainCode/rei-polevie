@@ -320,17 +320,24 @@ export class IndicatorsService {
     let currentBkr: number | null = null;
     let currentTkr: number | null = null;
 
+    const saveCurrent = () => {
+      if (currentCipher && currentBkr !== null && currentTkr !== null) {
+        result[currentCipher] = { bkr: currentBkr, tkr: currentTkr };
+      }
+    };
+
     for (const row of rows) {
       const cellA = String(row[0] || '').trim();
+      const cellALower = cellA.toLowerCase();
 
-      // Ищем строку с шифром пробы
+      // Шифр пробы — два формата:
+      // "Наименование образца испытаний (маркировка) : 01АХ.01"
+      // "Наименование испытательного образца: 01АХ.01"
       const cipherMatch = cellA.match(
-        /маркировка\)?\s*:\s*(.+)/i,
+        /(?:маркировка\)?\s*:|испытательного образца\s*:)\s*(.+)/i,
       );
       if (cipherMatch) {
-        if (currentCipher && currentBkr !== null && currentTkr !== null) {
-          result[currentCipher] = { bkr: currentBkr, tkr: currentTkr };
-        }
+        saveCurrent();
         currentCipher = cipherMatch[1].trim();
         currentBkr = null;
         currentTkr = null;
@@ -339,20 +346,21 @@ export class IndicatorsService {
 
       if (!currentCipher) continue;
 
+      // Ищем БКР/ТКР в столбце A или B (разные форматы файлов)
       const cellB = String(row[1] || '').trim().toLowerCase();
+      const label = cellALower || cellB;
 
-      if (cellB.includes('безвредная кратность')) {
-        const val = this.parseBiotestValue(row[6]);
+      if (label.includes('безвредная кратность')) {
+        // Значение в столбце D (index 3) или G (index 6)
+        const val = this.parseBiotestValue(row[3]) ?? this.parseBiotestValue(row[6]);
         if (val !== null) currentBkr = val;
-      } else if (cellB.includes('токсичная кратность')) {
-        const val = this.parseBiotestValue(row[6]);
+      } else if (label.includes('токсичная кратность')) {
+        const val = this.parseBiotestValue(row[3]) ?? this.parseBiotestValue(row[6]);
         if (val !== null) currentTkr = val;
       }
     }
 
-    if (currentCipher && currentBkr !== null && currentTkr !== null) {
-      result[currentCipher] = { bkr: currentBkr, tkr: currentTkr };
-    }
+    saveCurrent();
 
     if (Object.keys(result).length === 0) {
       throw new BadRequestException(
