@@ -17,6 +17,8 @@ import {
   Activity,
   Copy,
   Check,
+  Upload,
+  Beaker,
 } from 'lucide-react';
 
 type ActiveTab = 'chemistry' | 'radiology';
@@ -56,7 +58,7 @@ function detectRegionFromAddress(address: string | null | undefined): RegionType
   return 'moscow';
 }
 
-import { indicatorsApi, IndicatorDetail, IndicatorSample } from '@/api/indicators';
+import { indicatorsApi, IndicatorDetail, IndicatorSample, BiotestEntry } from '@/api/indicators';
 
 function copyTableFromContainer(container: HTMLDivElement) {
   const tables = container.querySelectorAll('table');
@@ -202,6 +204,8 @@ export function IndicatorDetailPage() {
   const [region, setRegion] = useState<RegionType>('moscow');
   const [metalsView, setMetalsView] = useState<MetalsViewType>('excess');
   const [activeTab, setActiveTab] = useState<ActiveTab>('chemistry');
+  const [uploadingBiotest, setUploadingBiotest] = useState(false);
+  const biotestFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (projectId) {
@@ -242,6 +246,31 @@ export function IndicatorDetailPage() {
     } finally {
       setDeleting(false);
     }
+  };
+
+  const handleBiotestUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !projectId) return;
+    try {
+      setUploadingBiotest(true);
+      await indicatorsApi.uploadBiotest(projectId, file);
+      await loadIndicator();
+    } catch (err) {
+      setError('Ошибка загрузки файла биотестирования');
+      console.error(err);
+    } finally {
+      setUploadingBiotest(false);
+      if (biotestFileRef.current) biotestFileRef.current.value = '';
+    }
+  };
+
+  const getBiotestClass = (cipher: string): string | null => {
+    if (!indicator?.biotestData) return null;
+    const entry = indicator.biotestData[cipher] as BiotestEntry | undefined;
+    if (!entry) return null;
+    if (entry.bkr === 1 && entry.tkr === 1) return 'V';
+    if (entry.bkr > 1 || entry.tkr > 1) return 'IV';
+    return null;
   };
 
   const getIndicatorTypeLabel = (type: string) => {
@@ -620,18 +649,39 @@ export function IndicatorDetailPage() {
             )}
           </div>
         </div>
-        <button
-          onClick={handleDelete}
-          disabled={deleting}
-          className="flex items-center gap-2 px-4 py-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-        >
-          {deleting ? (
-            <div className="animate-spin w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full" />
-          ) : (
-            <Trash2 className="w-5 h-5" />
-          )}
-          <span>Удалить</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <input
+            ref={biotestFileRef}
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={handleBiotestUpload}
+          />
+          <button
+            onClick={() => biotestFileRef.current?.click()}
+            disabled={uploadingBiotest}
+            className="flex items-center gap-2 px-4 py-2 text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors"
+          >
+            {uploadingBiotest ? (
+              <div className="animate-spin w-4 h-4 border-2 border-primary-400 border-t-transparent rounded-full" />
+            ) : (
+              <Upload className="w-5 h-5" />
+            )}
+            <span>{indicator.biotestFileName ? 'Обновить' : 'Загрузить'} биотест</span>
+          </button>
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="flex items-center gap-2 px-4 py-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+          >
+            {deleting ? (
+              <div className="animate-spin w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full" />
+            ) : (
+              <Trash2 className="w-5 h-5" />
+            )}
+            <span>Удалить</span>
+          </button>
+        </div>
       </div>
 
       {/* Protocol info */}
@@ -685,6 +735,15 @@ export function IndicatorDetailPage() {
               {matchedCount}/{totalCount} проб сопоставлено с объектом
             </span>
           </div>
+          {indicator.biotestFileName && (
+            <div className="flex items-center gap-2 text-[var(--text-secondary)]">
+              <Beaker className="w-4 h-4" />
+              <span>Биотестирование: {indicator.biotestFileName}</span>
+              <span className="text-xs">
+                ({Object.keys(indicator.biotestData || {}).length} проб)
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1283,7 +1342,7 @@ export function IndicatorDetailPage() {
                       {formatCellValue(znVal)}
                     </td>
                     <td className="px-3 py-2 text-center bg-primary-500/10 font-medium">
-                      {formatValue(zc)}
+                      {parseFloat(zc.toFixed(1)).toString()}
                     </td>
                     <td className="px-3 py-2 text-center">
                       <span className={`inline-block px-3 py-1 rounded ${zcCategory.className}`}>
@@ -1432,7 +1491,15 @@ export function IndicatorDetailPage() {
                       {oilCategory.label}
                     </td>
                     <td className="px-3 py-2 text-center">
-                      <span className="text-[var(--text-secondary)]">—</span>
+                      {(() => {
+                        const cls = getBiotestClass(sample.sampleCipher);
+                        if (!cls) return <span className="text-[var(--text-secondary)]">—</span>;
+                        return (
+                          <span className={`inline-block px-2 py-0.5 rounded font-bold ${cls === 'V' ? 'bg-red-500 text-white' : 'bg-orange-500 text-white'}`}>
+                            {cls}
+                          </span>
+                        );
+                      })()}
                     </td>
                   </tr>
                 );

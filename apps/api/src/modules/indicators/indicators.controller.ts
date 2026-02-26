@@ -106,6 +106,32 @@ export class IndicatorsController {
   }
 
   /**
+   * Загрузить файл биотестирования
+   */
+  @Post('project/:projectId/biotest')
+  @UseInterceptors(
+    FileInterceptor('biotest', {
+      storage: excelStorage,
+      fileFilter: excelFilter,
+    }),
+  )
+  async uploadBiotest(
+    @Request() req: { user: { userId: string } },
+    @Param('projectId') projectId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Файл биотестирования не загружен');
+    }
+
+    return this.indicatorsService.uploadBiotest(
+      projectId,
+      file,
+      req.user.userId,
+    );
+  }
+
+  /**
    * Удалить показатели проекта
    */
   @Delete('project/:projectId')

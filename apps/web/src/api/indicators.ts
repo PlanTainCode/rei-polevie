@@ -57,6 +57,11 @@ export interface IndicatorSample {
   radiationData: Record<string, RadiationValue> | null;
 }
 
+export interface BiotestEntry {
+  bkr: number;
+  tkr: number;
+}
+
 export interface IndicatorDetail {
   id: string;
   type: IndicatorType;
@@ -66,6 +71,8 @@ export interface IndicatorDetail {
   testingDateFrom: string | null;
   testingDateTo: string | null;
   sampleCount: number | null;
+  biotestFileName: string | null;
+  biotestData: Record<string, BiotestEntry> | null;
   project: {
     id: string;
     name: string;
@@ -139,6 +146,24 @@ export const indicatorsApi = {
   async getByProjectId(projectId: string): Promise<IndicatorDetail> {
     const response = await apiClient.get<IndicatorDetail>(
       `/indicators/project/${projectId}`,
+    );
+    return response.data;
+  },
+
+  /**
+   * Загрузить файл биотестирования
+   */
+  async uploadBiotest(
+    projectId: string,
+    file: File,
+  ): Promise<{ success: boolean; samplesCount: number; fileName: string }> {
+    const formData = new FormData();
+    formData.append('biotest', file);
+
+    const response = await apiClient.post(
+      `/indicators/project/${projectId}/biotest`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
     );
     return response.data;
   },

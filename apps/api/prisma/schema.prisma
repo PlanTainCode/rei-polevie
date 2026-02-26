@@ -425,6 +425,10 @@ model Indicator {
   testingDateTo     DateTime? // Дата окончания испытаний
   sampleCount       Int?      // Количество образцов в протоколе
 
+  // Биотестирование (опционально)
+  biotestFileName   String?   // Имя загруженного файла
+  biotestData       Json?     // { "01АХ.01": { bkr: 1, tkr: 1 }, ... }
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

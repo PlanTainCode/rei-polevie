@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProtocolParserService, ParsedProtocol } from './protocol-parser.service';
+import * as XLSX from 'xlsx';
 
 // Типы грунтов для классификации
 const SANDY_TYPES = ['песок', 'супесь', 'песчаный', 'супесчаный', 'пс'];
@@ -251,6 +252,8 @@ export class IndicatorsService {
       testingDateFrom: indicator.testingDateFrom,
       testingDateTo: indicator.testingDateTo,
       sampleCount: indicator.sampleCount,
+      biotestFileName: indicator.biotestFileName,
+      biotestData: indicator.biotestData as Record<string, { bkr: number; tkr: number }> | null,
       project: indicator.project,
       samples: indicator.samples.map((s) => ({
         id: s.id,
@@ -262,6 +265,110 @@ export class IndicatorsService {
         radiationData: s.radiationData,
       })),
     };
+  }
+
+  /**
+   * Загрузить файл биотестирования
+   */
+  async uploadBiotest(
+    projectId: string,
+    file: Express.Multer.File,
+    userId: string,
+  ) {
+    await this.validateProjectAccess(projectId, userId);
+
+    const indicator = await this.prisma.indicator.findUnique({
+      where: { projectId },
+    });
+
+    if (!indicator) {
+      throw new NotFoundException('Показатели не найдены. Сначала загрузите протокол.');
+    }
+
+    const biotestData = this.parseBiotestFile(file.path);
+
+    await this.prisma.indicator.update({
+      where: { id: indicator.id },
+      data: {
+        biotestFileName: Buffer.from(file.originalname, 'latin1').toString('utf8'),
+        biotestData,
+      },
+    });
+
+    return {
+      success: true,
+      samplesCount: Object.keys(biotestData).length,
+      fileName: file.originalname,
+    };
+  }
+
+  /**
+   * Парсинг файла биотестирования
+   * Извлекает БКР и ТКР для каждой пробы
+   */
+  private parseBiotestFile(
+    filePath: string,
+  ): Record<string, { bkr: number; tkr: number }> {
+    const wb = XLSX.readFile(filePath);
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows: (string | number | null)[][] = XLSX.utils.sheet_to_json(ws, {
+      header: 1,
+    });
+
+    const result: Record<string, { bkr: number; tkr: number }> = {};
+    let currentCipher: string | null = null;
+    let currentBkr: number | null = null;
+    let currentTkr: number | null = null;
+
+    for (const row of rows) {
+      const cellA = String(row[0] || '').trim();
+
+      // Ищем строку с шифром пробы
+      const cipherMatch = cellA.match(
+        /маркировка\)?\s*:\s*(.+)/i,
+      );
+      if (cipherMatch) {
+        if (currentCipher && currentBkr !== null && currentTkr !== null) {
+          result[currentCipher] = { bkr: currentBkr, tkr: currentTkr };
+        }
+        currentCipher = cipherMatch[1].trim();
+        currentBkr = null;
+        currentTkr = null;
+        continue;
+      }
+
+      if (!currentCipher) continue;
+
+      const cellB = String(row[1] || '').trim().toLowerCase();
+
+      if (cellB.includes('безвредная кратность')) {
+        const val = this.parseBiotestValue(row[6]);
+        if (val !== null) currentBkr = val;
+      } else if (cellB.includes('токсичная кратность')) {
+        const val = this.parseBiotestValue(row[6]);
+        if (val !== null) currentTkr = val;
+      }
+    }
+
+    if (currentCipher && currentBkr !== null && currentTkr !== null) {
+      result[currentCipher] = { bkr: currentBkr, tkr: currentTkr };
+    }
+
+    if (Object.keys(result).length === 0) {
+      throw new BadRequestException(
+        'Не удалось извлечь данные биотестирования из файла',
+      );
+    }
+
+    return result;
+  }
+
+  private parseBiotestValue(cell: unknown): number | null {
+    if (cell === null || cell === undefined) return null;
+    if (typeof cell === 'number') return cell;
+    const str = String(cell).trim().replace(',', '.');
+    const num = parseFloat(str);
+    return isNaN(num) ? null : num;
   }
 
   /**
