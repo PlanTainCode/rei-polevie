@@ -854,9 +854,6 @@ export function IndicatorDetailPage() {
                 <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
                   Zn
                 </th>
-                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap bg-amber-500/10">
-                  pH
-                </th>
               </tr>
             </thead>
             <tbody>
@@ -909,9 +906,6 @@ export function IndicatorDetailPage() {
                     </td>
                     <td className="px-3 py-2 text-center">
                       {formatValue(getChemValue(sample, 'Zn'))}
-                    </td>
-                    <td className="px-3 py-2 text-center bg-amber-500/10 font-medium">
-                      {formatValue(pH)}
                     </td>
                   </tr>
                 );
@@ -1230,14 +1224,11 @@ export function IndicatorDetailPage() {
                 const znVal = getValueForView('Zn');
                 
                 const zc = calcZc(sample, region);
-                const zcCategory = getZcCategory(zc, metalsView === 'excess' ? hasAnyMetalExcess(sample) : true);
+                const zcCategory = getZcCategory(zc, hasAnyMetalExcess(sample));
 
                 const formatCellValue = (v: string | number) => {
-                  if (metalsView === 'excess') {
-                    return typeof v === 'number' ? formatValue(v) : v;
-                  }
-                  // Для K-таблиц всегда числа
-                  return typeof v === 'number' ? formatValue(v) : '0';
+                  if (typeof v === 'string') return v;
+                  return parseFloat(v.toFixed(1)).toString();
                 };
 
                 // Подсветка для таблицы превышений
@@ -1353,10 +1344,10 @@ export function IndicatorDetailPage() {
                   Номер пробы
                 </th>
                 <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
-                  Слой
+                  ПП/СК
                 </th>
-                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
-                  Зона
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Слой
                 </th>
                 <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
                   ТМ
@@ -1377,11 +1368,6 @@ export function IndicatorDetailPage() {
             </thead>
             <tbody>
               {sortSamplesByLayer(indicator.samples).map((sample) => {
-                // Зона определяется по номеру площадки (первая цифра)
-                const zoneMatch = sample.sampleCipher.match(/^(\d+)/);
-                const zoneNum = zoneMatch ? parseInt(zoneMatch[1], 10) : 0;
-                const zone = `Зона ${zoneNum}`;
-
                 // Категория ТМ (по Zc)
                 const zc = calcZc(sample, region);
                 const tmCategory = getZcCategory(zc, hasAnyMetalExcess(sample));
@@ -1422,10 +1408,10 @@ export function IndicatorDetailPage() {
                       {sample.sampleCipher}
                     </td>
                     <td className="px-3 py-2 text-[var(--text-secondary)]">
-                      {sample.matchedSample?.depthLabel || '—'}
+                      {sample.matchedSample?.platform?.label || '—'}
                     </td>
-                    <td className="px-3 py-2 text-center text-[var(--text-secondary)]">
-                      {zone}
+                    <td className="px-3 py-2 text-[var(--text-secondary)]">
+                      {sample.matchedSample?.depthLabel || '—'}
                     </td>
                     <td className="px-3 py-2 text-center">
                       <span className={`inline-block px-2 py-0.5 rounded ${tmCategory.className}`}>
@@ -1446,13 +1432,7 @@ export function IndicatorDetailPage() {
                       {oilCategory.label}
                     </td>
                     <td className="px-3 py-2 text-center">
-                      {overallLabel === 'ЧО' ? (
-                        <span className="inline-block px-2 py-0.5 rounded bg-red-500 text-white font-bold">
-                          V
-                        </span>
-                      ) : (
-                        <span className="text-[var(--text-secondary)]">—</span>
-                      )}
+                      <span className="text-[var(--text-secondary)]">—</span>
                     </td>
                   </tr>
                 );
