@@ -1492,6 +1492,8 @@ export function IndicatorDetailPage() {
                     </td>
                     <td className="px-3 py-2 text-center">
                       {(() => {
+                        const hasChO = tmCategory.label === 'ЧО' || benzapyreneCategory.label === 'ЧО' || overallLabel === 'ЧО';
+                        if (!hasChO) return <span className="text-[var(--text-secondary)]">—</span>;
                         const cls = getBiotestClass(sample.sampleCipher);
                         if (!cls) return <span className="text-[var(--text-secondary)]">—</span>;
                         return (
