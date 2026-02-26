@@ -51,6 +51,7 @@ export interface IndicatorSample {
     cipher: string;
     description: string | null;
     depthLabel: string;
+    platform?: { label: string };
   };
   chemistryData: Record<string, ChemistryValue> | null;
   radiationData: Record<string, RadiationValue> | null;

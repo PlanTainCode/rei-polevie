@@ -64,9 +64,9 @@ function copyTableFromContainer(container: HTMLDivElement) {
 
   const allRows: string[] = [];
   tables.forEach((table) => {
-    table.querySelectorAll('tr').forEach((row) => {
+    table.querySelectorAll('tbody tr, tfoot tr').forEach((row) => {
       const cells: string[] = [];
-      row.querySelectorAll('th, td').forEach((cell) => {
+      row.querySelectorAll('td').forEach((cell) => {
         cells.push((cell as HTMLElement).innerText.trim());
       });
       if (cells.some((c) => c !== '')) {
@@ -822,13 +822,13 @@ export function IndicatorDetailPage() {
             <thead>
               <tr className="border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/30">
                 <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
-                  №
-                </th>
-                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
                   Номер пробы
                 </th>
                 <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
                   Слой
+                </th>
+                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
+                  Грунт
                 </th>
                 <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
                   pH
@@ -854,16 +854,13 @@ export function IndicatorDetailPage() {
                 <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
                   Zn
                 </th>
-                <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap">
-                  Грунт
-                </th>
                 <th className="px-3 py-2 text-center font-medium text-[var(--text-secondary)] whitespace-nowrap bg-amber-500/10">
                   pH
                 </th>
               </tr>
             </thead>
             <tbody>
-              {sortSamplesByLayer(indicator.samples).map((sample, index) => {
+              {sortSamplesByLayer(indicator.samples).map((sample) => {
                 const soilType = getSoilTypeDisplay(sample.soilTypeCode);
                 const pH = getChemValue(sample, 'pH');
                 return (
@@ -871,14 +868,16 @@ export function IndicatorDetailPage() {
                     key={sample.id}
                     className="border-b border-[var(--border-color)] last:border-b-0 hover:bg-[var(--bg-tertiary)]/50"
                   >
-                    <td className="px-3 py-2 text-[var(--text-secondary)]">
-                      {index + 1}
-                    </td>
                     <td className="px-3 py-2 font-medium">
                       {sample.sampleCipher}
                     </td>
                     <td className="px-3 py-2 text-[var(--text-secondary)]">
                       {sample.matchedSample?.depthLabel || '—'}
+                    </td>
+                    <td
+                      className={`px-3 py-2 text-center font-medium ${soilType.className}`}
+                    >
+                      {soilType.label}
                     </td>
                     <td className="px-3 py-2 text-center">
                       {formatValue(pH)}
@@ -910,11 +909,6 @@ export function IndicatorDetailPage() {
                     </td>
                     <td className="px-3 py-2 text-center">
                       {formatValue(getChemValue(sample, 'Zn'))}
-                    </td>
-                    <td
-                      className={`px-3 py-2 text-center font-medium ${soilType.className}`}
-                    >
-                      {soilType.label}
                     </td>
                     <td className="px-3 py-2 text-center bg-amber-500/10 font-medium">
                       {formatValue(pH)}
@@ -1548,10 +1542,10 @@ export function IndicatorDetailPage() {
                   <thead>
                     <tr className="border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/30">
                       <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
-                        №
+                        Номер пробы
                       </th>
                       <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
-                        Номер пробы
+                        ПП/СК
                       </th>
                       <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)] whitespace-nowrap">
                         Слой
@@ -1574,7 +1568,7 @@ export function IndicatorDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortSamplesByLayer(indicator.samples).map((sample, index) => {
+                    {sortSamplesByLayer(indicator.samples).map((sample) => {
                       const ra226 = getRadValue(sample, 'Ra226');
                       const th232 = getRadValue(sample, 'Th232');
                       const k40 = getRadValue(sample, 'K40');
@@ -1586,11 +1580,11 @@ export function IndicatorDetailPage() {
                           key={sample.id}
                           className="border-b border-[var(--border-color)] hover:bg-[var(--bg-tertiary)]/50"
                         >
-                          <td className="px-3 py-2 text-[var(--text-secondary)]">
-                            {index + 1}
-                          </td>
                           <td className="px-3 py-2 font-medium">
                             {sample.sampleCipher}
+                          </td>
+                          <td className="px-3 py-2 text-[var(--text-secondary)]">
+                            {sample.matchedSample?.platform?.label || '—'}
                           </td>
                           <td className="px-3 py-2 text-[var(--text-secondary)]">
                             {sample.matchedSample?.depthLabel || '—'}
@@ -1626,8 +1620,7 @@ export function IndicatorDetailPage() {
                         key={row.label}
                         className="border-t border-[var(--border-color)] bg-[var(--bg-tertiary)]/50"
                       >
-                        <td className="px-3 py-2" />
-                        <td className="px-3 py-2 font-medium text-[var(--text-secondary)]" colSpan={2}>
+                        <td className="px-3 py-2 font-medium text-[var(--text-secondary)]" colSpan={3}>
                           {row.label}
                         </td>
                         <td className="px-3 py-2 text-center font-medium">

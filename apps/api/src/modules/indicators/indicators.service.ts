@@ -219,6 +219,9 @@ export class IndicatorsService {
                 cipher: true,
                 description: true,
                 depthLabel: true,
+                platform: {
+                  select: { label: true },
+                },
               },
             },
           },
