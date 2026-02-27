@@ -7,6 +7,7 @@ import {
   FileText,
   ClipboardList,
   FlaskConical,
+  BookOpen,
   Menu,
   X,
   LogOut,
@@ -16,12 +17,19 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 
-const navigation = [
+const navigation: {
+  name: string;
+  href: string;
+  icon: React.ElementType;
+  beta?: boolean;
+  highlight?: boolean;
+}[] = [
   { name: 'Главная', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Компания', href: '/company', icon: Building2 },
   { name: 'Объекты', href: '/projects', icon: FileText },
   { name: 'Показатели', href: '/indicators', icon: FlaskConical, beta: true },
   { name: 'ТЗ', href: '/technical-tasks', icon: ClipboardList, beta: true },
+  { name: 'Инструкция', href: '/guide', icon: BookOpen, highlight: true },
 ];
 
 export function DashboardLayout() {
@@ -78,11 +86,17 @@ export function DashboardLayout() {
                 key={item.href}
                 to={item.href}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                    isActive
-                      ? 'bg-primary-500/20 text-primary-400'
-                      : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-                  }`
+                  item.highlight
+                    ? `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                        isActive
+                          ? 'bg-emerald-500/30 text-emerald-300'
+                          : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
+                      }`
+                    : `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                        isActive
+                          ? 'bg-primary-500/20 text-primary-400'
+                          : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+                      }`
                 }
                 onClick={() => setSidebarOpen(false)}
               >
