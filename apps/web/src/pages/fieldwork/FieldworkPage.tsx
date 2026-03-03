@@ -676,8 +676,9 @@ function PlatformScreen({
       if (ids.length > 0) {
         setDescribePhotoIds(ids);
       }
-    } catch {
-      showToast('Ошибка загрузки');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Ошибка загрузки: ${msg}`);
     }
     setIsUploadingPhotos(false);
     if (photoInputRef.current) photoInputRef.current.value = '';

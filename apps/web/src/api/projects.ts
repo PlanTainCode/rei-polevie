@@ -524,11 +524,6 @@ export const projectsApi = {
     const response = await apiClient.post<PhotoUploadResult[]>(
       `/projects/${projectId}/photos`,
       formData,
-      {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      },
     );
     return response.data;
   },
@@ -543,7 +538,7 @@ export const projectsApi = {
     const response = await apiClient.post(
       `/projects/${projectId}/photos/${photoId}/voice-description`,
       formData,
-      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 30000 },
+      { timeout: 30000 },
     );
     return response.data;
   },
