@@ -789,7 +789,7 @@ function PlatformScreen({
             ref={fileInputRef}
             type="file"
             accept="image/*"
-            className="hidden"
+            className="absolute w-0 h-0 opacity-0 overflow-hidden"
             onChange={handleExifPhoto}
           />
           <div className="grid grid-cols-2 gap-2">
@@ -822,7 +822,7 @@ function PlatformScreen({
             type="file"
             accept="image/*"
             multiple
-            className="hidden"
+            className="absolute w-0 h-0 opacity-0 overflow-hidden"
             onChange={handlePhotoUpload}
           />
         </div>
@@ -1176,7 +1176,11 @@ function PhotosScreen({
         setDescribePhotoIds(ids);
       }
     },
-    onError: () => setIsUploading(false),
+    onError: (err) => {
+      setIsUploading(false);
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Ошибка загрузки: ${msg}`);
+    },
   });
 
   const updateMutation = useMutation({
@@ -1239,7 +1243,7 @@ function PhotosScreen({
           type="file"
           accept="image/*"
           multiple
-          className="hidden"
+          className="absolute w-0 h-0 opacity-0 overflow-hidden"
           onChange={handleUpload}
         />
 

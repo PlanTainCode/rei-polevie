@@ -547,7 +547,7 @@ export class ProjectsController {
     }
 
     if (!files || files.length === 0) {
-      throw new NotFoundException('Файлы не загружены');
+      throw new BadRequestException('Файлы не загружены. Попробуйте выбрать фото заново.');
     }
 
     return this.photosService.uploadPhotos(id, files, req.user.userId);
