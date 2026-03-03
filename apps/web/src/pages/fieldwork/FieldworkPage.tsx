@@ -584,48 +584,48 @@ function PlatformScreen({
 
   const handleGeolocation = () => {
     if (!navigator.geolocation) {
-      showToast('Геолокация не поддерживается');
-      return;
-    }
-    if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-      showToast('Геолокация требует HTTPS');
+      showToast('Геолокация не поддерживается браузером');
       return;
     }
     setGeoLoading(true);
 
-    const onSuccess = (pos: GeolocationPosition) => {
-      const lat = formatCoordinate(pos.coords.latitude);
-      const lon = formatCoordinate(pos.coords.longitude);
-      coordsMutation.mutate(
-        { latitude: lat, longitude: lon },
-        {
-          onSuccess: () => {
-            showToast(`Координаты сохранены (±${Math.round(pos.coords.accuracy)}м)`);
-            setGeoLoading(false);
-          },
-          onError: () => {
-            showToast('Ошибка сохранения координат');
-            setGeoLoading(false);
-          },
+    const requestPosition = (highAccuracy: boolean) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = formatCoordinate(pos.coords.latitude);
+          const lon = formatCoordinate(pos.coords.longitude);
+          coordsMutation.mutate(
+            { latitude: lat, longitude: lon },
+            {
+              onSuccess: () => {
+                showToast(`Координаты сохранены (±${Math.round(pos.coords.accuracy)}м)`);
+                setGeoLoading(false);
+              },
+              onError: () => {
+                showToast('Ошибка сохранения координат');
+                setGeoLoading(false);
+              },
+            },
+          );
         },
+        (err) => {
+          if (highAccuracy && err.code === 2) {
+            requestPosition(false);
+            return;
+          }
+          const messages: Record<number, string> = {
+            1: 'Доступ запрещён. Проверьте: Настройки → Конфиденциальность → Службы геолокации → Safari',
+            2: 'Не удалось определить местоположение',
+            3: 'Таймаут — попробуйте выйти на открытое место',
+          };
+          showToast(messages[err.code] || `Ошибка: ${err.message}`);
+          setGeoLoading(false);
+        },
+        { enableHighAccuracy: highAccuracy, timeout: 30000, maximumAge: 0 },
       );
     };
 
-    const onError = (err: GeolocationPositionError) => {
-      const messages: Record<number, string> = {
-        1: 'Доступ к геолокации запрещён',
-        2: 'Не удалось определить местоположение',
-        3: 'Таймаут определения местоположения',
-      };
-      showToast(messages[err.code] || `Ошибка геолокации: ${err.message}`);
-      setGeoLoading(false);
-    };
-
-    navigator.geolocation.getCurrentPosition(onSuccess, onError, {
-      enableHighAccuracy: true,
-      timeout: 30000,
-      maximumAge: 0,
-    });
+    requestPosition(true);
   };
 
   const handleExifPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
