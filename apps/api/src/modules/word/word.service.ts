@@ -2325,10 +2325,6 @@ export class WordService {
       '>Площадь обследуемого участка – около </w:t>',
       '>Территория обследования расположена в Луховицком районе Московской области на пойме р.Оки на км 21,820 автодороги Белоомут – Ловцы в Луховицком районе Московской области.</w:t>',
       '>Территория обследования расположена в водоохранной зоне и прибрежной защитной полосе р.Москвы (Кожуховский затон).</w:t>',
-      '>Участок изысканий относится к Химкинскому коренному ландшафту Смоленско-Московской возвышенности.</w:t>',
-      '>Участок изысканий относится к Москворецко-Грайворонскому коренному ландшафту долины р.Москвы.</w:t>',
-      '>Участок изысканий относится к Москворецко-Сходненскому коренному ландшафту долины р.Москвы.</w:t>',
-      '>Участок изысканий относится к Царицынскому коренному ландшафту Теплостанской возвышенности Москворецко-Окской физико-географической провинции</w:t>',
     ];
 
     for (const text of exactTextsToRemove) {
@@ -2790,60 +2786,8 @@ export class WordService {
       xml = this.replaceParagraphTextByParaId(xml, '67F16F92', territoryText);
     }
 
-    // --- 3.1: ландшафты (оставляем первый, удаляем остальные, заменяем текст на правильный)
-    const landscapeTexts: Record<string, string> = {
-      HIMKI: 'Участок изысканий относится к Химкинскому коренному ландшафту Смоленско-Московской возвышенности.',
-      YAUZSKIY: 'Участок изысканий относится к Яузскому коренному ландшафту долины р.Яузы.',
-      MESHCHERSKIY: 'Участок изысканий относится к Мещерскому коренному ландшафту Мещерской низменности.',
-      MOSKVORETSKO_KOPOTNENSKIY: 'Участок изысканий относится к Москворецко-Копотненскому коренному ландшафту долины р.Москвы.',
-      MOSKVORETSKO_GRAYVORONSKIY: 'Участок изысканий относится к Москворецко-Грайвороновскому коренному ландшафту долины р.Москвы.',
-      TSARITSYNSKIY: 'Участок изысканий относится к Царицынскому коренному ландшафту Москворецко-Окской физико-географической провинции.',
-      TEPLOSTANSKIY: 'Участок изысканий относится к Теплостанскому коренному ландшафту Теплостанской возвышенности.',
-      KUNTSEVSKIY: 'Участок изысканий относится к Кунцевскому коренному ландшафту долины р.Москвы.',
-      MOSKVORETSKO_SKHODNENSKIY: 'Участок изысканий относится к Москворецко-Сходненскому коренному ландшафту долины р.Москвы.',
-    };
-
-    // Определяем ландшафт по адресу детерминированно (без AI)
-    type LandscapeType = 'HIMKI' | 'YAUZSKIY' | 'MESHCHERSKIY' | 'MOSKVORETSKO_KOPOTNENSKIY' | 'MOSKVORETSKO_GRAYVORONSKIY' | 'TSARITSYNSKIY' | 'TEPLOSTANSKIY' | 'KUNTSEVSKIY' | 'MOSKVORETSKO_SKHODNENSKIY' | 'UNKNOWN';
-    const determineLandscapeByAddress = (addr: string): LandscapeType => {
-      const a = addr.toLowerCase();
-      // KUNTSEVSKIY (ЗАО)
-      if (/фили|давыдков|кунцев|крылатск|дорогомилов|можайск|рамен|солнцев|внуков|очаков|матвеевск|тропарёв|никулин|ново-переделкин|вернадског/i.test(a)) return 'KUNTSEVSKIY';
-      // HIMKI (САО)
-      if (/аэропорт|бегов|войков|головин|дмитров|коптев|сокол|тимиряз|ховрин|химк/i.test(a)) return 'HIMKI';
-      // YAUZSKIY (СВАО)
-      if (/алтуфьев|бибирев|лианозов|отрадн|медведков|бутырск|марфин|останкин|свиблов|ростокин|ярослав/i.test(a)) return 'YAUZSKIY';
-      // MESHCHERSKIY (ВАО)
-      if (/измайлов|гольянов|богородск|метрогород|новогиреев|перов|преображенск|сокольник|ивановск|восточн/i.test(a)) return 'MESHCHERSKIY';
-      // MOSKVORETSKO_KOPOTNENSKIY (ЮВАО)
-      if (/выхин|жулебин|капотн|кузьмин|люблин|марьин|печатник|текстильщик|рязан|лефортов|южнопортов|нижегород/i.test(a)) return 'MOSKVORETSKO_KOPOTNENSKIY';
-      // MOSKVORETSKO_GRAYVORONSKIY (ЦАО)
-      if (/арбат|басман|замоскворечь|пресн|таган|тверск|хамовник|мещанск|красносельск|якиманк/i.test(a)) return 'MOSKVORETSKO_GRAYVORONSKIY';
-      // TSARITSYNSKIY (ЮАО)
-      if (/бирюлёв|братеев|орехов|борисов|царицын|чертанов|нагатин|садовник|москворечь|сабуров|даниловск|донск|нагорн|зябликов/i.test(a)) return 'TSARITSYNSKIY';
-      // TEPLOSTANSKIY (ЮЗАО)
-      if (/академич|гагарин|коньков|ломоносов|тёплый стан|теплый стан|черёмушк|черемушк|ясенев|бутов|зюзин|котловк|обручевск|севастопольск/i.test(a)) return 'TEPLOSTANSKIY';
-      // MOSKVORETSKO_SKHODNENSKIY (СЗАО)
-      if (/митин|строгин|тушин|щукин|хорошёв|хорошев|мнёвник|мневник|покровск|куркин/i.test(a)) return 'MOSKVORETSKO_SKHODNENSKIY';
-      return 'UNKNOWN';
-    };
-
-    // Сначала пробуем AI, если не получилось - определяем по адресу
-    let landscape = section31Data?.landscape;
-    if (!landscape || landscape === 'UNKNOWN') {
-      landscape = determineLandscapeByAddress(address);
-    }
-
-    // Оставляем первый абзац (446E8C78), удаляем остальные
-    const allLandscapeParaIds = ['446E8C78', '56FF4617', '00ED25F0', '79DFDC31'];
-    for (let i = 1; i < allLandscapeParaIds.length; i++) {
-      xml = this.removeParagraphByParaId(xml, allLandscapeParaIds[i]);
-    }
-
-    // Заменяем текст первого абзаца на правильный ландшафт
-    if (landscape && landscape !== 'UNKNOWN' && landscapeTexts[landscape]) {
-      xml = this.replaceParagraphTextByParaId(xml, '446E8C78', landscapeTexts[landscape]);
-    }
+    // --- 3.1: ландшафты — оставляем все варианты из шаблона без изменений,
+    // т.к. автоопределение работает ненадёжно. Пользователь удалит лишние вручную.
 
     // --- 3.1: климатический абзац (paraId="0F3987D3") - убираем слово "Москва" перед температурой
     const climateTextCorrected =
@@ -2890,25 +2834,25 @@ export class WordService {
     const hasAnyNearby = Boolean(south || east || west || north);
 
     if (south) {
-      xml = this.replaceParagraphTextByParaId(xml, '3DE2F9B1', `К югу: ${south};`);
+      xml = this.replaceParagraphTextWithBreaks(xml, '3DE2F9B1', `К югу: ${south};`);
     } else {
       xml = this.removeParagraphByParaId(xml, '3DE2F9B1');
     }
 
     if (east) {
-      xml = this.replaceParagraphTextByParaId(xml, '5CD070FB', `К востоку: ${east};`);
+      xml = this.replaceParagraphTextWithBreaks(xml, '5CD070FB', `К востоку: ${east};`);
     } else {
       xml = this.removeParagraphByParaId(xml, '5CD070FB');
     }
 
     if (west) {
-      xml = this.replaceParagraphTextByParaId(xml, '76F32DCE', `К западу: ${west};`);
+      xml = this.replaceParagraphTextWithBreaks(xml, '76F32DCE', `К западу: ${west};`);
     } else {
       xml = this.removeParagraphByParaId(xml, '76F32DCE');
     }
 
     if (north) {
-      xml = this.replaceParagraphTextByParaId(xml, '7A0BBC43', `К северу: ${north}.`);
+      xml = this.replaceParagraphTextWithBreaks(xml, '7A0BBC43', `К северу: ${north}.`);
     } else {
       xml = this.removeParagraphByParaId(xml, '7A0BBC43');
     }
@@ -3013,6 +2957,57 @@ export class WordService {
     }
 
     return xml;
+  }
+
+  /**
+   * Заменяет текст параграфа по paraId, поддерживая переносы строк (\n → <w:br/>).
+   */
+  private replaceParagraphTextWithBreaks(xml: string, paraId: string, text: string): string {
+    const lines = text.split('\n');
+    if (lines.length <= 1) {
+      return this.replaceParagraphTextByParaId(xml, paraId, text);
+    }
+
+    const defaultRPr = '<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:color w:val="000000"/></w:rPr>';
+
+    const re = new RegExp(
+      `(<w:p[^>]*w14:paraId="${paraId}"[^>]*>)([\\s\\S]*?)(<\\/w:p>)`,
+      'g',
+    );
+
+    return String(xml).replace(re, (_m, open, body, close) => {
+      const bodyStr = String(body);
+      const pPrMatch = bodyStr.match(/<w:pPr[\s\S]*?<\/w:pPr>/);
+      const pPr = pPrMatch ? pPrMatch[0] : '';
+
+      const runMatch = bodyStr.match(/<w:r>[\s\S]*?<\/w:r>/);
+      let rPr = defaultRPr;
+      if (runMatch) {
+        const runRprMatch = runMatch[0].match(/<w:rPr[\s\S]*?<\/w:rPr>/);
+        if (runRprMatch) {
+          rPr = runRprMatch[0];
+        }
+      }
+      rPr = rPr
+        .replace(/<w:highlight[^/]*\/>/g, '')
+        .replace(/<w:highlight[^>]*>[\s\S]*?<\/w:highlight>/g, '')
+        .replace(/<w:shd[^/]*\/>/g, '')
+        .replace(/<w:shd[^>]*>[\s\S]*?<\/w:shd>/g, '');
+      if (rPr.includes('<w:color')) {
+        rPr = rPr.replace(/<w:color[^/]*\/>/g, '<w:color w:val="000000"/>');
+        rPr = rPr.replace(/<w:color[^>]*>[\s\S]*?<\/w:color>/g, '<w:color w:val="000000"/>');
+      } else {
+        rPr = rPr.replace('<w:rPr>', '<w:rPr><w:color w:val="000000"/>');
+      }
+
+      const runParts = lines.map((line, i) => {
+        const escaped = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        const br = i < lines.length - 1 ? '<w:br/>' : '';
+        return `<w:t xml:space="preserve">${escaped}</w:t>${br}`;
+      });
+
+      return `${open}${pPr}<w:r>${rPr}${runParts.join('')}</w:r>${close}`;
+    });
   }
 
   /**

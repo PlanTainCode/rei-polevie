@@ -98,10 +98,7 @@ export function ProgramIeiPage() {
   const [cadastralNumber, setCadastralNumber] = useState('');
   const [cadastralError, setCadastralError] = useState('');
   const [egrnDescription, setEgrnDescription] = useState('');
-  const [nearbySouth, setNearbySouth] = useState('');
-  const [nearbyEast, setNearbyEast] = useState('');
-  const [nearbyWest, setNearbyWest] = useState('');
-  const [nearbyNorth, setNearbyNorth] = useState('');
+  const [nearbyText, setNearbyText] = useState('');
   const [openGroundPercent, setOpenGroundPercent] = useState<number | null>(null);
   const [section82Text, setSection82Text] = useState('');
   const [hasChanges, setHasChanges] = useState(false);
@@ -142,10 +139,13 @@ export function ProgramIeiPage() {
     if (programIei) {
       setCadastralNumber(programIei.cadastralNumber || '');
       setEgrnDescription(programIei.egrnDescription || '');
-      setNearbySouth(programIei.nearbySouth || '');
-      setNearbyEast(programIei.nearbyEast || '');
-      setNearbyWest(programIei.nearbyWest || '');
-      setNearbyNorth(programIei.nearbyNorth || '');
+      const parts = [
+        programIei.nearbySouth ? `К югу: ${programIei.nearbySouth}` : 'К югу: ',
+        programIei.nearbyEast ? `К востоку: ${programIei.nearbyEast}` : 'К востоку: ',
+        programIei.nearbyWest ? `К западу: ${programIei.nearbyWest}` : 'К западу: ',
+        programIei.nearbyNorth ? `К северу: ${programIei.nearbyNorth}` : 'К северу: ',
+      ];
+      setNearbyText(parts.join('\n'));
       setOpenGroundPercent(programIei.openGroundPercent ?? null);
       setSection82Text(programIei.section82Text || SECTION_82_DEFAULT);
       setHasChanges(false);
@@ -153,6 +153,32 @@ export function ProgramIeiPage() {
   }, [programIei]);
 
   // Мутации
+  const parseNearbyText = (text: string) => {
+    const markers = [
+      { key: 'nearbySouth', prefix: /к\s*югу\s*:\s*/i },
+      { key: 'nearbyEast', prefix: /к\s*востоку\s*:\s*/i },
+      { key: 'nearbyWest', prefix: /к\s*западу\s*:\s*/i },
+      { key: 'nearbyNorth', prefix: /к\s*северу\s*:\s*/i },
+    ];
+    const result: Record<string, string> = {};
+    const positions: { key: string; start: number; prefixEnd: number }[] = [];
+
+    for (const m of markers) {
+      const match = text.match(m.prefix);
+      if (match && match.index !== undefined) {
+        positions.push({ key: m.key, start: match.index, prefixEnd: match.index + match[0].length });
+      }
+    }
+    positions.sort((a, b) => a.start - b.start);
+
+    for (let i = 0; i < positions.length; i++) {
+      const from = positions[i].prefixEnd;
+      const to = i + 1 < positions.length ? positions[i + 1].start : text.length;
+      result[positions[i].key] = text.slice(from, to).trim();
+    }
+    return result;
+  };
+
   const updateMutation = useMutation({
     mutationFn: (data: {
       cadastralNumber?: string;
@@ -225,13 +251,14 @@ export function ProgramIeiPage() {
       return;
     }
     
+    const parsed = parseNearbyText(nearbyText);
     updateMutation.mutate({
       cadastralNumber: cadastralNumber || undefined,
       egrnDescription: egrnDescription || undefined,
-      nearbySouth: nearbySouth || undefined,
-      nearbyEast: nearbyEast || undefined,
-      nearbyWest: nearbyWest || undefined,
-      nearbyNorth: nearbyNorth || undefined,
+      nearbySouth: parsed.nearbySouth || undefined,
+      nearbyEast: parsed.nearbyEast || undefined,
+      nearbyWest: parsed.nearbyWest || undefined,
+      nearbyNorth: parsed.nearbyNorth || undefined,
       openGroundPercent: openGroundPercent,
       section82Text: section82Text || undefined,
     });
@@ -512,67 +539,23 @@ export function ProgramIeiPage() {
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
-                    К югу
-                  </label>
-                  <textarea
-                    value={nearbySouth}
-                    onChange={(e) => {
-                      setNearbySouth(e.target.value);
-                      markChanged();
-                    }}
-                    placeholder="улица ..., автостоянка"
-                    rows={3}
-                    className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 resize-none transition-colors"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
-                    К востоку
-                  </label>
-                  <textarea
-                    value={nearbyEast}
-                    onChange={(e) => {
-                      setNearbyEast(e.target.value);
-                      markChanged();
-                    }}
-                    placeholder="улица ..., автосервис"
-                    rows={3}
-                    className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 resize-none transition-colors"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
-                    К западу
-                  </label>
-                  <textarea
-                    value={nearbyWest}
-                    onChange={(e) => {
-                      setNearbyWest(e.target.value);
-                      markChanged();
-                    }}
-                    placeholder="улица ..., объект"
-                    rows={3}
-                    className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 resize-none transition-colors"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
-                    К северу
-                  </label>
-                  <textarea
-                    value={nearbyNorth}
-                    onChange={(e) => {
-                      setNearbyNorth(e.target.value);
-                      markChanged();
-                    }}
-                    placeholder="объект ..."
-                    rows={3}
-                    className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 resize-none transition-colors"
-                  />
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
+                  Окружение участка
+                </label>
+                <textarea
+                  value={nearbyText}
+                  onChange={(e) => {
+                    setNearbyText(e.target.value);
+                    markChanged();
+                  }}
+                  placeholder={'К югу: улица ..., автостоянка\nК востоку: улица ..., автосервис\nК западу: улица ..., объект\nК северу: объект ...'}
+                  rows={10}
+                  className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 resize-y transition-colors font-mono text-sm leading-relaxed"
+                />
+                <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                  Каждое направление начинайте с «К югу:», «К востоку:», «К западу:», «К северу:». Переносы строк сохраняются при генерации документа.
+                </p>
               </div>
 
               {/* Площадь открытого грунта */}
@@ -629,7 +612,7 @@ export function ProgramIeiPage() {
               </div>
 
               <p className="text-xs text-[var(--text-secondary)] mt-4">
-                Эти поля используются для заполнения п.3.2 в программе ИЭИ (строки «К югу/востоку/западу/северу»).
+                Данные используются для заполнения п.3.2 в программе ИЭИ.
               </p>
             </div>
           </CardContent>

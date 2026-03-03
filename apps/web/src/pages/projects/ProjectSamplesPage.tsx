@@ -143,8 +143,6 @@ export function ProjectSamplesPage() {
     );
   }
 
-  const canEdit = project.canEdit ?? false;
-
   // Группируем пробы по площадкам
   const groupedSamples = (samples || []).reduce((acc, sample) => {
     const key = sample.platform.label;
@@ -333,23 +331,19 @@ export function ProjectSamplesPage() {
                             </span>
                           )}
                           
-                          {canEdit && (
-                            <>
-                              <Button size="sm" variant="ghost" onClick={() => startEditing(sample)}>
-                                <Pencil className="w-4 h-4" />
-                              </Button>
-                              {sample.status !== 'COLLECTED' && (
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  onClick={() => collectMutation.mutate(sample.id)}
-                                  isLoading={collectMutation.isPending}
-                                >
-                                  <Check className="w-4 h-4" />
-                                  Отметить
-                                </Button>
-                              )}
-                            </>
+                          <Button size="sm" variant="ghost" onClick={() => startEditing(sample)}>
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          {sample.status !== 'COLLECTED' && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => collectMutation.mutate(sample.id)}
+                              isLoading={collectMutation.isPending}
+                            >
+                              <Check className="w-4 h-4" />
+                              Отметить
+                            </Button>
                           )}
                         </div>
                       </div>

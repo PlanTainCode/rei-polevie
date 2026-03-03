@@ -471,7 +471,7 @@ export function ProjectDetailPage() {
                         <div className="flex-1">
                           <p className="font-medium">{service.name}</p>
                           <p className="text-xs text-[var(--text-secondary)]">
-                            {service.category} • {service.unit}
+                            {[service.category, service.unit].filter(Boolean).join(' • ')}
                           </p>
                         </div>
                         <div className="text-right">

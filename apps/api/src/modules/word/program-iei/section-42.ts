@@ -182,6 +182,14 @@ export function extractProgramIeiSection42Table(xml: string): ProgramIeiSection4
       return;
     }
 
+    // шапка таблицы (с «№ п/п», «Наименование работ», «Ед.изм.», «Кол-во») — сохраняем всегда
+    const joinedLower = cells.join(' ').toLowerCase();
+    if (joinedLower.includes('наименование') || joinedLower.includes('ед.') || joinedLower.includes('кол-во') || joinedLower.includes('кол.')) {
+      alwaysKeepTrIndexes.push(trIndex);
+      rows.push({ title, trIndex, trParaId, unit, qtyParaId, qtyText, isHeaderLike: true });
+      return;
+    }
+
     const headerLabel = isHeaderRow(title);
     if (headerLabel) {
       headerTrIndexes.push({ trIndex, label: headerLabel });

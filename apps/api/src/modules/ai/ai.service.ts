@@ -207,7 +207,7 @@ export const TEMPLATE_SERVICES = [
   {
     row: 34,
     num: 19,
-    category: 'Физ.факторы',
+    category: '',
     name: 'Оформление комплекта протоколов',
     unit: 'Комплект',
     keywords: [] as string[],
