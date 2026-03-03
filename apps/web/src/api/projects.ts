@@ -519,9 +519,7 @@ export const projectsApi = {
   uploadPhotos: async (projectId: string, files: File[]): Promise<PhotoUploadResult[]> => {
     const formData = new FormData();
     files.forEach((file) => {
-      const name = file.name || `photo_${Date.now()}.jpg`;
-      const blob = new Blob([file], { type: file.type || 'image/jpeg' });
-      formData.append('photos', blob, name);
+      formData.append('photos', file, file.name || `photo_${Date.now()}.jpg`);
     });
     const response = await apiClient.post<PhotoUploadResult[]>(
       `/projects/${projectId}/photos`,

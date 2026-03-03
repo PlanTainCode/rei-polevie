@@ -3,9 +3,6 @@ import { useAuthStore } from '@/store/auth';
 
 export const apiClient = axios.create({
   baseURL: '/api',
-  headers: {
-    'Content-Type': 'application/json',
-  },
 });
 
 // Интерцептор для добавления токена
