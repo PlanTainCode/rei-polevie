@@ -994,10 +994,10 @@ function SampleScreen({
   };
 
   const collectMutation = useMutation({
-    mutationFn: () =>
-      isPP
-        ? projectsApi.collectPlatformSamples(projectId, platformId)
-        : projectsApi.collectSample(projectId, sampleId),
+    mutationFn: async () => {
+      if (isPP) await projectsApi.collectPlatformSamples(projectId, platformId);
+      else await projectsApi.collectSample(projectId, sampleId);
+    },
     onSuccess: () => {
       invalidateAll();
       setToast(isPP ? 'Все пробы площадки отмечены' : 'Проба отмечена');
@@ -1006,10 +1006,10 @@ function SampleScreen({
   });
 
   const descMutation = useMutation({
-    mutationFn: (description: string) =>
-      isPP
-        ? projectsApi.setPlatformDescription(projectId, platformId, description)
-        : projectsApi.updateSample(projectId, sampleId, { description }),
+    mutationFn: async (description: string) => {
+      if (isPP) await projectsApi.setPlatformDescription(projectId, platformId, description);
+      else await projectsApi.updateSample(projectId, sampleId, { description });
+    },
     onSuccess: () => {
       invalidateAll();
       setShowDescPicker(false);
