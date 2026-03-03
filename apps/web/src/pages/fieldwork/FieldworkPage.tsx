@@ -582,26 +582,50 @@ function PlatformScreen({
   const totalCount = samples?.length ?? 0;
   const mapsUrl = hasCoords ? getYandexMapsUrl(firstSample!.latitude!, firstSample!.longitude!) : null;
 
-  const handleGeolocation = async () => {
+  const handleGeolocation = () => {
     if (!navigator.geolocation) {
       showToast('Геолокация не поддерживается');
       return;
     }
+    if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+      showToast('Геолокация требует HTTPS');
+      return;
+    }
     setGeoLoading(true);
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const lat = formatCoordinate(pos.coords.latitude);
-        const lon = formatCoordinate(pos.coords.longitude);
-        await coordsMutation.mutateAsync({ latitude: lat, longitude: lon });
-        showToast('Координаты сохранены');
-        setGeoLoading(false);
-      },
-      () => {
-        showToast('Не удалось получить геолокацию');
-        setGeoLoading(false);
-      },
-      { enableHighAccuracy: true, timeout: 15000 },
-    );
+
+    const onSuccess = (pos: GeolocationPosition) => {
+      const lat = formatCoordinate(pos.coords.latitude);
+      const lon = formatCoordinate(pos.coords.longitude);
+      coordsMutation.mutate(
+        { latitude: lat, longitude: lon },
+        {
+          onSuccess: () => {
+            showToast(`Координаты сохранены (±${Math.round(pos.coords.accuracy)}м)`);
+            setGeoLoading(false);
+          },
+          onError: () => {
+            showToast('Ошибка сохранения координат');
+            setGeoLoading(false);
+          },
+        },
+      );
+    };
+
+    const onError = (err: GeolocationPositionError) => {
+      const messages: Record<number, string> = {
+        1: 'Доступ к геолокации запрещён',
+        2: 'Не удалось определить местоположение',
+        3: 'Таймаут определения местоположения',
+      };
+      showToast(messages[err.code] || `Ошибка геолокации: ${err.message}`);
+      setGeoLoading(false);
+    };
+
+    navigator.geolocation.getCurrentPosition(onSuccess, onError, {
+      enableHighAccuracy: true,
+      timeout: 30000,
+      maximumAge: 0,
+    });
   };
 
   const handleExifPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
