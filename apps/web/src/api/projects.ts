@@ -20,12 +20,12 @@ export interface Project {
   generatedAt: string | null;
   processedAt: string | null;
   status: string;
-  createdById: string;
+  createdById: string | null;
   createdBy: {
     id: string;
     firstName: string;
     lastName: string;
-  };
+  } | null;
   createdAt: string;
   updatedAt: string;
   canEdit?: boolean;

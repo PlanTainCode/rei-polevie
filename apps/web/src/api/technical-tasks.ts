@@ -13,12 +13,12 @@ export interface TechnicalTask {
   generatedFileName: string | null;
   generatedFileUrl: string | null;
   generatedAt: string | null;
-  createdById: string;
+  createdById: string | null;
   createdBy: {
     id: string;
     firstName: string;
     lastName: string;
-  };
+  } | null;
   createdAt: string;
   updatedAt: string;
   canEdit?: boolean;

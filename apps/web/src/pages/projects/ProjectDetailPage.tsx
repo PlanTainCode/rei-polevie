@@ -248,10 +248,12 @@ export function ProjectDetailPage() {
               <h1 className="text-2xl font-bold">{project.name}</h1>
             )}
             <div className="flex items-center gap-4 mt-1 text-sm text-[var(--text-secondary)]">
+              {project.createdBy && (
               <span className="flex items-center gap-1">
                 <User className="w-4 h-4" />
                 {project.createdBy.firstName} {project.createdBy.lastName}
               </span>
+              )}
               <span className="flex items-center gap-1">
                 <Calendar className="w-4 h-4" />
                 {new Date(project.createdAt).toLocaleDateString('ru')}

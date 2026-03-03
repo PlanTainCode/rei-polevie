@@ -95,12 +95,14 @@ function TechnicalTaskCard({ task }: { task: TechnicalTask }) {
 
         {/* Метаданные */}
         <div className="space-y-1.5 text-sm text-[var(--text-secondary)]">
+          {task.createdBy && (
           <div className="flex items-center gap-2">
             <User className="w-4 h-4" />
             <span>
               {task.createdBy.firstName} {task.createdBy.lastName}
             </span>
           </div>
+          )}
           <div className="flex items-center gap-2">
             <Calendar className="w-4 h-4" />
             <span>

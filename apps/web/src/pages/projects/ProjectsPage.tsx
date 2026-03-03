@@ -92,12 +92,14 @@ export function ProjectsPage() {
                 <h3 className="font-semibold mb-2 line-clamp-2">{project.name}</h3>
 
                 <div className="space-y-1.5 text-sm text-[var(--text-secondary)]">
+                  {project.createdBy && (
                   <div className="flex items-center gap-2">
                     <User className="w-4 h-4" />
                     <span>
                       {project.createdBy.firstName} {project.createdBy.lastName}
                     </span>
                   </div>
+                  )}
                   <div className="flex items-center gap-2">
                     <Calendar className="w-4 h-4" />
                     <span>

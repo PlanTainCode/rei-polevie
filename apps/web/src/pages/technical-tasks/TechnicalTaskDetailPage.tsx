@@ -125,10 +125,12 @@ export function TechnicalTaskDetailPage() {
           <div>
             <h1 className="text-3xl font-bold mb-2">{task.name}</h1>
             <div className="flex items-center gap-4 text-[var(--text-secondary)]">
+              {task.createdBy && (
               <span className="flex items-center gap-2">
                 <User className="w-4 h-4" />
                 {task.createdBy.firstName} {task.createdBy.lastName}
               </span>
+              )}
               <span className="flex items-center gap-2">
                 <Calendar className="w-4 h-4" />
                 {new Date(task.createdAt).toLocaleDateString('ru', {
