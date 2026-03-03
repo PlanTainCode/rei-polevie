@@ -287,6 +287,16 @@ export interface PhotoUploadResult {
   filename?: string;
 }
 
+export interface PlatformWithSamples extends Platform {
+  _count: { samples: number };
+  samples: Array<{
+    id: string;
+    status: string;
+    latitude: string | null;
+    longitude: string | null;
+  }>;
+}
+
 export const projectsApi = {
   getDashboardStats: async (): Promise<DashboardStats> => {
     const response = await apiClient.get<DashboardStats>('/projects/dashboard-stats');
@@ -412,6 +422,36 @@ export const projectsApi = {
     window.URL.revokeObjectURL(url);
   },
 
+  // ========== ПЛОЩАДКИ ==========
+
+  getPlatforms: async (projectId: string): Promise<PlatformWithSamples[]> => {
+    const response = await apiClient.get<PlatformWithSamples[]>(`/projects/${projectId}/platforms`);
+    return response.data;
+  },
+
+  updatePlatformCoordinates: async (
+    projectId: string,
+    platformId: string,
+    data: { latitude?: string; longitude?: string },
+  ): Promise<{ updated: number }> => {
+    const response = await apiClient.patch(`/projects/${projectId}/platforms/${platformId}/coordinates`, data);
+    return response.data;
+  },
+
+  collectPlatformSamples: async (projectId: string, platformId: string): Promise<{ collected: number }> => {
+    const response = await apiClient.post(`/projects/${projectId}/platforms/${platformId}/collect`);
+    return response.data;
+  },
+
+  setPlatformDescription: async (
+    projectId: string,
+    platformId: string,
+    description: string,
+  ): Promise<{ updated: number }> => {
+    const response = await apiClient.patch(`/projects/${projectId}/platforms/${platformId}/description`, { description });
+    return response.data;
+  },
+
   // ========== РАБОТА С ПРОБАМИ ==========
 
   getSamples: async (projectId: string): Promise<Sample[]> => {
@@ -489,6 +529,21 @@ export const projectsApi = {
           'Content-Type': 'multipart/form-data',
         },
       },
+    );
+    return response.data;
+  },
+
+  voiceDescribePhoto: async (
+    projectId: string,
+    photoId: string,
+    audioBlob: Blob,
+  ): Promise<{ transcription: string; photo: Photo }> => {
+    const formData = new FormData();
+    formData.append('audio', audioBlob, 'voice.webm');
+    const response = await apiClient.post(
+      `/projects/${projectId}/photos/${photoId}/voice-description`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 30000 },
     );
     return response.data;
   },

@@ -30,8 +30,9 @@ import { ProgramIeiService } from './program-iei.service';
 import { ExcelService } from '../excel/excel.service';
 import { WordService } from '../word/word.service';
 import { DistanceService } from '../distance/distance.service';
+import { AiService } from '../ai/ai.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { CreateProjectDto, UpdateSampleDto, UpdatePhotoDto, ReorderPhotosDto, GenerateAlbumDto, UpdateProgramIeiDto } from './dto/project.dto';
+import { CreateProjectDto, UpdateSampleDto, UpdatePhotoDto, ReorderPhotosDto, GenerateAlbumDto, UpdateProgramIeiDto, UpdatePlatformCoordinatesDto } from './dto/project.dto';
 
 // Multer config для документов Word
 const documentsStorage = diskStorage({
@@ -67,6 +68,7 @@ export class ProjectsController {
     private excelService: ExcelService,
     private wordService: WordService,
     private distanceService: DistanceService,
+    private aiService: AiService,
   ) {}
 
   @Post()
@@ -413,6 +415,49 @@ export class ProjectsController {
     res.download(path, fileName);
   }
 
+  // ============ ПЛОЩАДКИ ============
+
+  @Get(':id/platforms')
+  async getPlatforms(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    await this.projectsService.findById(id, req.user.userId);
+    return this.samplesService.getPlatformsByProject(id);
+  }
+
+  @Patch(':id/platforms/:platformId/coordinates')
+  async updatePlatformCoordinates(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @Param('platformId') platformId: string,
+    @Body() dto: UpdatePlatformCoordinatesDto,
+  ) {
+    await this.projectsService.findById(id, req.user.userId);
+    return this.samplesService.updatePlatformCoordinates(platformId, dto);
+  }
+
+  @Post(':id/platforms/:platformId/collect')
+  async collectPlatformSamples(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @Param('platformId') platformId: string,
+  ) {
+    await this.projectsService.findById(id, req.user.userId);
+    return this.samplesService.collectPlatformSamples(platformId, req.user.userId);
+  }
+
+  @Patch(':id/platforms/:platformId/description')
+  async setPlatformDescription(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @Param('platformId') platformId: string,
+    @Body() dto: { description: string },
+  ) {
+    await this.projectsService.findById(id, req.user.userId);
+    return this.samplesService.setPlatformDescription(platformId, dto.description);
+  }
+
   // ============ РАБОТА С ПРОБАМИ ============
 
   // Получить все пробы проекта
@@ -529,6 +574,33 @@ export class ProjectsController {
       latitude: dto.latitude,
       longitude: dto.longitude,
     });
+  }
+
+  @Post(':id/photos/:photoId/voice-description')
+  @UseInterceptors(FileInterceptor('audio'))
+  async voiceDescription(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @Param('photoId') photoId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    await this.projectsService.findById(id, req.user.userId);
+
+    if (!file) {
+      throw new BadRequestException('Аудиофайл не передан');
+    }
+
+    const transcription = await this.aiService.transcribeAudio(file.buffer, file.mimetype || 'audio/webm');
+
+    if (!transcription) {
+      throw new BadRequestException('Не удалось расшифровать аудио');
+    }
+
+    const photo = await this.photosService.updatePhoto(photoId, {
+      description: transcription,
+    });
+
+    return { transcription, photo };
   }
 
   // Изменить порядок фото

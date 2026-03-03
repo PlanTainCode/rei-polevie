@@ -60,6 +60,16 @@ export class GenerateAlbumDto {
   crewMembers: string;
 }
 
+export class UpdatePlatformCoordinatesDto {
+  @IsString()
+  @IsOptional()
+  latitude?: string;
+
+  @IsString()
+  @IsOptional()
+  longitude?: string;
+}
+
 export class UpdateProgramIeiDto {
   @IsString()
   @IsOptional()

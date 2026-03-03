@@ -24,6 +24,7 @@ import { CreateIndicatorPage } from '@/pages/indicators/CreateIndicatorPage';
 import { IndicatorDetailPage } from '@/pages/indicators/IndicatorDetailPage';
 import { SettingsPage } from '@/pages/settings/SettingsPage';
 import { GuidePage } from '@/pages/guide/GuidePage';
+import { FieldworkPage } from '@/pages/fieldwork/FieldworkPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuthStore();
@@ -113,6 +114,16 @@ export default function App() {
         <Route path="/technical-tasks/:id" element={<TechnicalTaskDetailPage />} />
         <Route path="/guide" element={<GuidePage />} />
       </Route>
+
+      {/* Полевые работы — отдельный layout для мобильных */}
+      <Route
+        path="/fieldwork"
+        element={
+          <ProtectedRoute>
+            <FieldworkPage />
+          </ProtectedRoute>
+        }
+      />
 
       {/* Редирект по умолчанию */}
       <Route path="/" element={<Navigate to="/dashboard" replace />} />

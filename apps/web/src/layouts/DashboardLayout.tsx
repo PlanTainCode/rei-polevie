@@ -14,6 +14,7 @@ import {
   User,
   ChevronDown,
   Settings,
+  Compass,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 
@@ -178,7 +179,13 @@ export function DashboardLayout() {
             </div>
             <span className="font-semibold">Полевие</span>
           </div>
-          <div className="w-9" /> {/* Spacer */}
+          <button
+            className="p-2 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400"
+            onClick={() => navigate('/fieldwork')}
+            title="Полевые работы"
+          >
+            <Compass className="w-5 h-5" />
+          </button>
         </header>
 
         {/* Page content */}

@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { Building2, Users, UserPlus, Mail, Trash2 } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Building2, Users, UserPlus, Mail, Trash2, Loader2 } from 'lucide-react';
 import { companiesApi, invitationsApi } from '@/api/companies';
 import { useAuthStore } from '@/store/auth';
 import { Button, Card, CardHeader, CardTitle, CardContent } from '@/components/ui';
@@ -15,6 +15,7 @@ const ROLE_LABELS: Record<string, string> = {
 export function CompanyPage() {
   const { user } = useAuthStore();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data: company, isLoading } = useQuery({
     queryKey: ['myCompany'],
@@ -25,6 +26,20 @@ export function CompanyPage() {
     queryKey: ['invitations', company?.id],
     queryFn: () => invitationsApi.getCompanyInvitations(company!.id),
     enabled: !!company?.id && ['OWNER', 'ADMIN'].includes(company?.myRole || ''),
+  });
+
+  const removeMemberMutation = useMutation({
+    mutationFn: (userId: string) => companiesApi.removeMember(company!.id, userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['myCompany'] });
+    },
+  });
+
+  const cancelInviteMutation = useMutation({
+    mutationFn: (invitationId: string) => invitationsApi.cancel(invitationId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invitations', company?.id] });
+    },
   });
 
   if (isLoading) {
@@ -123,8 +138,18 @@ export function CompanyPage() {
                   {canManageMembers &&
                     member.role !== 'OWNER' &&
                     member.user.id !== user?.id && (
-                      <button className="p-2 hover:bg-red-500/10 rounded-lg text-red-400 transition-colors">
-                        <Trash2 className="w-4 h-4" />
+                      <button
+                        className="p-2 hover:bg-red-500/10 rounded-lg text-red-400 transition-colors disabled:opacity-40"
+                        disabled={removeMemberMutation.isPending}
+                        onClick={() => {
+                          if (confirm(`Удалить ${member.user.firstName} ${member.user.lastName} из компании?`)) {
+                            removeMemberMutation.mutate(member.user.id);
+                          }
+                        }}
+                      >
+                        {removeMemberMutation.isPending && removeMemberMutation.variables === member.user.id
+                          ? <Loader2 className="w-4 h-4 animate-spin" />
+                          : <Trash2 className="w-4 h-4" />}
                       </button>
                     )}
                 </div>
@@ -157,8 +182,18 @@ export function CompanyPage() {
                       {new Date(invite.expiresAt).toLocaleDateString('ru')}
                     </p>
                   </div>
-                  <button className="p-2 hover:bg-red-500/10 rounded-lg text-red-400 transition-colors">
-                    <Trash2 className="w-4 h-4" />
+                  <button
+                    className="p-2 hover:bg-red-500/10 rounded-lg text-red-400 transition-colors disabled:opacity-40"
+                    disabled={cancelInviteMutation.isPending}
+                    onClick={() => {
+                      if (confirm(`Отменить приглашение для ${invite.email}?`)) {
+                        cancelInviteMutation.mutate(invite.id);
+                      }
+                    }}
+                  >
+                    {cancelInviteMutation.isPending && cancelInviteMutation.variables === invite.id
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : <Trash2 className="w-4 h-4" />}
                   </button>
                 </div>
               ))}

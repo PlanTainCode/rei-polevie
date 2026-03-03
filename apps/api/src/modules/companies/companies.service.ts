@@ -127,7 +127,6 @@ export class CompaniesService {
   async removeMember(companyId: string, memberId: string, requesterId: string) {
     const requesterMembership = await this.checkMembership(companyId, requesterId);
 
-    // Только OWNER и ADMIN могут удалять участников
     if (!['OWNER', 'ADMIN'].includes(requesterMembership.role)) {
       throw new ForbiddenException('Недостаточно прав');
     }
@@ -140,19 +139,25 @@ export class CompaniesService {
       throw new NotFoundException('Участник не найден');
     }
 
-    // Нельзя удалить владельца
     if (memberToRemove.role === 'OWNER') {
       throw new ForbiddenException('Нельзя удалить владельца компании');
     }
 
-    // ADMIN не может удалить другого ADMIN
     if (requesterMembership.role === 'ADMIN' && memberToRemove.role === 'ADMIN') {
       throw new ForbiddenException('Администратор не может удалить другого администратора');
     }
 
-    await this.prisma.companyMember.delete({
-      where: { id: memberToRemove.id },
-    });
+    if (requesterMembership.role === 'OWNER') {
+      // OWNER удаляет пользователя полностью — CompanyMember удалится каскадно
+      await this.prisma.user.delete({
+        where: { id: memberId },
+      });
+    } else {
+      // ADMIN только убирает из компании
+      await this.prisma.companyMember.delete({
+        where: { id: memberToRemove.id },
+      });
+    }
 
     return { success: true };
   }

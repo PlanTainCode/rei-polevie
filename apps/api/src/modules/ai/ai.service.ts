@@ -244,7 +244,7 @@ export class AiService {
   /**
    * Расшифровывает аудиофайл через Deepgram API (бесплатно 200 мин/мес)
    */
-  async transcribeAudio(audioBuffer: Buffer): Promise<string> {
+  async transcribeAudio(audioBuffer: Buffer, contentType = 'audio/ogg'): Promise<string> {
     const deepgramApiKey = this.configService.get<string>('DEEPGRAM_API_KEY');
     
     if (!deepgramApiKey) {
@@ -262,7 +262,7 @@ export class AiService {
           method: 'POST',
           headers: {
             'Authorization': `Token ${deepgramApiKey}`,
-            'Content-Type': 'audio/ogg',
+            'Content-Type': contentType,
           },
           body: uint8Array,
         },

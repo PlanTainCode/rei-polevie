@@ -449,6 +449,87 @@ export class SamplesService {
   /**
    * Получает все пробы проекта с площадками
    */
+  async getPlatformsByProject(projectId: string) {
+    return this.prisma.platform.findMany({
+      where: { projectId },
+      include: {
+        _count: { select: { samples: true } },
+        samples: {
+          select: { id: true, status: true, latitude: true, longitude: true },
+        },
+      },
+      orderBy: [{ type: 'asc' }, { number: 'asc' }],
+    });
+  }
+
+  async updatePlatformCoordinates(
+    platformId: string,
+    data: { latitude?: string; longitude?: string },
+  ) {
+    const updateData: { latitude?: string; longitude?: string } = {};
+    if (data.latitude !== undefined) updateData.latitude = data.latitude;
+    if (data.longitude !== undefined) updateData.longitude = data.longitude;
+
+    if (Object.keys(updateData).length === 0) return { updated: 0 };
+
+    const platform = await this.prisma.platform.findUnique({
+      where: { id: platformId },
+    });
+    if (!platform) return { updated: 0 };
+
+    const result = await this.prisma.sample.updateMany({
+      where: { platformId },
+      data: updateData,
+    });
+
+    let linkedType: 'PP' | 'SK' | null = null;
+    if (platform.type === 'PP') linkedType = 'SK';
+    else if (platform.type === 'SK') linkedType = 'PP';
+
+    if (linkedType) {
+      const linked = await this.prisma.platform.findFirst({
+        where: {
+          projectId: platform.projectId,
+          type: linkedType,
+          number: platform.number,
+        },
+      });
+      if (linked) {
+        await this.prisma.sample.updateMany({
+          where: { platformId: linked.id },
+          data: updateData,
+        });
+      }
+    }
+
+    return { updated: result.count, platform };
+  }
+
+  async collectPlatformSamples(platformId: string, userId: string) {
+    const platform = await this.prisma.platform.findUnique({
+      where: { id: platformId },
+    });
+    if (!platform) return { collected: 0 };
+
+    const result = await this.prisma.sample.updateMany({
+      where: { platformId, status: { not: 'COLLECTED' } },
+      data: {
+        status: 'COLLECTED',
+        collectedAt: new Date(),
+        collectedById: userId,
+      },
+    });
+    return { collected: result.count };
+  }
+
+  async setPlatformDescription(platformId: string, description: string) {
+    const result = await this.prisma.sample.updateMany({
+      where: { platformId },
+      data: { description },
+    });
+    return { updated: result.count };
+  }
+
   async getSamplesByProject(projectId: string) {
     return this.prisma.sample.findMany({
       where: { projectId },
