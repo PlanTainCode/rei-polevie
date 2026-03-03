@@ -107,10 +107,20 @@ export class PhotosService {
       throw new BadRequestException(`Файл слишком большой. Максимум ${MAX_FILE_SIZE / 1024 / 1024}MB`);
     }
 
-    // Проверяем формат
-    const mimetype = file.mimetype.toLowerCase();
+    // Определяем MIME по расширению если браузер отдал generic тип
+    const ext = extname(file.originalname).toLowerCase();
+    const extToMime: Record<string, string> = {
+      '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+      '.heic': 'image/heic', '.heif': 'image/heif', '.webp': 'image/webp',
+    };
+    let mimetype = file.mimetype?.toLowerCase() || '';
+    if (!SUPPORTED_MIMES.includes(mimetype) && extToMime[ext]) {
+      mimetype = extToMime[ext];
+      this.logger.warn(`MIME fallback: "${file.mimetype}" → "${mimetype}" (по расширению ${ext})`);
+    }
     if (!SUPPORTED_MIMES.includes(mimetype)) {
-      throw new BadRequestException('Неподдерживаемый формат. Разрешены: JPEG, PNG, HEIC, WebP');
+      this.logger.warn(`Rejected file: mime="${file.mimetype}", ext="${ext}", name="${file.originalname}"`);
+      throw new BadRequestException(`Неподдерживаемый формат (${file.mimetype || 'unknown'}). Разрешены: JPEG, PNG, HEIC, WebP`);
     }
 
     // Получаем buffer
@@ -126,9 +136,8 @@ export class PhotosService {
     }
 
     // Определяем расширение
-    let extension = extname(file.originalname).toLowerCase();
-    const isHeic = mimetype.includes('heic') || mimetype.includes('heif') || 
-                   extension === '.heic' || extension === '.heif';
+    let extension = ext || extname(file.originalname).toLowerCase();
+    const isHeic = mimetype.includes('heic') || mimetype.includes('heif');
 
     // Извлекаем EXIF до конвертации
     const exifData = await this.extractExif(buffer);
