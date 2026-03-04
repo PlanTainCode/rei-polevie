@@ -1,5 +1,9 @@
 FROM oven/bun:1-alpine AS base
 
+# Быстрое CDN-зеркало Alpine
+RUN echo "https://dl-cdn.alpinelinux.org/alpine/v$(cut -d. -f1,2 /etc/alpine-release)/main" > /etc/apk/repositories && \
+    echo "https://dl-cdn.alpinelinux.org/alpine/v$(cut -d. -f1,2 /etc/alpine-release)/community" >> /etc/apk/repositories
+
 # LibreOffice для конвертации Word -> PDF
 RUN apk add --no-cache openssl libreoffice-writer ttf-liberation font-noto fontconfig
 
