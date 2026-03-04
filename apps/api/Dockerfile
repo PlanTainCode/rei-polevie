@@ -1,11 +1,15 @@
 FROM oven/bun:1-alpine AS base
 
-# Зеркало Яндекса (Москва)
-RUN echo "https://mirror.yandex.ru/mirrors/alpine/v$(cut -d. -f1,2 /etc/alpine-release)/main" > /etc/apk/repositories && \
-    echo "https://mirror.yandex.ru/mirrors/alpine/v$(cut -d. -f1,2 /etc/alpine-release)/community" >> /etc/apk/repositories
+# Зеркало Яндекса (Москва) + edge для свежего LibreOffice
+RUN ALPINE_VER=$(cut -d. -f1,2 /etc/alpine-release) && \
+    echo "https://mirror.yandex.ru/mirrors/alpine/v${ALPINE_VER}/main" > /etc/apk/repositories && \
+    echo "https://mirror.yandex.ru/mirrors/alpine/v${ALPINE_VER}/community" >> /etc/apk/repositories && \
+    echo "https://mirror.yandex.ru/mirrors/alpine/edge/main" >> /etc/apk/repositories && \
+    echo "https://mirror.yandex.ru/mirrors/alpine/edge/community" >> /etc/apk/repositories
 
-# LibreOffice для конвертации Word -> PDF
-RUN apk add --no-cache openssl libreoffice-writer ttf-liberation font-noto fontconfig
+# LibreOffice (из edge — более свежая версия) для конвертации Word -> PDF
+RUN apk add --no-cache openssl fontconfig && \
+    apk add --no-cache --repository=https://mirror.yandex.ru/mirrors/alpine/edge/community libreoffice-writer
 
 # Настоящие шрифты Times New Roman и Arial (скопированы из macOS)
 COPY apps/api/fonts/ /usr/share/fonts/truetype/msfonts/
