@@ -1,17 +1,11 @@
 FROM oven/bun:1-alpine AS base
 
 # LibreOffice для конвертации Word -> PDF
-# Liberation fonts — метрически совместимые аналоги Times New Roman, Arial, Courier New
-RUN apk add --no-cache openssl libreoffice-writer ttf-liberation font-noto fontconfig && \
-    mkdir -p /etc/fonts/conf.d && \
-    printf '<?xml version="1.0"?>\n\
-<!DOCTYPE fontconfig SYSTEM "fonts.dtd">\n\
-<fontconfig>\n\
-  <alias><family>Times New Roman</family><prefer><family>Liberation Serif</family></prefer></alias>\n\
-  <alias><family>Arial</family><prefer><family>Liberation Sans</family></prefer></alias>\n\
-  <alias><family>Courier New</family><prefer><family>Liberation Mono</family></prefer></alias>\n\
-</fontconfig>\n' > /etc/fonts/conf.d/99-ms-font-aliases.conf && \
-    fc-cache -f
+RUN apk add --no-cache openssl libreoffice-writer fontconfig
+
+# Настоящие шрифты Times New Roman и Arial (скопированы из macOS)
+COPY apps/api/fonts/ /usr/share/fonts/truetype/msfonts/
+RUN fc-cache -f
 
 WORKDIR /app
 
