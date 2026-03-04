@@ -1,19 +1,17 @@
 FROM oven/bun:1-alpine AS base
 
-# Установка необходимых системных пакетов
-# LibreOffice нужен для конвертации Word -> PDF (справки)
-# MS Core Fonts нужны для корректного рендеринга шаблонов (Times New Roman, Arial и т.д.)
+# LibreOffice для конвертации Word -> PDF
+# Liberation fonts — метрически совместимые аналоги Times New Roman, Arial, Courier New
 RUN apk add --no-cache openssl libreoffice-writer ttf-liberation font-noto fontconfig && \
-    apk add --no-cache --virtual .font-deps curl cabextract && \
-    mkdir -p /usr/share/fonts/truetype/msttcorefonts && \
-    for f in andale32 arial32 arialb32 comic32 courie32 georgi32 impact32 times32 trebuc32 verdan32 webdin32; do \
-      curl -sLo /tmp/$f.exe "https://downloads.sourceforge.net/corefonts/$f.exe" && \
-      cabextract -q -d /tmp/fonts /tmp/$f.exe 2>/dev/null || true; \
-    done && \
-    find /tmp/fonts -iname '*.ttf' -exec mv {} /usr/share/fonts/truetype/msttcorefonts/ \; 2>/dev/null; \
-    fc-cache -f && \
-    rm -rf /tmp/fonts /tmp/*.exe && \
-    apk del .font-deps
+    mkdir -p /etc/fonts/conf.d && \
+    printf '<?xml version="1.0"?>\n\
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">\n\
+<fontconfig>\n\
+  <alias><family>Times New Roman</family><prefer><family>Liberation Serif</family></prefer></alias>\n\
+  <alias><family>Arial</family><prefer><family>Liberation Sans</family></prefer></alias>\n\
+  <alias><family>Courier New</family><prefer><family>Liberation Mono</family></prefer></alias>\n\
+</fontconfig>\n' > /etc/fonts/conf.d/99-ms-font-aliases.conf && \
+    fc-cache -f
 
 WORKDIR /app
 
