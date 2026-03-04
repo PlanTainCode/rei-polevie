@@ -44,6 +44,12 @@ export interface Project {
     id: string;
     name: string;
   }[];
+  indicator?: {
+    id: string;
+    type: string;
+    protocolNumber: string | null;
+    sampleCount: number | null;
+  } | null;
 }
 
 export interface ParsedDocumentInfo {

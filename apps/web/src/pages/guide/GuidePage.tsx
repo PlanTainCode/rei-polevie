@@ -105,7 +105,7 @@ export function GuidePage() {
           <ArrowRight className="w-4 h-4" />
           <span className="px-2.5 py-1 bg-[var(--bg-tertiary)] rounded-lg">Генерация документов</span>
           <ArrowRight className="w-4 h-4" />
-          <span className="px-2.5 py-1 bg-[var(--bg-tertiary)] rounded-lg">Показатели</span>
+          <span className="px-2.5 py-1 bg-[var(--bg-tertiary)] rounded-lg">Показатели (внутри объекта)</span>
         </div>
       </div>
 
@@ -245,12 +245,15 @@ export function GuidePage() {
       </Section>
 
       <Section title="Показатели (расчёты)" icon={FlaskConical} step={8}>
-        <Step icon={Plus}>
-          Перейдите в раздел <strong>Показатели</strong> в левом меню → <strong>«Загрузить протокол»</strong>.
+        <Step icon={MousePointer}>
+          Откройте страницу объекта и прокрутите вниз до плашки <strong>«Показатели»</strong> (находится после «Допотборы»).
         </Step>
         <Step icon={Upload}>
-          Выберите объект и загрузите <strong>Excel-файл протокола</strong> лабораторных исследований. Загружается один протокол, содержащий данные по <strong>химии и ЕРН</strong> (естественные радионуклиды).
+          Если показатели ещё не загружены — перетащите или выберите <strong>Excel-файл протокола</strong> лабораторных исследований прямо в плашке. Загружается один протокол, содержащий данные по <strong>химии и ЕРН</strong> (естественные радионуклиды).
           Система автоматически извлечёт данные по каждой пробе и сопоставит с пробами объекта.
+        </Step>
+        <Step icon={ArrowRight}>
+          После загрузки вы перейдёте на страницу показателей объекта. Если показатели уже загружены — нажмите на плашку «Показатели» для перехода.
         </Step>
         <Step icon={MousePointer}>
           <strong>На странице показателей доступны таблицы:</strong>

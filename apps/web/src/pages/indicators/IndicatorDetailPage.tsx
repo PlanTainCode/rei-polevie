@@ -195,7 +195,7 @@ function sortSamplesByLayer(samples: IndicatorSample[]): IndicatorSample[] {
 }
 
 export function IndicatorDetailPage() {
-  const { projectId } = useParams<{ projectId: string }>();
+  const { id: projectId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [indicator, setIndicator] = useState<IndicatorDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -239,7 +239,7 @@ export function IndicatorDetailPage() {
     try {
       setDeleting(true);
       await indicatorsApi.delete(projectId!);
-      navigate('/indicators');
+      navigate(`/projects/${projectId}`);
     } catch (err) {
       setError('Ошибка при удалении');
       console.error(err);
@@ -605,7 +605,7 @@ export function IndicatorDetailPage() {
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Link
-            to="/indicators"
+            to={`/projects/${projectId}`}
             className="p-2 hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -628,7 +628,7 @@ export function IndicatorDetailPage() {
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
           <Link
-            to="/indicators"
+            to={`/projects/${projectId}`}
             className="p-2 hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />

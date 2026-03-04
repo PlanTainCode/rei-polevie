@@ -8,6 +8,7 @@ import {
   ArrowRight,
   Plus,
   AlertTriangle,
+  Info,
   X,
   FolderOpen,
   BarChart3,
@@ -102,6 +103,9 @@ export function DashboardPage() {
       {/* Beta информация */}
       <BetaNotice />
 
+      {/* Оповещение об обновлении */}
+      <UpdateNotice />
+
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">
           Добро пожаловать, {user?.firstName}!
@@ -182,10 +186,10 @@ export function DashboardPage() {
               />
             )}
             <QuickActionCard
-              icon={BarChart3}
-              title="Показатели"
-              description="Справочник показателей"
-              onClick={() => navigate('/indicators')}
+              icon={FolderOpen}
+              title="Все объекты"
+              description="Перейти к списку объектов"
+              onClick={() => navigate('/projects')}
             />
           </div>
         </div>
@@ -408,6 +412,52 @@ function formatRelativeDate(dateStr: string): string {
     day: 'numeric',
     month: 'short',
   });
+}
+
+function UpdateNotice() {
+  const [dismissed, setDismissed] = useState(() => {
+    return localStorage.getItem('updateNotice_2025_03_indicators') === 'true';
+  });
+
+  const handleDismiss = () => {
+    localStorage.setItem('updateNotice_2025_03_indicators', 'true');
+    setDismissed(true);
+  };
+
+  if (dismissed) return null;
+
+  return (
+    <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+      <div className="flex items-start gap-3">
+        <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
+          <Info className="w-5 h-5 text-blue-400" />
+        </div>
+        <div className="flex-1">
+          <h3 className="font-semibold text-blue-400 mb-1">Обновление системы</h3>
+          <ul className="text-sm text-[var(--text-secondary)] space-y-1.5">
+            <li>
+              <strong className="text-[var(--text-primary)]">Показатели перенесены внутрь объекта.</strong>{' '}
+              Теперь загрузка и просмотр показателей доступны на странице объекта (плашка в самом низу страницы, после «Допотборы»). Отдельный раздел «Показатели» в меню убран.
+            </li>
+            <li>
+              <strong className="text-[var(--text-primary)]">Поиск и фильтры на странице объектов.</strong>{' '}
+              Добавлены умный поиск, фильтрация по статусу, сортировка и возможность скрыть допотборы.
+            </li>
+          </ul>
+          <p className="text-sm text-amber-400 mt-2 font-medium">
+            Пожалуйста, внимательно протестируйте все функции после обновления.
+          </p>
+        </div>
+        <button
+          onClick={handleDismiss}
+          className="flex-shrink-0 p-1.5 hover:bg-blue-500/20 rounded-lg transition-colors"
+          title="Скрыть"
+        >
+          <X className="w-4 h-4 text-[var(--text-secondary)]" />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function BetaNotice() {

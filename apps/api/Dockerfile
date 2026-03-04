@@ -2,7 +2,18 @@ FROM oven/bun:1-alpine AS base
 
 # Установка необходимых системных пакетов
 # LibreOffice нужен для конвертации Word -> PDF (справки)
-RUN apk add --no-cache openssl libreoffice-writer ttf-liberation font-noto
+# MS Core Fonts нужны для корректного рендеринга шаблонов (Times New Roman, Arial и т.д.)
+RUN apk add --no-cache openssl libreoffice-writer ttf-liberation font-noto fontconfig && \
+    apk add --no-cache --virtual .font-deps curl cabextract && \
+    mkdir -p /usr/share/fonts/truetype/msttcorefonts && \
+    for f in andale32 arial32 arialb32 comic32 courie32 georgi32 impact32 times32 trebuc32 verdan32 webdin32; do \
+      curl -sLo /tmp/$f.exe "https://downloads.sourceforge.net/corefonts/$f.exe" && \
+      cabextract -q -d /tmp/fonts /tmp/$f.exe 2>/dev/null || true; \
+    done && \
+    find /tmp/fonts -iname '*.ttf' -exec mv {} /usr/share/fonts/truetype/msttcorefonts/ \; 2>/dev/null; \
+    fc-cache -f && \
+    rm -rf /tmp/fonts /tmp/*.exe && \
+    apk del .font-deps
 
 WORKDIR /app
 

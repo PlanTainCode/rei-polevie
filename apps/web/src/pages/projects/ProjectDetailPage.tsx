@@ -30,8 +30,10 @@ import {
   GitBranch,
   ExternalLink,
   Send,
+  FlaskConical,
 } from 'lucide-react';
 import { projectsApi, type GenerateExcelResult, type ExcelGenerateMode } from '@/api/projects';
+import { indicatorsApi } from '@/api/indicators';
 import { Button, Input, Card, CardHeader, CardTitle, CardContent, Select } from '@/components/ui';
 
 export function ProjectDetailPage() {
@@ -155,6 +157,23 @@ export function ProjectDetailPage() {
   const [childProjectName, setChildProjectName] = useState('');
   const [childOrderFile, setChildOrderFile] = useState<File | null>(null);
   const childOrderInputRef = useRef<HTMLInputElement>(null);
+
+  // Загрузка протокола показателей
+  const [indicatorFile, setIndicatorFile] = useState<File | null>(null);
+  const indicatorFileRef = useRef<HTMLInputElement>(null);
+  const [indicatorDragActive, setIndicatorDragActive] = useState(false);
+
+  const createIndicatorMutation = useMutation({
+    mutationFn: async () => {
+      if (!indicatorFile) throw new Error('Файл не выбран');
+      return indicatorsApi.create(id!, indicatorFile);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', id] });
+      setIndicatorFile(null);
+      navigate(`/projects/${id}/indicators`);
+    },
+  });
 
   const createChildMutation = useMutation({
     mutationFn: async () => {
@@ -803,6 +822,131 @@ export function ProjectDetailPage() {
               </p>
             )}
           </CardContent>
+        </Card>
+      )}
+
+      {/* Показатели — после допотборов */}
+      {project.processedAt && (
+        <Card className="mb-6">
+          {project.indicator ? (
+            <CardContent className="py-4">
+              <Link
+                to={`/projects/${id}/indicators`}
+                className="flex items-center justify-between p-4 bg-[var(--bg-tertiary)] rounded-lg hover:bg-[var(--bg-secondary)] transition-colors group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                    <FlaskConical className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="font-medium flex items-center gap-2">
+                      Показатели
+                      <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase bg-amber-500/20 text-amber-400 rounded">
+                        beta
+                      </span>
+                    </p>
+                    <p className="text-sm text-[var(--text-secondary)]">
+                      {project.indicator.protocolNumber
+                        ? `Протокол ${project.indicator.protocolNumber}`
+                        : 'Лабораторные показатели'}
+                      {project.indicator.sampleCount
+                        ? ` • ${project.indicator.sampleCount} проб`
+                        : ''}
+                    </p>
+                  </div>
+                </div>
+                <ArrowRight className="w-5 h-5 text-[var(--text-secondary)] group-hover:text-emerald-400 transition-colors" />
+              </Link>
+            </CardContent>
+          ) : (
+            <>
+              <CardHeader className="flex flex-row items-center gap-2">
+                <FlaskConical className="w-5 h-5 text-emerald-400" />
+                <CardTitle>Показатели</CardTitle>
+                <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase bg-amber-500/20 text-amber-400 rounded">
+                  beta
+                </span>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-[var(--text-secondary)] mb-4">
+                  Загрузите протокол лабораторных исследований (химия + ЕРН) для просмотра показателей
+                </p>
+                <input
+                  ref={indicatorFileRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) { setIndicatorFile(f); }
+                  }}
+                  className="hidden"
+                />
+                <div
+                  className={`relative border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                    indicatorDragActive
+                      ? 'border-emerald-500 bg-emerald-500/10'
+                      : 'border-[var(--border-primary)] hover:border-emerald-500/50'
+                  }`}
+                  onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setIndicatorDragActive(true); }}
+                  onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIndicatorDragActive(false); }}
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIndicatorDragActive(false);
+                    const f = e.dataTransfer.files?.[0];
+                    if (f && (f.name.endsWith('.xlsx') || f.name.endsWith('.xls'))) {
+                      setIndicatorFile(f);
+                    }
+                  }}
+                >
+                  {indicatorFile ? (
+                    <div className="flex items-center justify-center gap-3">
+                      <FileSpreadsheet className="w-6 h-6 text-emerald-400" />
+                      <span className="text-sm font-medium truncate">{indicatorFile.name}</span>
+                      <Button size="sm" variant="ghost" onClick={() => setIndicatorFile(null)}>
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <Upload className="w-8 h-8 mx-auto text-[var(--text-secondary)] mb-2" />
+                      <p className="text-sm text-[var(--text-secondary)]">
+                        Перетащите файл или{' '}
+                        <button
+                          type="button"
+                          className="text-emerald-400 hover:text-emerald-300"
+                          onClick={() => indicatorFileRef.current?.click()}
+                        >
+                          выберите
+                        </button>
+                      </p>
+                      <p className="text-xs text-[var(--text-secondary)] mt-1">
+                        Excel (.xlsx, .xls)
+                      </p>
+                    </>
+                  )}
+                </div>
+                {indicatorFile && (
+                  <div className="flex justify-end mt-3">
+                    <Button
+                      size="sm"
+                      onClick={() => createIndicatorMutation.mutate()}
+                      isLoading={createIndicatorMutation.isPending}
+                    >
+                      <FlaskConical className="w-4 h-4" />
+                      Загрузить показатели
+                    </Button>
+                  </div>
+                )}
+                {createIndicatorMutation.isError && (
+                  <p className="text-sm text-red-400 mt-2">
+                    Ошибка загрузки протокола. Проверьте файл и попробуйте снова.
+                  </p>
+                )}
+              </CardContent>
+            </>
+          )}
         </Card>
       )}
 

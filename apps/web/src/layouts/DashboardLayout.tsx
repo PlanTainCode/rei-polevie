@@ -6,7 +6,6 @@ import {
   Building2,
   FileText,
   ClipboardList,
-  FlaskConical,
   BookOpen,
   Menu,
   X,
@@ -28,7 +27,6 @@ const navigation: {
   { name: 'Главная', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Компания', href: '/company', icon: Building2 },
   { name: 'Объекты', href: '/projects', icon: FileText },
-  { name: 'Показатели', href: '/indicators', icon: FlaskConical, beta: true },
   { name: 'ТЗ', href: '/technical-tasks', icon: ClipboardList, beta: true },
   { name: 'Инструкция', href: '/guide', icon: BookOpen, highlight: true },
 ];

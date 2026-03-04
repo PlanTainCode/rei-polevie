@@ -114,28 +114,21 @@ export async function generateDpioosInquiry(
 
 /**
  * Заменяет дату в документе
- * Дата в шаблоне разбита: "26.11" + ".202" + "5"
  */
 function replaceDate(xml: string, newDate: string): string {
-  // Разбираем новую дату
   const match = newDate.match(/^(\d{2}\.\d{2})\.(\d{4})$/);
   if (!match) return xml;
-  
+
   const [, dayMonth, year] = match;
-  const yearPrefix = year.slice(0, 3); // "202"
-  const yearSuffix = year.slice(3);    // "5"
-  
-  // Заменяем части даты:
-  // "26.11" -> новый день.месяц
-  xml = xml.replace(/>26\.11</g, `>${dayMonth}<`);
-  
-  // ".202" остаётся как есть (если год 202X)
-  // Последняя цифра года
-  // Ищем паттерн: >.202</w:t>...<w:t>5</w:t>
-  // Заменяем 5 на новую последнюю цифру
-  const yearPattern = /(>\.202<\/w:t><\/w:r><w:r[^>]*><w:rPr>.*?<\/w:rPr><w:t>)5(<\/w:t>)/gs;
-  xml = xml.replace(yearPattern, `$1${yearSuffix}$2`);
-  
+  const escapedDate = escapeXml(newDate);
+
+  // Полная дата в одном теге: >26.11.2025<
+  xml = xml.replace(/>26\.11\.2025</g, `>${escapedDate}<`);
+
+  // На случай если дата разбита на 2 части: "26.11" + ".2025"
+  xml = xml.replace(/>\.2025</g, `>.${escapeXml(year)}<`);
+  xml = xml.replace(/>26\.11</g, `>${escapeXml(dayMonth)}<`);
+
   return xml;
 }
 

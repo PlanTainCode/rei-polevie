@@ -535,6 +535,14 @@ export class ProjectsService {
             name: true,
           },
         },
+        indicator: {
+          select: {
+            id: true,
+            type: true,
+            protocolNumber: true,
+            sampleCount: true,
+          },
+        },
       },
     });
 
