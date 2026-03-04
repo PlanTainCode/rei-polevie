@@ -180,12 +180,12 @@ function replaceNumberMiddle(xml: string, newMiddle: string): string {
  * Структура: ...<w:t>2</w:t>...<w:t>3</w:t></w:r></w:p>
  */
 function addOrderToNumber(xml: string, order: string): string {
-  // Ищем паттерн: >3</w:t></w:r></w:p> в контексте номера (после 2)
-  const pattern = /(>2<\/w:t><\/w:r><w:r[^>]*><w:rPr>)(.*?)(<\/w:rPr><w:t>3<\/w:t><\/w:r>)(<\/w:p>)/gs;
+  const lastDigit = new Date().getFullYear().toString().slice(-1);
+  const pattern = /(>2<\/w:t><\/w:r><w:r[^>]*><w:rPr>)(.*?)(<\/w:rPr><w:t>)3(<\/w:t><\/w:r>)(<\/w:p>)/gs;
 
-  xml = xml.replace(pattern, (_, beforeRPr, rPrContent, afterRPr, endP) => {
+  xml = xml.replace(pattern, (_, beforeRPr, rPrContent, beforeT, afterT, endP) => {
     const newRun = `<w:r><w:rPr>${rPrContent}</w:rPr><w:t>-${order}</w:t></w:r>`;
-    return `${beforeRPr}${rPrContent}${afterRPr}${newRun}${endP}`;
+    return `${beforeRPr}${rPrContent}${beforeT}${lastDigit}${afterT}${newRun}${endP}`;
   });
 
   return xml;
