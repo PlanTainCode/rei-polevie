@@ -11,7 +11,6 @@ import {
   Info,
   X,
   FolderOpen,
-  BarChart3,
   CheckCircle2,
   Clock,
   User,
