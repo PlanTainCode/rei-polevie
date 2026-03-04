@@ -1,7 +1,7 @@
 FROM oven/bun:1-alpine AS base
 
 # LibreOffice для конвертации Word -> PDF
-RUN apk add --no-cache openssl libreoffice-writer fontconfig
+RUN apk add --no-cache openssl libreoffice-writer ttf-liberation font-noto fontconfig
 
 # Настоящие шрифты Times New Roman и Arial (скопированы из macOS)
 COPY apps/api/fonts/ /usr/share/fonts/truetype/msfonts/
