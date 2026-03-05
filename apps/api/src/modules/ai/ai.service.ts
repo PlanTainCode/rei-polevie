@@ -1678,6 +1678,110 @@ B) ПОРУЧЕНИЕ С НОМЕРАМИ ПЛОЩАДОК — в скобках
       microbiology: { count: 0, hasMicrobiology: false, hasParasitology: false },
     };
   }
+
+  async extractMonitoringProbes(documentText: string): Promise<MonitoringExtractionResult> {
+    const systemPrompt = `Ты эксперт по мониторингу водных объектов и окружающей среды.
+
+Твоя задача — извлечь данные из технического задания на мониторинг:
+1) ЗАКАЗЧИКА (наименование и адрес)
+2) ПУНКТЫ НАБЛЮДЕНИЯ (точки отбора проб)
+
+АЛГОРИТМ:
+
+ШАГ 0. Найди ЗАКАЗЧИКА.
+Обычно указан в начале документа: «Заказчик», «Наименование заказчика», в шапке контракта/договора и т.п.
+Извлеки полное наименование организации-заказчика с адресом (если указан).
+
+ШАГ 1. Найди ОСНОВНОЙ ПЕРЕЧЕНЬ ПУНКТОВ НАБЛЮДЕНИЯ.
+Обычно это нумерованный или маркированный список в разделе «Место оказания услуг» или аналогичном.
+Это ЕДИНСТВЕННЫЙ источник пунктов наблюдения. Всё, что за пределами этого списка — НЕ отдельные пункты.
+
+ШАГ 2. Определи, какие ТИПЫ ПРОБ берутся на этих пунктах.
+Прочитай разделы «Перечень обязательных видов услуг», «Объем оказываемых услуг» и т.п.
+Типичные формулировки:
+- "гидрохимические наблюдения" / "отбор проб воды" → WATER
+- "наблюдения за состоянием дна" / "отбор проб донных отложений" → SEDIMENT
+Обычно указывается ГЛОБАЛЬНО — «на всех пунктах наблюдения». Это значит: ВСЕ пункты из списка получают указанные типы.
+
+ШАГ 3. Для каждого пункта создай записи ТОЛЬКО тех типов, которые реально указаны в документе.
+
+КРИТИЧЕСКИ ВАЖНО — что НЕ является отдельным пунктом наблюдения:
+- Секции «Дополнительно...» с дополнительной частотой отбора на СУЩЕСТВУЮЩИХ пунктах
+- Уточнения мест внутри уже перечисленного водного объекта
+- Эти описания НЕ создают новых пунктов
+
+ПРАВИЛА ИМЕНОВАНИЯ:
+- Копируй названия точно как в документе
+- Убирай начальные дефисы и лишние пробелы
+
+ФОРМАТ ОТВЕТА — СТРОГО JSON:
+{
+  "customerName": "Департамент природных ресурсов и экологии Воронежской области, г. Воронеж",
+  "totalPoints": 24,
+  "waterForAll": true,
+  "sedimentForAll": true,
+  "probes": [
+    {"name": "исток реки Днепр", "type": "WATER", "latitude": null, "longitude": null},
+    {"name": "исток реки Днепр", "type": "SEDIMENT", "latitude": null, "longitude": null}
+  ]
+}
+
+customerName — полное наименование заказчика с адресом (если есть)
+totalPoints — количество УНИКАЛЬНЫХ пунктов наблюдения из списка
+waterForAll — берётся ли вода на всех пунктах
+sedimentForAll — берутся ли донные отложения на всех пунктах`;
+
+    try {
+      const response = await this.chat([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Извлеки пункты наблюдения из этого документа мониторинга:\n\n${documentText.substring(0, 15000)}` },
+      ]);
+
+      console.log('[AiService] extractMonitoringProbes: response length:', response.length);
+
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        console.error('[AiService] No JSON in monitoring probes response');
+        return { probes: [], customerName: null };
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      const totalPoints = parsed.totalPoints || 0;
+      const waterForAll = parsed.waterForAll ?? false;
+      const sedimentForAll = parsed.sedimentForAll ?? false;
+      const customerName = parsed.customerName ? String(parsed.customerName).trim() : null;
+
+      const probes: MonitoringProbeData[] = (parsed.probes || []).map((p: any) => ({
+        name: String(p.name || '').replace(/^[-–—]\s*/, '').trim(),
+        type: p.type === 'SEDIMENT' ? 'SEDIMENT' : 'WATER',
+        latitude: p.latitude ? String(p.latitude) : null,
+        longitude: p.longitude ? String(p.longitude) : null,
+      }));
+
+      const uniqueNames = new Set(probes.map(p => p.name));
+      const expectedCount = totalPoints * ((waterForAll ? 1 : 0) + (sedimentForAll ? 1 : 0));
+
+      console.log(`[AiService] Extracted ${probes.length} monitoring probes, totalPoints=${totalPoints}, uniqueNames=${uniqueNames.size}, expected=${expectedCount}, customer="${customerName}"`);
+
+      if (expectedCount > 0 && probes.length !== expectedCount) {
+        console.warn(`[AiService] Probe count mismatch: got ${probes.length}, expected ${expectedCount}. Deduplicating...`);
+        const seen = new Set<string>();
+        const deduplicated = probes.filter(p => {
+          const key = `${p.name}::${p.type}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        console.log(`[AiService] After deduplication: ${deduplicated.length} probes`);
+        return { probes: deduplicated, customerName };
+      }
+
+      return { probes, customerName };
+    } catch (error) {
+      console.error('[AiService] Error extracting monitoring probes:', error);
+      return { probes: [], customerName: null };
+    }
+  }
 }
 
 // Интерфейсы для AI парсинга слоёв
@@ -1863,5 +1967,17 @@ export interface EgrnData {
   address: string;                // Адрес участка
   area: number;                   // Площадь в кв.м
   status: string;                 // Статус (Учтённый)
+}
+
+export interface MonitoringExtractionResult {
+  probes: MonitoringProbeData[];
+  customerName: string | null;
+}
+
+export interface MonitoringProbeData {
+  name: string;
+  type: 'WATER' | 'SEDIMENT';
+  latitude: string | null;
+  longitude: string | null;
 }
 

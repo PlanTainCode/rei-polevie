@@ -15,6 +15,7 @@ import { TelegramModule } from './modules/telegram/telegram.module';
 import { InquiryRequestsModule } from './modules/inquiry-requests/inquiry-requests.module';
 import { TechnicalTasksModule } from './modules/technical-tasks/technical-tasks.module';
 import { IndicatorsModule } from './modules/indicators/indicators.module';
+import { MonitoringsModule } from './modules/monitorings/monitorings.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { IndicatorsModule } from './modules/indicators/indicators.module';
     InquiryRequestsModule,
     TechnicalTasksModule,
     IndicatorsModule,
+    MonitoringsModule,
   ],
 })
 export class AppModule {}

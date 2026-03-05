@@ -14,6 +14,7 @@ import {
   ChevronDown,
   Settings,
   Compass,
+  Activity,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 
@@ -27,6 +28,7 @@ const navigation: {
   { name: 'Главная', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Компания', href: '/company', icon: Building2 },
   { name: 'Объекты', href: '/projects', icon: FileText },
+  { name: 'Мониторинги', href: '/monitorings', icon: Activity },
   { name: 'ТЗ', href: '/technical-tasks', icon: ClipboardList, beta: true },
   { name: 'Инструкция', href: '/guide', icon: BookOpen, highlight: true },
 ];

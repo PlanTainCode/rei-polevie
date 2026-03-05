@@ -21,21 +21,29 @@ import {
   Mic,
   MicOff,
   SkipForward,
+  FileText,
+  Activity,
 } from 'lucide-react';
 import * as exifr from 'exifr';
 import { projectsApi, type Photo } from '@/api/projects';
+import { monitoringsApi, type MonitoringPhoto } from '@/api/monitorings';
 import { AuthImage } from '@/components/ui';
 
 // ===================== ТИПЫ =====================
 
 type NavState =
+  | { view: 'mode-select' }
   | { view: 'projects' }
   | { view: 'project'; projectId: string }
   | { view: 'platforms'; projectId: string }
   | { view: 'platform'; projectId: string; platformId: string }
   | { view: 'samples'; projectId: string; platformId: string }
   | { view: 'sample'; projectId: string; platformId: string; sampleId: string }
-  | { view: 'photos'; projectId: string };
+  | { view: 'photos'; projectId: string }
+  | { view: 'monitoring-list' }
+  | { view: 'monitoring'; monitoringId: string }
+  | { view: 'monitoring-points'; monitoringId: string }
+  | { view: 'monitoring-point'; monitoringId: string; pointName: string };
 
 // ===================== КОНСТАНТЫ =====================
 
@@ -54,6 +62,31 @@ const SOIL_DESCRIPTIONS = [
   'строительный мусор',
 ];
 
+const WATER_DESCRIPTIONS = [
+  'прозрачная', 'слабо мутная', 'мутная', 'с осадком',
+  'с запахом', 'окрашенная', 'с плёнкой на поверхности', 'с водорослями',
+];
+
+const SEDIMENT_DESCRIPTIONS = [
+  'ил', 'песок', 'глина', 'суглинок', 'торф',
+  'гравий', 'ракушечник', 'смешанный грунт',
+];
+
+const WATER_VOLUME_OPTIONS = [
+  '2 л/Ст.; 1,5 л/ПЭТ',
+  '1,5 л/ПЭТ',
+  '1 л/Ст.',
+  '0,5 л/Ст.',
+];
+
+const WATER_CONTAINER_COUNT_OPTIONS = ['1', '2', '3', '4', '5'];
+
+const SEDIMENT_MASS_OPTIONS = [
+  '1 кг/ПЭ',
+  '0,5 кг/ПЭ',
+  '2 кг/ПЭ',
+];
+
 // ===================== УТИЛИТЫ =====================
 
 function loadNav(): NavState {
@@ -61,7 +94,7 @@ function loadNav(): NavState {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) return JSON.parse(saved);
   } catch { /* ignore */ }
-  return { view: 'projects' };
+  return { view: 'mode-select' };
 }
 
 function saveNav(state: NavState) {
@@ -210,6 +243,47 @@ function ActionButton({
       {loading ? <Loader2 className="w-5 h-5 animate-spin shrink-0" /> : <span className="shrink-0">{icon}</span>}
       <span className="font-medium">{label}</span>
     </button>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between text-sm">
+      <span className="text-[var(--text-secondary)]">{label}</span>
+      <span className="font-medium">{value}</span>
+    </div>
+  );
+}
+
+function FieldBtn({ label, value, onClick }: { label: string; value?: string | null; onClick: () => void }) {
+  return (
+    <button onClick={onClick} className="flex justify-between items-center w-full text-sm py-1">
+      <span className="text-[var(--text-secondary)]">{label}</span>
+      <span className={`font-medium ${value ? '' : 'text-primary-400'}`}>{value || 'Указать'}</span>
+    </button>
+  );
+}
+
+function PickerList({ options, current, onSelect, onClose }: { options: string[]; current?: string | null; onSelect: (v: string) => void; onClose: () => void }) {
+  return (
+    <div className="space-y-1 py-2 border-t border-b border-[var(--border-color)]">
+      {options.map((o) => (
+        <button key={o} onClick={() => onSelect(o)} className={`w-full text-left px-3 py-2 text-sm rounded-lg transition-colors ${current === o ? 'bg-primary-500/20 text-primary-400 font-medium' : 'hover:bg-[var(--bg-tertiary)]'}`}>
+          {o}
+        </button>
+      ))}
+      <button onClick={onClose} className="w-full mt-1 p-2 rounded-lg bg-[var(--bg-tertiary)] text-sm text-[var(--text-secondary)]">Отмена</button>
+    </div>
+  );
+}
+
+function FieldInput({ value, onChange, placeholder, onSave, onClose }: { value: string; onChange: (v: string) => void; placeholder: string; onSave: () => void; onClose: () => void }) {
+  return (
+    <div className="flex gap-2 py-2 border-t border-b border-[var(--border-color)]">
+      <input type="text" inputMode="decimal" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="flex-1 px-3 py-2 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-sm" autoFocus />
+      <button onClick={onSave} className="px-4 py-2 rounded-lg bg-primary-500 text-white text-sm font-medium"><Check className="w-4 h-4" /></button>
+      <button onClick={onClose} className="px-3 py-2 rounded-lg bg-[var(--bg-tertiary)] text-sm"><X className="w-4 h-4" /></button>
+    </div>
   );
 }
 
@@ -370,7 +444,198 @@ function VoiceDescribeOverlay({
   );
 }
 
-// ===================== ЭКРАНЫ =====================
+// ===================== MONITORING VOICE DESCRIBE OVERLAY =====================
+
+function MonitoringVoiceDescribeOverlay({
+  monitoringId,
+  photos,
+  photoIds,
+  onClose,
+}: {
+  monitoringId: string;
+  photos: MonitoringPhoto[];
+  photoIds: string[];
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  const [index, setIndex] = useState(0);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [lastText, setLastText] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const currentPhotoId = photoIds[index];
+  const currentPhoto = photos.find((p) => p.id === currentPhotoId);
+  const total = photoIds.length;
+
+  const advance = useCallback(() => {
+    setLastText(null);
+    const next = index + 1;
+    if (next >= total) {
+      onClose();
+    } else {
+      setIndex(next);
+    }
+  }, [index, total, onClose]);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        setIsTranscribing(true);
+        setLastText(null);
+        try {
+          const result = await monitoringsApi.voiceDescribePhoto(monitoringId, currentPhotoId, blob);
+          queryClient.invalidateQueries({ queryKey: ['monitoring-point-photos'] });
+          queryClient.invalidateQueries({ queryKey: ['monitoring-photos'] });
+          setLastText(result.transcription);
+          setTimeout(advance, 1500);
+        } catch {
+          setToast('Ошибка распознавания');
+          setTimeout(() => setToast(null), 3000);
+        }
+        setIsTranscribing(false);
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setIsRecording(true);
+    } catch {
+      setToast('Нет доступа к микрофону');
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+  };
+
+  const handleClose = () => {
+    if (isRecording) stopRecording();
+    onClose();
+  };
+
+  if (!currentPhotoId) return null;
+
+  const thumbnailUrl = `${monitoringsApi.getPhotoThumbnailUrl(monitoringId, currentPhotoId)}`;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-[var(--bg-primary)] flex flex-col max-w-lg mx-auto">
+      <Header title={`Описание ${index + 1} из ${total}`} onBack={handleClose} />
+
+      {toast && (
+        <div className="fixed top-16 left-4 right-4 z-[60] p-3 rounded-xl bg-red-600/90 text-white text-center text-sm font-medium animate-fade-in max-w-lg mx-auto">
+          {toast}
+        </div>
+      )}
+
+      <div className="flex-1 flex items-center justify-center p-4 min-h-0">
+        <AuthImage
+          src={thumbnailUrl}
+          alt=""
+          className="max-w-full max-h-full object-contain rounded-xl"
+        />
+      </div>
+
+      <div className="px-4 min-h-[3rem] flex items-center justify-center">
+        {isTranscribing && (
+          <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Распознаю...
+          </div>
+        )}
+        {lastText && (
+          <p className="text-sm text-emerald-400 text-center">{lastText}</p>
+        )}
+        {currentPhoto?.description && !lastText && !isTranscribing && (
+          <p className="text-sm text-[var(--text-secondary)] text-center italic">
+            {currentPhoto.description}
+          </p>
+        )}
+      </div>
+
+      <div className="p-4 pb-8 flex items-center justify-center gap-6">
+        <button
+          onClick={advance}
+          disabled={isRecording || isTranscribing}
+          className="p-3 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-secondary)] disabled:opacity-40"
+        >
+          <SkipForward className="w-6 h-6" />
+        </button>
+        <button
+          onClick={isRecording ? stopRecording : startRecording}
+          disabled={isTranscribing}
+          className={`w-20 h-20 rounded-full flex items-center justify-center transition-all disabled:opacity-40 ${
+            isRecording
+              ? 'bg-red-500 animate-pulse shadow-lg shadow-red-500/30'
+              : 'bg-primary-500 shadow-lg shadow-primary-500/30'
+          }`}
+        >
+          {isRecording ? <MicOff className="w-8 h-8 text-white" /> : <Mic className="w-8 h-8 text-white" />}
+        </button>
+        <button
+          onClick={handleClose}
+          disabled={isRecording || isTranscribing}
+          className="p-3 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-secondary)] disabled:opacity-40"
+        >
+          <Check className="w-6 h-6" />
+        </button>
+      </div>
+
+      <div className="text-center pb-4 text-xs text-[var(--text-secondary)]">
+        {isRecording ? 'Говорите... Нажмите для остановки' : 'Нажмите микрофон и опишите фото'}
+      </div>
+    </div>
+  );
+}
+
+// ===================== ЭКРАНЫ: ОБЪЕКТЫ =====================
+
+function ModeSelectScreen({
+  onObjects,
+  onMonitorings,
+}: {
+  onObjects: () => void;
+  onMonitorings: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center flex-1 p-6 gap-4">
+      <h1 className="text-xl font-bold mb-4">Полевые работы</h1>
+      <button
+        onClick={onObjects}
+        className="w-full p-6 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-color)] hover:bg-[var(--bg-tertiary)] active:bg-[var(--bg-tertiary)] transition-colors flex flex-col items-center gap-3"
+      >
+        <div className="w-14 h-14 rounded-xl bg-primary-500/20 text-primary-400 flex items-center justify-center">
+          <FileText className="w-7 h-7" />
+        </div>
+        <span className="text-lg font-semibold">Объекты</span>
+        <span className="text-sm text-[var(--text-secondary)]">Площадки и пробы грунта</span>
+      </button>
+      <button
+        onClick={onMonitorings}
+        className="w-full p-6 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-color)] hover:bg-[var(--bg-tertiary)] active:bg-[var(--bg-tertiary)] transition-colors flex flex-col items-center gap-3"
+      >
+        <div className="w-14 h-14 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center">
+          <Activity className="w-7 h-7" />
+        </div>
+        <span className="text-lg font-semibold">Мониторинги</span>
+        <span className="text-sm text-[var(--text-secondary)]">Пробы воды и донных отложений</span>
+      </button>
+    </div>
+  );
+}
 
 function ProjectsScreen({ onSelect }: { onSelect: (id: string) => void }) {
   const { data: projects, isLoading } = useQuery({
@@ -440,7 +705,6 @@ function ProjectScreen({
     <>
       <Header title={project?.name || 'Объект'} onBack={onBack} />
       <div className="p-4 space-y-4">
-        {/* Info card */}
         <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] space-y-3">
           <div className="flex items-start gap-2">
             <MapPin className="w-4 h-4 mt-0.5 text-[var(--text-secondary)] shrink-0" />
@@ -461,7 +725,6 @@ function ProjectScreen({
           </div>
         </div>
 
-        {/* Actions */}
         <div className="space-y-2">
           <ActionButton
             icon={<Layers className="w-5 h-5" />}
@@ -698,14 +961,12 @@ function PlatformScreen({
     <>
       <Header title={platform?.label || 'Площадка'} onBack={onBack} />
       <div className="p-4 space-y-4">
-        {/* Toast */}
         {toast && (
           <div className="fixed top-16 left-4 right-4 z-50 p-3 rounded-xl bg-emerald-600/90 text-white text-center text-sm font-medium animate-fade-in max-w-lg mx-auto">
             {toast}
           </div>
         )}
 
-        {/* Coordinates */}
         <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] space-y-2">
           <div className="flex items-center gap-2 mb-1">
             <div className={`w-2.5 h-2.5 rounded-full ${hasCoords ? 'bg-emerald-400' : 'bg-red-400'}`} />
@@ -734,7 +995,6 @@ function PlatformScreen({
           )}
         </div>
 
-        {/* Manual input */}
         {manualMode && (
           <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] space-y-3">
             <div className="text-sm font-medium">
@@ -767,7 +1027,6 @@ function PlatformScreen({
           </div>
         )}
 
-        {/* Coordinate actions */}
         <div className="space-y-2">
           <div className="text-xs uppercase tracking-wider text-[var(--text-secondary)] font-semibold px-1">
             Ввод координат
@@ -806,7 +1065,6 @@ function PlatformScreen({
           </div>
         </div>
 
-        {/* Photo upload */}
         <div className="space-y-2">
           <div className="text-xs uppercase tracking-wider text-[var(--text-secondary)] font-semibold px-1">
             Фотоальбом
@@ -827,7 +1085,6 @@ function PlatformScreen({
           />
         </div>
 
-        {/* Samples link */}
         <div className="space-y-2">
           <div className="text-xs uppercase tracking-wider text-[var(--text-secondary)] font-semibold px-1">
             Пробы
@@ -911,7 +1168,6 @@ function SamplesScreen({
           </div>
         )}
 
-        {/* Batch actions for PP */}
         {isPP && (
           <div className="space-y-2">
             {!allCollected && (
@@ -932,7 +1188,6 @@ function SamplesScreen({
           </div>
         )}
 
-        {/* Description picker modal */}
         {showDescPicker && (
           <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] space-y-2">
             <div className="text-sm font-medium mb-2">Выберите характеристику:</div>
@@ -961,7 +1216,6 @@ function SamplesScreen({
           </div>
         )}
 
-        {/* Samples list */}
         {samples.map((s) => {
           const isCollected = s.status === 'COLLECTED';
           return (
@@ -1060,7 +1314,6 @@ function SampleScreen({
           </div>
         )}
 
-        {/* Sample info */}
         <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] space-y-3">
           <InfoRow label="Площадка" value={sample.platform.label} />
           <InfoRow label="Глубина" value={sample.depthLabel} />
@@ -1077,7 +1330,6 @@ function SampleScreen({
           )}
         </div>
 
-        {/* Actions */}
         <div className="space-y-2">
           <ActionButton
             icon={<Pencil className="w-5 h-5" />}
@@ -1096,7 +1348,6 @@ function SampleScreen({
           )}
         </div>
 
-        {/* Description picker */}
         {showDescPicker && (
           <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] space-y-2">
             <div className="text-sm font-medium mb-2">
@@ -1128,15 +1379,6 @@ function SampleScreen({
         )}
       </div>
     </>
-  );
-}
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between text-sm">
-      <span className="text-[var(--text-secondary)]">{label}</span>
-      <span className="font-medium">{value}</span>
-    </div>
   );
 }
 
@@ -1300,7 +1542,6 @@ function PhotosScreen({
         )}
       </div>
 
-      {/* Photo viewer */}
       {viewPhoto && (
         <div className="fixed inset-0 z-50 bg-black/95 flex flex-col">
           <div className="flex items-center justify-between p-3">
@@ -1373,6 +1614,685 @@ function PhotosScreen({
   );
 }
 
+// ===================== ЭКРАНЫ: МОНИТОРИНГИ =====================
+
+function MonitoringListScreen({
+  onSelect,
+  onBack,
+}: {
+  onSelect: (id: string) => void;
+  onBack: () => void;
+}) {
+  const { data: monitorings, isLoading } = useQuery({
+    queryKey: ['monitorings'],
+    queryFn: monitoringsApi.getAll,
+  });
+
+  if (isLoading) return <><Header title="Мониторинги" onBack={onBack} /><Spinner /></>;
+  if (!monitorings?.length) return <><Header title="Мониторинги" onBack={onBack} /><EmptyState text="Нет мониторингов" /></>;
+
+  return (
+    <>
+      <Header title="Мониторинги" onBack={onBack} />
+      <div className="p-4 space-y-2">
+        {monitorings.map((m) => {
+          const probeCount = m._count?.probes ?? 0;
+          const statusLabel = m.status === 'COMPLETED' ? 'Завершён' : m.status === 'IN_PROGRESS' ? 'В работе' : 'Новый';
+          const statusColor = m.status === 'COMPLETED'
+            ? 'bg-emerald-500/20 text-emerald-400'
+            : m.status === 'IN_PROGRESS'
+              ? 'bg-cyan-500/20 text-cyan-400'
+              : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]';
+          return (
+            <ListItem
+              key={m.id}
+              icon={<Activity className="w-5 h-5" />}
+              title={m.name}
+              subtitle={`${m.objectName || 'Объект не указан'} • ${statusLabel}`}
+              rightText={probeCount > 0 ? `${probeCount} проб` : undefined}
+              statusColor={statusColor}
+              onClick={() => onSelect(m.id)}
+            />
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+function MonitoringScreen({
+  monitoringId,
+  onProbes,
+  onBack,
+}: {
+  monitoringId: string;
+  onProbes: () => void;
+  onBack: () => void;
+}) {
+  const { data: monitoring, isLoading } = useQuery({
+    queryKey: ['monitoring', monitoringId],
+    queryFn: () => monitoringsApi.getById(monitoringId),
+  });
+
+  const { data: probes } = useQuery({
+    queryKey: ['monitoring-probes', monitoringId],
+    queryFn: () => monitoringsApi.getProbes(monitoringId),
+  });
+
+  if (isLoading) return <><Header title="..." onBack={onBack} /><Spinner /></>;
+
+  const collected = probes?.filter((p) => p.status === 'COLLECTED').length ?? 0;
+  const total = probes?.length ?? 0;
+  const progress = total > 0 ? Math.round((collected / total) * 100) : 0;
+
+  return (
+    <>
+      <Header title={monitoring?.name || 'Мониторинг'} onBack={onBack} />
+      <div className="p-4 space-y-4">
+        <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] space-y-3">
+          {monitoring?.objectName && (
+            <InfoRow label="Объект" value={monitoring.objectName} />
+          )}
+          {monitoring?.objectAddress && (
+            <div className="flex items-start gap-2">
+              <MapPin className="w-4 h-4 mt-0.5 text-[var(--text-secondary)] shrink-0" />
+              <span className="text-sm text-[var(--text-secondary)]">{monitoring.objectAddress}</span>
+            </div>
+          )}
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-2 rounded-full bg-[var(--bg-tertiary)] overflow-hidden">
+              <div
+                className="h-full bg-cyan-500 rounded-full transition-all"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <span className="text-sm font-medium text-[var(--text-secondary)]">
+              {collected}/{total}
+            </span>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <ActionButton
+            icon={<Beaker className="w-5 h-5" />}
+            label={`Точки наблюдения (${collected}/${total} отобрано)`}
+            onClick={onProbes}
+            variant={collected === total && total > 0 ? 'success' : 'primary'}
+          />
+        </div>
+      </div>
+    </>
+  );
+}
+
+function MonitoringPointsScreen({
+  monitoringId,
+  onSelect,
+  onBack,
+}: {
+  monitoringId: string;
+  onSelect: (pointName: string) => void;
+  onBack: () => void;
+}) {
+  const { data: probes, isLoading } = useQuery({
+    queryKey: ['monitoring-probes', monitoringId],
+    queryFn: () => monitoringsApi.getProbes(monitoringId),
+  });
+
+  if (isLoading) return <><Header title="Точки" onBack={onBack} /><Spinner /></>;
+  if (!probes?.length) return <><Header title="Точки" onBack={onBack} /><EmptyState text="Нет точек наблюдения" /></>;
+
+  const pointMap = new Map<string, typeof probes>();
+  for (const p of probes) {
+    const arr = pointMap.get(p.name) || [];
+    arr.push(p);
+    pointMap.set(p.name, arr);
+  }
+
+  return (
+    <>
+      <Header title="Точки наблюдения" onBack={onBack} />
+      <div className="p-4 space-y-2">
+        {[...pointMap.entries()].map(([name, pointProbes]) => {
+          const allCollected = pointProbes.every((p) => p.status === 'COLLECTED');
+          const anyCollected = pointProbes.some((p) => p.status === 'COLLECTED');
+          const types = pointProbes.map((p) => p.type === 'WATER' ? 'Вода' : 'ДО').join(' + ');
+          const totalPhotos = pointProbes.reduce((s, p) => s + (p._count?.photos ?? 0), 0);
+          return (
+            <ListItem
+              key={name}
+              icon={allCollected
+                ? <CheckCircle className="w-5 h-5" />
+                : <MapPin className="w-5 h-5" />
+              }
+              title={name}
+              subtitle={`${types}${totalPhotos > 0 ? ` • ${totalPhotos} фото` : ''}${anyCollected && !allCollected ? ' • частично отобрана' : ''}`}
+              statusColor={allCollected
+                ? 'bg-emerald-500/20 text-emerald-400'
+                : anyCollected
+                  ? 'bg-amber-500/20 text-amber-400'
+                  : 'bg-cyan-500/20 text-cyan-400'
+              }
+              onClick={() => onSelect(name)}
+            />
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+function MonitoringPointScreen({
+  monitoringId,
+  pointName,
+  onBack,
+}: {
+  monitoringId: string;
+  pointName: string;
+  onBack: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const exifInputRef = useRef<HTMLInputElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
+  const [manualMode, setManualMode] = useState<'lat' | 'lon' | null>(null);
+  const [manualValue, setManualValue] = useState('');
+  const [geoLoading, setGeoLoading] = useState(false);
+  const [exifLoading, setExifLoading] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
+  const [showDescPicker, setShowDescPicker] = useState<string | null>(null);
+  const [showFieldPicker, setShowFieldPicker] = useState<{ probeId: string; field: string } | null>(null);
+  const [fieldInputValue, setFieldInputValue] = useState('');
+  const [viewPhoto, setViewPhoto] = useState<MonitoringPhoto | null>(null);
+  const [describeOverlay, setDescribeOverlay] = useState<{ photos: MonitoringPhoto[]; ids: string[] } | null>(null);
+
+  const { data: probes } = useQuery({
+    queryKey: ['monitoring-probes', monitoringId],
+    queryFn: () => monitoringsApi.getProbes(monitoringId),
+  });
+  const pointProbes = (probes ?? []).filter((p) => p.name === pointName);
+  const primaryProbe = pointProbes[0];
+  const uploadProbeId = primaryProbe?.id;
+
+  const { data: photos } = useQuery({
+    queryKey: ['monitoring-point-photos', monitoringId, pointName],
+    queryFn: () => monitoringsApi.getPointPhotos(monitoringId, pointName),
+    enabled: !!pointName,
+  });
+
+  const coordsMutation = useMutation({
+    mutationFn: async (data: { latitude?: string; longitude?: string }) => {
+      await Promise.all(pointProbes.map((p) => monitoringsApi.updateProbe(monitoringId, p.id, data)));
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['monitoring-probes', monitoringId] });
+      setManualMode(null);
+      setManualValue('');
+    },
+  });
+
+  const collectMutation = useMutation({
+    mutationFn: (probeId: string) => monitoringsApi.collectProbe(monitoringId, probeId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['monitoring-probes', monitoringId] });
+      showToastMsg('Проба отмечена как отобранная');
+    },
+  });
+
+  const descMutation = useMutation({
+    mutationFn: ({ probeId, description }: { probeId: string; description: string }) =>
+      monitoringsApi.updateProbe(monitoringId, probeId, { description }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['monitoring-probes', monitoringId] });
+      setShowDescPicker(null);
+      showToastMsg('Характеристика сохранена');
+    },
+  });
+
+  const fieldMutation = useMutation({
+    mutationFn: ({ probeId, data }: { probeId: string; data: Record<string, any> }) =>
+      monitoringsApi.updateProbe(monitoringId, probeId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['monitoring-probes', monitoringId] });
+      setShowFieldPicker(null);
+      setFieldInputValue('');
+      showToastMsg('Сохранено');
+    },
+  });
+
+  const showToastMsg = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  const latitude = primaryProbe?.latitude || '—';
+  const longitude = primaryProbe?.longitude || '—';
+  const hasCoords = !!primaryProbe?.latitude && !!primaryProbe?.longitude;
+  const mapsUrl = hasCoords ? getYandexMapsUrl(primaryProbe!.latitude!, primaryProbe!.longitude!) : null;
+
+  const handleGeolocation = () => {
+    if (!navigator.geolocation) {
+      showToastMsg('Геолокация не поддерживается браузером');
+      return;
+    }
+    setGeoLoading(true);
+
+    const requestPosition = (highAccuracy: boolean) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = formatCoordinate(pos.coords.latitude);
+          const lon = formatCoordinate(pos.coords.longitude);
+          coordsMutation.mutate(
+            { latitude: lat, longitude: lon },
+            {
+              onSuccess: () => {
+                showToastMsg(`Координаты сохранены (±${Math.round(pos.coords.accuracy)}м)`);
+                setGeoLoading(false);
+              },
+              onError: () => {
+                showToastMsg('Ошибка сохранения координат');
+                setGeoLoading(false);
+              },
+            },
+          );
+        },
+        (err) => {
+          if (highAccuracy && err.code === 2) {
+            requestPosition(false);
+            return;
+          }
+          const messages: Record<number, string> = {
+            1: 'Доступ запрещён. Проверьте: Настройки → Конфиденциальность → Службы геолокации → Safari',
+            2: 'Не удалось определить местоположение',
+            3: 'Таймаут — попробуйте выйти на открытое место',
+          };
+          showToastMsg(messages[err.code] || `Ошибка: ${err.message}`);
+          setGeoLoading(false);
+        },
+        { enableHighAccuracy: highAccuracy, timeout: 30000, maximumAge: 0 },
+      );
+    };
+
+    requestPosition(true);
+  };
+
+  const handleExifPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setExifLoading(true);
+    try {
+      const gps = await exifr.gps(file);
+      if (!gps?.latitude || !gps?.longitude) {
+        showToastMsg('GPS-данные не найдены в фото');
+        setExifLoading(false);
+        return;
+      }
+      const lat = formatCoordinate(gps.latitude);
+      const lon = formatCoordinate(gps.longitude);
+      await coordsMutation.mutateAsync({ latitude: lat, longitude: lon });
+      showToastMsg('Координаты из EXIF сохранены');
+    } catch {
+      showToastMsg('Ошибка чтения EXIF');
+    }
+    setExifLoading(false);
+    if (exifInputRef.current) exifInputRef.current.value = '';
+  };
+
+  const handleManualSave = () => {
+    if (!manualValue.trim()) return;
+    if (manualMode === 'lat') {
+      coordsMutation.mutate({ latitude: manualValue.trim() });
+      showToastMsg('Широта сохранена');
+    } else if (manualMode === 'lon') {
+      coordsMutation.mutate({ longitude: manualValue.trim() });
+      showToastMsg('Долгота сохранена');
+    }
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length || !uploadProbeId) return;
+    setIsUploadingPhotos(true);
+    try {
+      const results = await monitoringsApi.uploadPhotos(monitoringId, uploadProbeId, Array.from(files));
+      queryClient.invalidateQueries({ queryKey: ['monitoring-point-photos', monitoringId, pointName] });
+      queryClient.invalidateQueries({ queryKey: ['monitoring-probes', monitoringId] });
+      const uploaded = results.filter((r) => r.success && r.photo);
+      const ids = uploaded.map((r) => r.photo!.id);
+      showToastMsg(`${ids.length} фото загружено`);
+      if (ids.length > 0) {
+        const freshPhotos = await monitoringsApi.getPointPhotos(monitoringId, pointName);
+        setDescribeOverlay({ photos: freshPhotos, ids });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToastMsg(`Ошибка загрузки: ${msg}`);
+    }
+    setIsUploadingPhotos(false);
+    if (photoInputRef.current) photoInputRef.current.value = '';
+  };
+
+  if (describeOverlay) {
+    return (
+      <MonitoringVoiceDescribeOverlay
+        monitoringId={monitoringId}
+        photos={describeOverlay.photos}
+        photoIds={describeOverlay.ids}
+        onClose={() => {
+          setDescribeOverlay(null);
+          queryClient.invalidateQueries({ queryKey: ['monitoring-point-photos', monitoringId, pointName] });
+        }}
+      />
+    );
+  }
+
+  if (!primaryProbe) return <><Header title="Точка" onBack={onBack} /><Spinner /></>;
+
+  return (
+    <>
+      <Header title={pointName} onBack={onBack} />
+      <div className="p-4 space-y-4">
+        {toast && (
+          <div className="fixed top-16 left-4 right-4 z-50 p-3 rounded-xl bg-emerald-600/90 text-white text-center text-sm font-medium animate-fade-in max-w-lg mx-auto">
+            {toast}
+          </div>
+        )}
+
+        {pointProbes.map((probe) => {
+          const isCollected = probe.status === 'COLLECTED';
+          const typeLabel = probe.type === 'WATER' ? 'Вода' : 'Донные отложения';
+          const descriptions = probe.type === 'WATER' ? WATER_DESCRIPTIONS : SEDIMENT_DESCRIPTIONS;
+          const isWater = probe.type === 'WATER';
+          const isSediment = probe.type === 'SEDIMENT';
+          const fp = showFieldPicker;
+          const isThisProbe = (field: string) => fp?.probeId === probe.id && fp?.field === field;
+
+          return (
+            <div key={probe.id} className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-sm">{typeLabel}</span>
+                <div className="flex items-center gap-2">
+                  <div className={`w-2.5 h-2.5 rounded-full ${isCollected ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                  <span className="text-xs">{isCollected ? 'Отобрана' : 'Ожидает'}</span>
+                </div>
+              </div>
+
+              {isWater && (
+                <>
+                  <FieldBtn label="Объём/тара" value={probe.containerVolume} onClick={() => setShowFieldPicker({ probeId: probe.id, field: 'containerVolume' })} />
+                  {isThisProbe('containerVolume') && (
+                    <PickerList options={WATER_VOLUME_OPTIONS} current={probe.containerVolume} onSelect={(v) => fieldMutation.mutate({ probeId: probe.id, data: { containerVolume: v } })} onClose={() => setShowFieldPicker(null)} />
+                  )}
+                  <FieldBtn label="Кол-во ёмкостей" value={probe.containerCount ? String(probe.containerCount) : undefined} onClick={() => setShowFieldPicker({ probeId: probe.id, field: 'containerCount' })} />
+                  {isThisProbe('containerCount') && (
+                    <PickerList options={WATER_CONTAINER_COUNT_OPTIONS} current={probe.containerCount ? String(probe.containerCount) : undefined} onSelect={(v) => fieldMutation.mutate({ probeId: probe.id, data: { containerCount: parseInt(v) } })} onClose={() => setShowFieldPicker(null)} />
+                  )}
+                  <FieldBtn label="Глубина, м" value={probe.depth} onClick={() => { setShowFieldPicker({ probeId: probe.id, field: 'depth' }); setFieldInputValue(probe.depth || ''); }} />
+                  {isThisProbe('depth') && (
+                    <FieldInput value={fieldInputValue} onChange={setFieldInputValue} placeholder="0.3" onSave={() => fieldMutation.mutate({ probeId: probe.id, data: { depth: fieldInputValue } })} onClose={() => setShowFieldPicker(null)} />
+                  )}
+                  <FieldBtn label="Температура, °С" value={probe.temperature} onClick={() => { setShowFieldPicker({ probeId: probe.id, field: 'temperature' }); setFieldInputValue(probe.temperature || ''); }} />
+                  {isThisProbe('temperature') && (
+                    <FieldInput value={fieldInputValue} onChange={setFieldInputValue} placeholder="15" onSave={() => fieldMutation.mutate({ probeId: probe.id, data: { temperature: fieldInputValue } })} onClose={() => setShowFieldPicker(null)} />
+                  )}
+                </>
+              )}
+
+              {isSediment && (
+                <>
+                  <FieldBtn label="Масса/тара" value={probe.mass} onClick={() => setShowFieldPicker({ probeId: probe.id, field: 'mass' })} />
+                  {isThisProbe('mass') && (
+                    <PickerList options={SEDIMENT_MASS_OPTIONS} current={probe.mass} onSelect={(v) => fieldMutation.mutate({ probeId: probe.id, data: { mass: v } })} onClose={() => setShowFieldPicker(null)} />
+                  )}
+                  <FieldBtn label="Глубина, м" value={probe.depth} onClick={() => { setShowFieldPicker({ probeId: probe.id, field: 'depth' }); setFieldInputValue(probe.depth || ''); }} />
+                  {isThisProbe('depth') && (
+                    <FieldInput value={fieldInputValue} onChange={setFieldInputValue} placeholder="0.1" onSave={() => fieldMutation.mutate({ probeId: probe.id, data: { depth: fieldInputValue } })} onClose={() => setShowFieldPicker(null)} />
+                  )}
+                  <FieldBtn label="Примечание" value={probe.note} onClick={() => { setShowFieldPicker({ probeId: probe.id, field: 'note' }); setFieldInputValue(probe.note || ''); }} />
+                  {isThisProbe('note') && (
+                    <FieldInput value={fieldInputValue} onChange={setFieldInputValue} placeholder="участок 1" onSave={() => fieldMutation.mutate({ probeId: probe.id, data: { note: fieldInputValue } })} onClose={() => setShowFieldPicker(null)} />
+                  )}
+                </>
+              )}
+
+              <InfoRow label="Характеристика" value={probe.description || '—'} />
+              <div className="flex gap-2">
+                {!isCollected && (
+                  <button
+                    onClick={() => collectMutation.mutate(probe.id)}
+                    className="flex-1 py-2 rounded-lg bg-emerald-600/90 text-white text-sm font-medium"
+                  >
+                    Отобрать
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowDescPicker(probe.id)}
+                  className="flex-1 py-2 rounded-lg bg-[var(--bg-tertiary)] text-sm font-medium border border-[var(--border-color)]"
+                >
+                  Характеристика
+                </button>
+              </div>
+              {showDescPicker === probe.id && (
+                <div className="space-y-1 pt-2 border-t border-[var(--border-color)]">
+                  {descriptions.map((d) => (
+                    <button
+                      key={d}
+                      onClick={() => descMutation.mutate({ probeId: probe.id, description: d })}
+                      className={`w-full text-left px-3 py-2 text-sm rounded-lg transition-colors ${
+                        probe.description === d
+                          ? 'bg-primary-500/20 text-primary-400 font-medium'
+                          : 'hover:bg-[var(--bg-tertiary)]'
+                      }`}
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] space-y-2">
+          <div className="flex items-center gap-2 mb-1">
+            <div className={`w-2.5 h-2.5 rounded-full ${hasCoords ? 'bg-emerald-400' : 'bg-red-400'}`} />
+            <span className="text-sm font-medium">Координаты</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div>
+              <div className="text-[var(--text-secondary)]">Широта</div>
+              <div className="font-mono">{latitude}</div>
+            </div>
+            <div>
+              <div className="text-[var(--text-secondary)]">Долгота</div>
+              <div className="font-mono">{longitude}</div>
+            </div>
+          </div>
+          {mapsUrl && (
+            <a
+              href={mapsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm text-primary-400 mt-1"
+            >
+              <Navigation className="w-3.5 h-3.5" />
+              Открыть на карте
+            </a>
+          )}
+        </div>
+
+        {manualMode && (
+          <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] space-y-3">
+            <div className="text-sm font-medium">
+              {manualMode === 'lat' ? 'Широта' : 'Долгота'}
+              <span className="text-[var(--text-secondary)] ml-2">формат: 55 50.792</span>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={manualValue}
+                onChange={(e) => setManualValue(e.target.value)}
+                placeholder={manualMode === 'lat' ? '55 50.792' : '37 39.277'}
+                className="flex-1 px-3 py-2.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-sm"
+                autoFocus
+              />
+              <button
+                onClick={handleManualSave}
+                className="px-4 py-2.5 rounded-lg bg-primary-500 text-white text-sm font-medium"
+              >
+                <Check className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => { setManualMode(null); setManualValue(''); }}
+                className="px-3 py-2.5 rounded-lg bg-[var(--bg-tertiary)] text-sm"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <div className="text-xs uppercase tracking-wider text-[var(--text-secondary)] font-semibold px-1">
+            Ввод координат
+          </div>
+          <ActionButton
+            icon={<Crosshair className="w-5 h-5" />}
+            label="Моя геолокация"
+            onClick={handleGeolocation}
+            loading={geoLoading}
+            variant="primary"
+          />
+          <ActionButton
+            icon={<Camera className="w-5 h-5" />}
+            label="Определить по фото (EXIF)"
+            onClick={() => exifInputRef.current?.click()}
+            loading={exifLoading}
+          />
+          <input
+            ref={exifInputRef}
+            type="file"
+            accept="image/*"
+            className="absolute w-0 h-0 opacity-0 overflow-hidden"
+            onChange={handleExifPhoto}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <ActionButton
+              icon={<Pencil className="w-4 h-4" />}
+              label="Широта"
+              onClick={() => { setManualMode('lat'); setManualValue(''); }}
+            />
+            <ActionButton
+              icon={<Pencil className="w-4 h-4" />}
+              label="Долгота"
+              onClick={() => { setManualMode('lon'); setManualValue(''); }}
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="text-xs uppercase tracking-wider text-[var(--text-secondary)] font-semibold px-1">
+            Фото точки ({photos?.length ?? 0})
+          </div>
+          <ActionButton
+            icon={<Camera className="w-5 h-5" />}
+            label="Загрузить фото"
+            onClick={() => photoInputRef.current?.click()}
+            loading={isUploadingPhotos}
+            variant="primary"
+          />
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="absolute w-0 h-0 opacity-0 overflow-hidden"
+            onChange={handlePhotoUpload}
+          />
+          {photos && photos.filter((p) => !p.description).length > 0 && (
+            <ActionButton
+              icon={<Mic className="w-5 h-5" />}
+              label={`Описать голосом (${photos.filter((p) => !p.description).length} без описания)`}
+              onClick={() => {
+                const undescribed = photos.filter((p) => !p.description);
+                setDescribeOverlay({ photos, ids: undescribed.map((p) => p.id) });
+              }}
+            />
+          )}
+          {photos && photos.length > 0 && (
+            <div className="grid grid-cols-3 gap-2">
+              {photos.map((photo) => {
+                const thumbnailUrl = `${monitoringsApi.getPhotoThumbnailUrl(monitoringId, photo.id)}`;
+                return (
+                  <div key={photo.id} className="relative">
+                    <button
+                      onClick={() => setViewPhoto(photo)}
+                      className="w-full aspect-square rounded-lg overflow-hidden bg-[var(--bg-tertiary)]"
+                    >
+                      <AuthImage
+                        src={thumbnailUrl}
+                        alt={photo.description || ''}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    </button>
+                    {!photo.description && (
+                      <div className="absolute bottom-1 left-1 w-4 h-4 rounded-full bg-amber-500/80 flex items-center justify-center">
+                        <Mic className="w-2.5 h-2.5 text-white" />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+      </div>
+
+      {viewPhoto && (
+        <div className="fixed inset-0 z-50 bg-black/95 flex flex-col">
+          <div className="flex items-center justify-between p-3">
+            <button onClick={() => setViewPhoto(null)} className="p-2 text-white">
+              <X className="w-6 h-6" />
+            </button>
+            <button
+              onClick={() => {
+                const id = viewPhoto.id;
+                setViewPhoto(null);
+                setDescribeOverlay({ photos: photos || [], ids: [id] });
+              }}
+              className="p-2 text-white"
+            >
+              <Mic className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex-1 flex items-center justify-center px-4 pb-2 min-h-0">
+            <AuthImage
+              src={`${monitoringsApi.getPhotoOriginalUrl(monitoringId, viewPhoto.id)}`}
+              alt={viewPhoto.description || ''}
+              className="max-w-full max-h-[calc(100vh-10rem)] object-contain rounded-lg"
+            />
+          </div>
+          <div className="shrink-0 px-4 pb-4 pt-1 space-y-1">
+            {viewPhoto.description && (
+              <p className="text-white/80 text-sm">{viewPhoto.description}</p>
+            )}
+            {viewPhoto.latitude && viewPhoto.longitude && (
+              <div className="flex items-center gap-1.5 text-white/60 text-xs">
+                <MapPin className="w-3 h-3" />
+                <span>{viewPhoto.latitude}, {viewPhoto.longitude}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ===================== ГЛАВНЫЙ КОМПОНЕНТ =====================
 
 export function FieldworkPage() {
@@ -1387,11 +2307,20 @@ export function FieldworkPage() {
 
   const renderScreen = () => {
     switch (nav.view) {
+      case 'mode-select':
+        return (
+          <ModeSelectScreen
+            onObjects={() => go({ view: 'projects' })}
+            onMonitorings={() => go({ view: 'monitoring-list' })}
+          />
+        );
+
       case 'projects':
         return (
           <>
             <Header
-              title="Полевые работы"
+              title="Объекты"
+              onBack={() => go({ view: 'mode-select' })}
               rightAction={
                 <button
                   onClick={() => navigate('/dashboard')}
@@ -1488,6 +2417,41 @@ export function FieldworkPage() {
           <PhotosScreen
             projectId={nav.projectId}
             onBack={() => go({ view: 'project', projectId: nav.projectId })}
+          />
+        );
+
+      case 'monitoring-list':
+        return (
+          <MonitoringListScreen
+            onSelect={(id) => go({ view: 'monitoring', monitoringId: id })}
+            onBack={() => go({ view: 'mode-select' })}
+          />
+        );
+
+      case 'monitoring':
+        return (
+          <MonitoringScreen
+            monitoringId={nav.monitoringId}
+            onProbes={() => go({ view: 'monitoring-points', monitoringId: nav.monitoringId })}
+            onBack={() => go({ view: 'monitoring-list' })}
+          />
+        );
+
+      case 'monitoring-points':
+        return (
+          <MonitoringPointsScreen
+            monitoringId={nav.monitoringId}
+            onSelect={(pointName) => go({ view: 'monitoring-point', monitoringId: nav.monitoringId, pointName })}
+            onBack={() => go({ view: 'monitoring', monitoringId: nav.monitoringId })}
+          />
+        );
+
+      case 'monitoring-point':
+        return (
+          <MonitoringPointScreen
+            monitoringId={nav.monitoringId}
+            pointName={nav.pointName}
+            onBack={() => go({ view: 'monitoring-points', monitoringId: nav.monitoringId })}
           />
         );
     }

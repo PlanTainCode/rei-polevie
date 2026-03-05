@@ -23,6 +23,11 @@ import { IndicatorDetailPage } from '@/pages/indicators/IndicatorDetailPage';
 import { SettingsPage } from '@/pages/settings/SettingsPage';
 import { GuidePage } from '@/pages/guide/GuidePage';
 import { FieldworkPage } from '@/pages/fieldwork/FieldworkPage';
+import { MonitoringsPage } from '@/pages/monitorings/MonitoringsPage';
+import { CreateMonitoringPage } from '@/pages/monitorings/CreateMonitoringPage';
+import { MonitoringDetailPage } from '@/pages/monitorings/MonitoringDetailPage';
+import { MonitoringProbesPage } from '@/pages/monitorings/MonitoringProbesPage';
+import { MonitoringPhotosPage } from '@/pages/monitorings/MonitoringPhotosPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuthStore();
@@ -108,6 +113,11 @@ export default function App() {
         <Route path="/technical-tasks" element={<TechnicalTasksPage />} />
         <Route path="/technical-tasks/create" element={<CreateTechnicalTaskPage />} />
         <Route path="/technical-tasks/:id" element={<TechnicalTaskDetailPage />} />
+        <Route path="/monitorings" element={<MonitoringsPage />} />
+        <Route path="/monitorings/create" element={<CreateMonitoringPage />} />
+        <Route path="/monitorings/:id" element={<MonitoringDetailPage />} />
+        <Route path="/monitorings/:id/probes" element={<MonitoringProbesPage />} />
+        <Route path="/monitorings/:id/photos" element={<MonitoringPhotosPage />} />
         <Route path="/guide" element={<GuidePage />} />
       </Route>
 

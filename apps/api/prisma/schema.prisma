@@ -26,6 +26,11 @@ model User {
   uploadedPhotos       Photo[]         @relation("UploadedPhotos")
   createdTechnicalTasks TechnicalTask[] @relation("CreatedTechnicalTasks")
 
+  // Мониторинги
+  createdMonitorings       Monitoring[]       @relation("MonitoringCreatedBy")
+  collectedMonitoringProbes MonitoringProbe[] @relation("MonitoringProbeCollectedBy")
+  uploadedMonitoringPhotos MonitoringPhoto[]  @relation("MonitoringUploadedPhotos")
+
   @@map("users")
 }
 
@@ -42,6 +47,7 @@ model Company {
   invitations    Invitation[]
   projects       Project[]
   technicalTasks TechnicalTask[]
+  monitorings    Monitoring[]
 
   @@map("companies")
 }
@@ -476,4 +482,111 @@ model IndicatorSample {
 
   @@unique([indicatorId, sampleCipher])
   @@map("indicator_samples")
+}
+
+// ===================== МОНИТОРИНГИ =====================
+
+model Monitoring {
+  id               String           @id @default(cuid())
+  companyId        String
+  name             String
+  objectName       String?
+  objectAddress    String?
+
+  customerName     String?
+
+  // Файл ТЗ
+  tzFileName       String?
+  tzFileUrl        String?
+
+  // Извлечённые AI данные
+  extractedData    Json?
+
+  // Метеоусловия
+  weatherTemperature String?
+  weatherWind        String?
+  weatherPressure    String?
+  weatherHumidity    String?
+
+  status           MonitoringStatus @default(DRAFT)
+  processedAt      DateTime?
+  createdById      String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy User?             @relation("MonitoringCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  probes    MonitoringProbe[]
+  photos    MonitoringPhoto[]
+
+  @@map("monitorings")
+}
+
+enum MonitoringStatus {
+  DRAFT
+  ACTIVE
+  IN_PROGRESS
+  COMPLETED
+  ARCHIVED
+}
+
+model MonitoringProbe {
+  id             String              @id @default(cuid())
+  monitoringId   String
+  name           String
+  type           MonitoringProbeType
+  latitude       String?
+  longitude      String?
+  status         MonitoringProbeStatus @default(PENDING)
+  description    String?
+  container      String?
+  containerVolume String?
+  containerCount Int                 @default(1)
+  depth          String?
+  temperature    String?
+  mass           String?
+  note           String?
+  collectedAt    DateTime?
+  collectedById  String?
+  sortOrder      Int                 @default(0)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  monitoring  Monitoring        @relation(fields: [monitoringId], references: [id], onDelete: Cascade)
+  collectedBy User?             @relation("MonitoringProbeCollectedBy", fields: [collectedById], references: [id], onDelete: SetNull)
+  photos      MonitoringPhoto[]
+
+  @@map("monitoring_probes")
+}
+
+enum MonitoringProbeType {
+  WATER
+  SEDIMENT
+}
+
+enum MonitoringProbeStatus {
+  PENDING
+  COLLECTED
+}
+
+model MonitoringPhoto {
+  id            String   @id @default(cuid())
+  monitoringId  String
+  probeId       String
+  filename      String
+  originalName  String
+  thumbnailName String?
+  description   String?
+  latitude      String?
+  longitude     String?
+  photoDate     DateTime?
+  sortOrder     Int      @default(0)
+  uploadedAt    DateTime @default(now())
+  uploadedById  String?
+
+  monitoring Monitoring      @relation(fields: [monitoringId], references: [id], onDelete: Cascade)
+  probe      MonitoringProbe @relation(fields: [probeId], references: [id], onDelete: Cascade)
+  uploadedBy User?           @relation("MonitoringUploadedPhotos", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@map("monitoring_photos")
 }
