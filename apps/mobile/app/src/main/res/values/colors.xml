@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Палитра fieldwork (как на вебе) -->
+    <color name="bg_primary">#0F1419</color>
+    <color name="bg_secondary">#1A2028</color>
+    <color name="bg_tertiary">#242C37</color>
+    <color name="text_primary">#E7E9EA</color>
+    <color name="text_secondary">#8B98A5</color>
+    <color name="border_color">#2F3943</color>
+    <color name="primary_green">#22C55E</color>
+    <color name="primary_green_dark">#16A34A</color>
+</resources>

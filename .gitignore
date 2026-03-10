@@ -59,3 +59,16 @@ apps/api/generated/*
 !apps/api/generated/.gitkeep
 
 apps/api/temp/
+
+# Android / Mobile
+apps/mobile/.gradle/
+apps/mobile/app/build/
+apps/mobile/build/
+apps/mobile/local.properties
+apps/mobile/captures/
+apps/mobile/.externalNativeBuild/
+apps/mobile/.cxx/
+*.apk
+!apps/web/public/polevie.apk
+*.aab
+*.hprof

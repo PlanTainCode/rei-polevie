@@ -1,0 +1,83 @@
+package ru.polevie.mobile.util
+
+import android.Manifest
+import android.content.Context
+import android.net.Uri
+import android.provider.MediaStore
+import androidx.core.content.ContextCompat
+import androidx.exifinterface.media.ExifInterface
+import java.io.File
+import java.io.InputStream
+import java.util.Locale
+
+object LocationUtils {
+
+    fun hasLocationPermission(context: Context): Boolean =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    fun hasMediaLocationPermission(context: Context): Boolean =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_MEDIA_LOCATION) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    /**
+     * На Android 10+ GPS в EXIF скрыт по умолчанию. setRequireOriginal + ACCESS_MEDIA_LOCATION
+     * дают доступ к оригиналу с метаданными. Для photo picker URI может бросить — ловим и возвращаем исходный.
+     */
+    fun getUriWithLocationAccess(uri: Uri): Uri = try {
+        MediaStore.setRequireOriginal(uri)
+    } catch (_: Exception) {
+        uri
+    }
+
+    /** InputStream для чтения файла с сохранением EXIF (GPS). Использовать при копировании и чтении EXIF. */
+    fun openInputStreamWithLocationAccess(context: Context, uri: Uri): InputStream? {
+        val uriToUse = getUriWithLocationAccess(uri)
+        return context.contentResolver.openInputStream(uriToUse)
+    }
+
+    fun getExifCoordinates(context: Context, uri: Uri): Pair<Double, Double>? {
+        val file = File(context.cacheDir, "exif_temp_${System.currentTimeMillis()}.jpg")
+        try {
+            openInputStreamWithLocationAccess(context, uri)?.use { input ->
+                file.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            } ?: return null
+            return ExifInterface(file).latLong?.let { (lat, lon) ->
+                Pair(lat.toDouble(), lon.toDouble())
+            }
+        } finally {
+            file.delete()
+        }
+    }
+
+    /** Формат как на вебе: градусы и минуты (55 50.792), знак для отрицательных. Locale.US для точки как десятичного разделителя. */
+    fun formatCoordinate(value: Double): String {
+        val abs = kotlin.math.abs(value)
+        val degrees = abs.toInt()
+        val minutes = (abs - degrees) * 60
+        val sign = if (value < 0) "-" else ""
+        return "$sign$degrees ${String.format(Locale.US, "%.3f", minutes)}"
+    }
+
+    /** Парсит координату в десятичные градусы для URL карты. Поддерживает "55 50.792", "-55 50.792" и "55.75321" */
+    fun parseCoordinateForMap(coord: String?): Double? {
+        if (coord.isNullOrBlank()) return null
+        val trimmed = coord.trim()
+        val dmMatch = Regex("^(-?)(\\d+)\\s+(\\d+\\.?\\d*)$").find(trimmed)
+        if (dmMatch != null) {
+            val sign = if (dmMatch.groupValues[1] == "-") -1.0 else 1.0
+            val deg = dmMatch.groupValues[2].toDouble()
+            val min = dmMatch.groupValues[3].toDouble()
+            return sign * (deg + min / 60)
+        }
+        return trimmed.replace(",", ".").toDoubleOrNull()
+    }
+
+    fun getYandexMapsUrl(latitude: String?, longitude: String?): String? {
+        val lat = parseCoordinateForMap(latitude) ?: return null
+        val lon = parseCoordinateForMap(longitude) ?: return null
+        return "https://yandex.ru/maps/?pt=$lon,$lat&z=17&l=map"
+    }
+}

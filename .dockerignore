@@ -55,6 +55,9 @@ apps/api/uploads/*
 apps/api/generated/*
 !apps/api/generated/.gitkeep
 
+# Mobile app (not needed in Docker builds)
+apps/mobile
+
 # Docker
 Dockerfile*
 docker-compose*.yml

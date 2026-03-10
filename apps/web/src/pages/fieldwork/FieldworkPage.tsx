@@ -23,6 +23,8 @@ import {
   SkipForward,
   FileText,
   Activity,
+  Download,
+  Smartphone,
 } from 'lucide-react';
 import * as exifr from 'exifr';
 import { projectsApi, type Photo } from '@/api/projects';
@@ -603,6 +605,8 @@ function MonitoringVoiceDescribeOverlay({
 
 // ===================== ЭКРАНЫ: ОБЪЕКТЫ =====================
 
+const APK_POPUP_KEY = 'polevie-apk-popup-dismissed';
+
 function ModeSelectScreen({
   onObjects,
   onMonitorings,
@@ -610,6 +614,15 @@ function ModeSelectScreen({
   onObjects: () => void;
   onMonitorings: () => void;
 }) {
+  const [showApkPopup, setShowApkPopup] = useState(() => {
+    return !localStorage.getItem(APK_POPUP_KEY);
+  });
+
+  const dismissPopup = () => {
+    setShowApkPopup(false);
+    localStorage.setItem(APK_POPUP_KEY, '1');
+  };
+
   return (
     <div className="flex flex-col items-center justify-center flex-1 p-6 gap-4">
       <h1 className="text-xl font-bold mb-4">Полевые работы</h1>
@@ -633,6 +646,54 @@ function ModeSelectScreen({
         <span className="text-lg font-semibold">Мониторинги</span>
         <span className="text-sm text-[var(--text-secondary)]">Пробы воды и донных отложений</span>
       </button>
+
+      <a
+        href="/polevie.apk"
+        download
+        className="w-full mt-2 p-4 rounded-2xl bg-[var(--bg-secondary)] border border-emerald-500/30 hover:bg-emerald-500/10 active:bg-emerald-500/10 transition-colors flex items-center gap-4"
+      >
+        <div className="w-12 h-12 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+          <Smartphone className="w-6 h-6" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <span className="text-base font-semibold block">Скачать Android-приложение</span>
+          <span className="text-xs text-[var(--text-secondary)]">Работает без интернета, быстрее и удобнее</span>
+        </div>
+        <Download className="w-5 h-5 text-emerald-400 shrink-0" />
+      </a>
+
+      {showApkPopup && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm bg-[var(--bg-secondary)] rounded-2xl border border-[var(--border-color)] p-6 space-y-4 animate-in slide-in-from-bottom-4 fade-in duration-300">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                <Smartphone className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-base">Приложение для Android</h3>
+                <p className="text-sm text-[var(--text-secondary)]">Работает офлайн и синхронизируется автоматически</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={dismissPopup}
+                className="flex-1 py-2.5 rounded-xl border border-[var(--border-color)] text-sm font-medium hover:bg-[var(--bg-tertiary)] transition-colors"
+              >
+                Позже
+              </button>
+              <a
+                href="/polevie.apk"
+                download
+                onClick={dismissPopup}
+                className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium text-center transition-colors flex items-center justify-center gap-2"
+              >
+                <Download className="w-4 h-4" />
+                Скачать
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
