@@ -20,20 +20,20 @@ object LocationUtils {
         ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_MEDIA_LOCATION) ==
             android.content.pm.PackageManager.PERMISSION_GRANTED
 
-    /**
-     * На Android 10+ GPS в EXIF скрыт по умолчанию. setRequireOriginal + ACCESS_MEDIA_LOCATION
-     * дают доступ к оригиналу с метаданными. Для photo picker URI может бросить — ловим и возвращаем исходный.
-     */
-    fun getUriWithLocationAccess(uri: Uri): Uri = try {
-        MediaStore.setRequireOriginal(uri)
-    } catch (_: Exception) {
-        uri
+    private fun isMediaStoreUri(uri: Uri): Boolean {
+        val authority = uri.authority ?: return false
+        return authority == "media" || authority == MediaStore.AUTHORITY
     }
 
-    /** InputStream для чтения файла с сохранением EXIF (GPS). Использовать при копировании и чтении EXIF. */
+    /** InputStream для чтения файла с сохранением EXIF (GPS). */
     fun openInputStreamWithLocationAccess(context: Context, uri: Uri): InputStream? {
-        val uriToUse = getUriWithLocationAccess(uri)
-        return context.contentResolver.openInputStream(uriToUse)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q && isMediaStoreUri(uri)) {
+            try {
+                val originalUri = MediaStore.setRequireOriginal(uri)
+                return context.contentResolver.openInputStream(originalUri)
+            } catch (_: Exception) { }
+        }
+        return context.contentResolver.openInputStream(uri)
     }
 
     fun getExifCoordinates(context: Context, uri: Uri): Pair<Double, Double>? {
