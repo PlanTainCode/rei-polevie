@@ -131,9 +131,19 @@ export class MonitoringsService {
       });
 
       if (probes.length > 0) {
+        const pointNumberMap = new Map<string, number>();
+        let pointCounter = 0;
+
+        for (const probe of probes) {
+          if (!pointNumberMap.has(probe.name)) {
+            pointCounter++;
+            pointNumberMap.set(probe.name, pointCounter);
+          }
+        }
+
         const probeData = probes.map((probe, index) => ({
           monitoringId,
-          name: probe.name,
+          name: `${pointNumberMap.get(probe.name)}. ${probe.name}`,
           type: probe.type as any,
           latitude: probe.latitude || null,
           longitude: probe.longitude || null,
