@@ -28,5 +28,5 @@ object Routes {
     fun monitoring(id: String) = "monitoring/$id"
     fun monitoringPoints(id: String) = "monitoring_points/$id"
     fun monitoringPoint(id: String, pointName: String) =
-        "monitoring_point/$id/${java.net.URLEncoder.encode(pointName, Charsets.UTF_8).replace("+", "%20")}"
+        "monitoring_point/$id/${java.net.URLEncoder.encode(pointName, "UTF-8").replace("+", "%20")}"
 }
