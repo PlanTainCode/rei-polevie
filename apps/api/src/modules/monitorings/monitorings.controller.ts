@@ -253,6 +253,7 @@ export class MonitoringsController {
     res.set({
       'Content-Type': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(result.filename)}`,
+      'Content-Length': result.buffer.length,
     });
     res.send(result.buffer);
   }
@@ -265,6 +266,7 @@ export class MonitoringsController {
     res.set({
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(result.filename)}`,
+      'Content-Length': result.buffer.length,
     });
     res.send(result.buffer);
   }
@@ -282,6 +284,7 @@ export class MonitoringsController {
     res.set({
       'Content-Type': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(result.filename)}`,
+      'Content-Length': result.buffer.length,
     });
     res.send(result.buffer);
   }

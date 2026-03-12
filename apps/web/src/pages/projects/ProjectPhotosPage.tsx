@@ -50,6 +50,7 @@ export function ProjectPhotosPage() {
   const [showAlbumModal, setShowAlbumModal] = useState(false);
   const [crewMembers, setCrewMembers] = useState('');
   const [isGeneratingAlbum, setIsGeneratingAlbum] = useState(false);
+  const [albumError, setAlbumError] = useState<string | null>(null);
 
   const { data: project, isLoading: projectLoading } = useQuery({
     queryKey: ['project', id],
@@ -135,10 +136,15 @@ export function ProjectPhotosPage() {
   const handleGenerateAlbum = useCallback(async () => {
     if (!id || !crewMembers.trim()) return;
     setIsGeneratingAlbum(true);
+    setAlbumError(null);
     try {
       await projectsApi.generatePhotoAlbum(id, crewMembers.trim());
       setShowAlbumModal(false);
       setCrewMembers('');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Неизвестная ошибка';
+      console.error('Album generation failed:', err);
+      setAlbumError(`Ошибка генерации альбома: ${message}`);
     } finally {
       setIsGeneratingAlbum(false);
     }
@@ -624,6 +630,12 @@ export function ProjectPhotosPage() {
                 Укажите ФИО сотрудников через запятую
               </p>
             </div>
+
+            {albumError && (
+              <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+                {albumError}
+              </div>
+            )}
 
             <div className="flex items-center gap-3 justify-end">
               <Button

@@ -319,6 +319,8 @@ export function MonitoringPhotosPage() {
   const [editData, setEditData] = useState({ description: '', photoDate: '', latitude: '', longitude: '' });
   const [albumModalOpen, setAlbumModalOpen] = useState(false);
   const [crewMembers, setCrewMembers] = useState('');
+  const [isGeneratingAlbum, setIsGeneratingAlbum] = useState(false);
+  const [albumError, setAlbumError] = useState<string | null>(null);
   const [recordingPhotoId, setRecordingPhotoId] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
@@ -441,9 +443,19 @@ export function MonitoringPhotosPage() {
 
   const handleGenerateAlbum = useCallback(async () => {
     if (!id || !selectedPointName) return;
-    await monitoringsApi.generatePointAlbum(id, selectedPointName, crewMembers.trim() || undefined);
-    setAlbumModalOpen(false);
-    setCrewMembers('');
+    setIsGeneratingAlbum(true);
+    setAlbumError(null);
+    try {
+      await monitoringsApi.generatePointAlbum(id, selectedPointName, crewMembers.trim() || undefined);
+      setAlbumModalOpen(false);
+      setCrewMembers('');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Неизвестная ошибка';
+      console.error('Album generation failed:', err);
+      setAlbumError(`Ошибка генерации альбома: ${message}`);
+    } finally {
+      setIsGeneratingAlbum(false);
+    }
   }, [id, selectedPointName, crewMembers]);
 
   const startEditing = (photo: MonitoringPhoto) => {
@@ -634,7 +646,7 @@ export function MonitoringPhotosPage() {
         {albumModalOpen && (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
-            onClick={() => setAlbumModalOpen(false)}
+            onClick={() => !isGeneratingAlbum && setAlbumModalOpen(false)}
           >
             <Card className="relative w-full max-w-md" onClick={(e) => e.stopPropagation()}>
               <CardContent className="p-6">
@@ -645,13 +657,19 @@ export function MonitoringPhotosPage() {
                     value={crewMembers}
                     onChange={(e) => setCrewMembers(e.target.value)}
                     placeholder="Иванов И.И., Петров П.П."
+                    disabled={isGeneratingAlbum}
                   />
                 </div>
+                {albumError && (
+                  <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+                    {albumError}
+                  </div>
+                )}
                 <div className="flex gap-3">
-                  <Button variant="secondary" className="flex-1" onClick={() => setAlbumModalOpen(false)}>
+                  <Button variant="secondary" className="flex-1" onClick={() => setAlbumModalOpen(false)} disabled={isGeneratingAlbum}>
                     Отмена
                   </Button>
-                  <Button className="flex-1" onClick={handleGenerateAlbum}>
+                  <Button className="flex-1" onClick={handleGenerateAlbum} isLoading={isGeneratingAlbum}>
                     <Presentation className="w-4 h-4" />
                     Сгенерировать
                   </Button>
