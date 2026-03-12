@@ -633,27 +633,19 @@ export const projectsApi = {
     window.URL.revokeObjectURL(url);
   },
 
-  // Сгенерировать фотоальбом (PPTX)
   generatePhotoAlbum: async (projectId: string, crewMembers: string): Promise<void> => {
-    const response = await apiClient.post(
+    const response = await apiClient.post<{ fileName: string; downloadUrl: string }>(
       `/projects/${projectId}/generate-album`,
       { crewMembers },
-      {
-        responseType: 'blob',
-        timeout: 180000, // 3 минуты на генерацию
-      },
+      { timeout: 180000 },
     );
     
-    const filename = projectsApi._extractFilename(response.headers['content-disposition'], 'album.pptx');
-    
-    const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
+    link.href = response.data.downloadUrl;
+    link.download = response.data.fileName;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
   },
 
   // ========== ПРОГРАММА ИЭИ ==========

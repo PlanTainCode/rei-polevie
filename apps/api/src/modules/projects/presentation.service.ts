@@ -1,8 +1,10 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PhotosService } from './photos.service';
-import { readFile } from 'fs/promises';
+import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
+import { join } from 'path';
+import { v4 as uuidv4 } from 'uuid';
 import * as sharp from 'sharp';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -20,19 +22,21 @@ const ALBUM_IMAGE_QUALITY = 80;
 @Injectable()
 export class PresentationService {
   private readonly logger = new Logger(PresentationService.name);
+  private readonly generatedDir = join(process.cwd(), 'generated');
 
   constructor(
     private prisma: PrismaService,
     private photosService: PhotosService,
-  ) {}
+  ) {
+    if (!existsSync(this.generatedDir)) {
+      mkdir(this.generatedDir, { recursive: true }).catch(() => {});
+    }
+  }
 
-  /**
-   * Генерирует фотоальбом в формате PPTX
-   */
   async generatePhotoAlbum(
     projectId: string,
     crewMembers: string,
-  ): Promise<{ buffer: Buffer; filename: string }> {
+  ): Promise<{ fileName: string; downloadUrl: string }> {
     // Получаем данные проекта
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
@@ -182,18 +186,18 @@ export class PresentationService {
       }
     }
 
-    // Генерируем файл
     const pptxBuffer = await pptx.write({ outputType: 'nodebuffer' });
 
-    // Формируем имя файла (используем официальное название)
     const safeName = objectName.replace(/[<>:"/\\|?*]/g, '_').trim();
-    const filename = `${safeName}_фотоальбом.pptx`;
+    const fileName = `${uuidv4()}_${safeName}_фотоальбом.pptx`;
+    const filePath = join(this.generatedDir, fileName);
+    await writeFile(filePath, pptxBuffer);
 
-    this.logger.log(`Album generated: ${filename}`);
+    this.logger.log(`Album saved: ${fileName} (${(pptxBuffer.length / 1024 / 1024).toFixed(1)} MB)`);
 
     return {
-      buffer: pptxBuffer,
-      filename,
+      fileName,
+      downloadUrl: `/generated/${encodeURIComponent(fileName)}`,
     };
   }
 }

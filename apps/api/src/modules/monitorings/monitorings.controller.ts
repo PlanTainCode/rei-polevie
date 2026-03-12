@@ -246,16 +246,9 @@ export class MonitoringsController {
     @Param('id') id: string,
     @Param('pointName') pointName: string,
     @Body() dto: GenerateMonitoringAlbumDto,
-    @Res() res: Response,
   ) {
     const name = decodeURIComponent(pointName);
-    const result = await this.presentationService.generatePointAlbum(id, name, dto.crewMembers);
-    res.set({
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(result.filename)}`,
-      'Content-Length': result.buffer.length,
-    });
-    res.send(result.buffer);
+    return this.presentationService.generatePointAlbum(id, name, dto.crewMembers);
   }
 
   // ========== ГЕНЕРАЦИЯ АКТОВ ==========
@@ -278,14 +271,7 @@ export class MonitoringsController {
     @Param('id') id: string,
     @Param('probeId') probeId: string,
     @Body() dto: GenerateMonitoringAlbumDto,
-    @Res() res: Response,
   ) {
-    const result = await this.presentationService.generateProbeAlbum(id, probeId, dto.crewMembers);
-    res.set({
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(result.filename)}`,
-      'Content-Length': result.buffer.length,
-    });
-    res.send(result.buffer);
+    return this.presentationService.generateProbeAlbum(id, probeId, dto.crewMembers);
   }
 }

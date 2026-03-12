@@ -242,21 +242,18 @@ export const monitoringsApi = {
   },
 
   generatePointAlbum: async (monitoringId: string, pointName: string, crewMembers?: string): Promise<void> => {
-    const response = await apiClient.post(
+    const response = await apiClient.post<{ fileName: string; downloadUrl: string }>(
       `/monitorings/${monitoringId}/points/${encodeURIComponent(pointName)}/generate-album`,
       { crewMembers },
-      { responseType: 'blob', timeout: 180000 },
+      { timeout: 180000 },
     );
-    const cd = response.headers['content-disposition'];
-    const filename = cd ? decodeURIComponent(cd.match(/filename\*=UTF-8''([^;]+)/i)?.[1] || 'album.pptx') : 'album.pptx';
-    const url = window.URL.createObjectURL(new Blob([response.data]));
+
     const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
+    link.href = response.data.downloadUrl;
+    link.download = response.data.fileName;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
   },
 
   // ========== ГЕНЕРАЦИЯ АКТОВ ==========
@@ -281,20 +278,17 @@ export const monitoringsApi = {
   // ========== ГЕНЕРАЦИЯ АЛЬБОМА ==========
 
   generateProbeAlbum: async (monitoringId: string, probeId: string, crewMembers?: string): Promise<void> => {
-    const response = await apiClient.post(
+    const response = await apiClient.post<{ fileName: string; downloadUrl: string }>(
       `/monitorings/${monitoringId}/probes/${probeId}/generate-album`,
       { crewMembers },
-      { responseType: 'blob', timeout: 180000 },
+      { timeout: 180000 },
     );
-    const cd = response.headers['content-disposition'];
-    const filename = cd ? decodeURIComponent(cd.match(/filename\*=UTF-8''([^;]+)/i)?.[1] || 'album.pptx') : 'album.pptx';
-    const url = window.URL.createObjectURL(new Blob([response.data]));
+
     const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
+    link.href = response.data.downloadUrl;
+    link.download = response.data.fileName;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
   },
 };

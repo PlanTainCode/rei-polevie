@@ -2,7 +2,9 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MonitoringPhotosService } from './monitoring-photos.service';
 import { existsSync } from 'fs';
-import { extname } from 'path';
+import { writeFile, mkdir } from 'fs/promises';
+import { join } from 'path';
+import { v4 as uuidv4 } from 'uuid';
 import * as sharp from 'sharp';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const PptxGenJS = require('pptxgenjs');
@@ -14,17 +16,22 @@ const ALBUM_IMAGE_QUALITY = 80;
 @Injectable()
 export class MonitoringPresentationService {
   private readonly logger = new Logger(MonitoringPresentationService.name);
+  private readonly generatedDir = join(process.cwd(), 'generated');
 
   constructor(
     private prisma: PrismaService,
     private photosService: MonitoringPhotosService,
-  ) {}
+  ) {
+    if (!existsSync(this.generatedDir)) {
+      mkdir(this.generatedDir, { recursive: true }).catch(() => {});
+    }
+  }
 
   async generatePointAlbum(
     monitoringId: string,
     pointName: string,
     crewMembers?: string,
-  ): Promise<{ buffer: Buffer; filename: string }> {
+  ): Promise<{ fileName: string; downloadUrl: string }> {
     const monitoring = await this.prisma.monitoring.findUnique({ where: { id: monitoringId } });
     if (!monitoring) throw new NotFoundException('Мониторинг не найден');
 
@@ -107,14 +114,19 @@ export class MonitoringPresentationService {
 
     const pptxBuffer = await pptx.write({ outputType: 'nodebuffer' }) as Buffer;
     const safeName = pointName.replace(/[<>:"/\\|?*]/g, '_').trim();
-    return { buffer: pptxBuffer, filename: `${safeName}_фотоальбом.pptx` };
+    const fileName = `${uuidv4()}_${safeName}_фотоальбом.pptx`;
+    await writeFile(join(this.generatedDir, fileName), pptxBuffer);
+
+    this.logger.log(`Point album saved: ${fileName} (${(pptxBuffer.length / 1024 / 1024).toFixed(1)} MB)`);
+
+    return { fileName, downloadUrl: `/generated/${encodeURIComponent(fileName)}` };
   }
 
   async generateProbeAlbum(
     monitoringId: string,
     probeId: string,
     crewMembers?: string,
-  ): Promise<{ buffer: Buffer; filename: string }> {
+  ): Promise<{ fileName: string; downloadUrl: string }> {
     const monitoring = await this.prisma.monitoring.findUnique({ where: { id: monitoringId } });
     if (!monitoring) throw new NotFoundException('Мониторинг не найден');
 
@@ -164,7 +176,6 @@ export class MonitoringPresentationService {
 
       try {
         const slide = pptx.addSlide();
-
         const resized = await sharp(photoPath)
           .rotate()
           .resize(ALBUM_IMAGE_MAX_WIDTH, ALBUM_IMAGE_MAX_HEIGHT, {
@@ -207,10 +218,11 @@ export class MonitoringPresentationService {
 
     const pptxBuffer = await pptx.write({ outputType: 'nodebuffer' }) as Buffer;
     const safeName = probe.name.replace(/[<>:"/\\|?*]/g, '_').trim();
+    const fileName = `${uuidv4()}_${safeName}_фотоальбом.pptx`;
+    await writeFile(join(this.generatedDir, fileName), pptxBuffer);
 
-    return {
-      buffer: pptxBuffer,
-      filename: `${safeName}_фотоальбом.pptx`,
-    };
+    this.logger.log(`Probe album saved: ${fileName} (${(pptxBuffer.length / 1024 / 1024).toFixed(1)} MB)`);
+
+    return { fileName, downloadUrl: `/generated/${encodeURIComponent(fileName)}` };
   }
 }

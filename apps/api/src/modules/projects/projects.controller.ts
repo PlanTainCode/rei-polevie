@@ -729,29 +729,15 @@ export class ProjectsController {
 
   // ============ ГЕНЕРАЦИЯ ФОТОАЛЬБОМА ============
 
-  // Сгенерировать фотоальбом в PPTX
   @Post(':id/generate-album')
   async generateAlbum(
     @Request() req: { user: { userId: string } },
     @Param('id') id: string,
     @Body() dto: GenerateAlbumDto,
-    @Res() res: Response,
   ) {
-    // Проверяем доступ к проекту
     await this.projectsService.findById(id, req.user.userId);
 
-    const { buffer, filename } = await this.presentationService.generatePhotoAlbum(
-      id,
-      dto.crewMembers,
-    );
-
-    res.set({
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      'Content-Disposition': `attachment; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
-      'Content-Length': buffer.length,
-    });
-
-    res.send(buffer);
+    return this.presentationService.generatePhotoAlbum(id, dto.crewMembers);
   }
 
   // ============ ПРОГРАММА ИЭИ ============
