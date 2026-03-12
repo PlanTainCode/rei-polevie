@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PhotosService } from './photos.service';
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
+import * as sharp from 'sharp';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const PptxGenJS = require('pptxgenjs');
@@ -10,6 +11,11 @@ const PptxGenJS = require('pptxgenjs');
 // Размеры слайда 4:3 в дюймах
 const SLIDE_WIDTH = 10;
 const SLIDE_HEIGHT = 7.5;
+
+// Макс. размер фото для PPTX (достаточно для 10"x7.5" слайда при 150 DPI)
+const ALBUM_IMAGE_MAX_WIDTH = 1920;
+const ALBUM_IMAGE_MAX_HEIGHT = 1440;
+const ALBUM_IMAGE_QUALITY = 80;
 
 @Injectable()
 export class PresentationService {
@@ -103,15 +109,19 @@ export class PresentationService {
 
       if (existsSync(photoPath)) {
         try {
-          // Читаем файл и конвертируем в base64
-          const imageBuffer = await readFile(photoPath);
-          const base64 = imageBuffer.toString('base64');
-          const ext = photo.filename.split('.').pop()?.toLowerCase() || 'jpg';
-          const mimeType = ext === 'png' ? 'png' : 'jpeg';
+          const resized = await sharp(photoPath)
+            .rotate()
+            .resize(ALBUM_IMAGE_MAX_WIDTH, ALBUM_IMAGE_MAX_HEIGHT, {
+              fit: 'inside',
+              withoutEnlargement: true,
+            })
+            .jpeg({ quality: ALBUM_IMAGE_QUALITY })
+            .toBuffer();
 
-          // Добавляем фото на весь слайд
+          const base64 = resized.toString('base64');
+
           slide.addImage({
-            data: `image/${mimeType};base64,${base64}`,
+            data: `image/jpeg;base64,${base64}`,
             x: 0,
             y: 0,
             w: SLIDE_WIDTH,
@@ -120,7 +130,6 @@ export class PresentationService {
           });
         } catch (err) {
           this.logger.error(`Error adding image ${photo.filename}:`, err);
-          // Добавляем placeholder если не удалось загрузить фото
           slide.addText('Фото не найдено', {
             x: 0,
             y: 3,

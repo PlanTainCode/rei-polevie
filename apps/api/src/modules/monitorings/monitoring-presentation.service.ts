@@ -2,10 +2,14 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MonitoringPhotosService } from './monitoring-photos.service';
 import { existsSync } from 'fs';
-import { readFile } from 'fs/promises';
 import { extname } from 'path';
+import * as sharp from 'sharp';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const PptxGenJS = require('pptxgenjs');
+
+const ALBUM_IMAGE_MAX_WIDTH = 1920;
+const ALBUM_IMAGE_MAX_HEIGHT = 1440;
+const ALBUM_IMAGE_QUALITY = 80;
 
 @Injectable()
 export class MonitoringPresentationService {
@@ -65,30 +69,40 @@ export class MonitoringPresentationService {
       const photoPath = this.photosService.getOriginalPath(monitoringId, photo.filename);
       if (!existsSync(photoPath)) continue;
 
-      const slide = pptx.addSlide();
-      const imageBuffer = await readFile(photoPath);
-      const base64 = imageBuffer.toString('base64');
-      const ext = extname(photo.filename).toLowerCase();
-      const mimeType = ext === '.png' ? 'png' : 'jpeg';
+      try {
+        const slide = pptx.addSlide();
+        const resized = await sharp(photoPath)
+          .rotate()
+          .resize(ALBUM_IMAGE_MAX_WIDTH, ALBUM_IMAGE_MAX_HEIGHT, {
+            fit: 'inside',
+            withoutEnlargement: true,
+          })
+          .jpeg({ quality: ALBUM_IMAGE_QUALITY })
+          .toBuffer();
 
-      slide.addImage({
-        data: `image/${mimeType};base64,${base64}`,
-        x: 0, y: 0, w: 10, h: 7.5,
-        sizing: { type: 'contain', w: 10, h: 7.5 },
-      });
+        const base64 = resized.toString('base64');
 
-      const coordParts: string[] = [];
-      if (photo.latitude && photo.longitude) coordParts.push(`${photo.latitude}, ${photo.longitude}`);
-      if (photo.photoDate) coordParts.push(new Date(photo.photoDate).toLocaleDateString('ru-RU'));
-      if (coordParts.length > 0) {
-        slide.addText(coordParts.join('  '), {
-          x: 5, y: 6.8, w: 4.8, h: 0.5,
-          fontSize: 8, align: 'right',
-          color: 'FFFF00',
+        slide.addImage({
+          data: `image/jpeg;base64,${base64}`,
+          x: 0, y: 0, w: 10, h: 7.5,
+          sizing: { type: 'contain', w: 10, h: 7.5 },
         });
-      }
 
-      if (photo.description) slide.addNotes(photo.description);
+        const coordParts: string[] = [];
+        if (photo.latitude && photo.longitude) coordParts.push(`${photo.latitude}, ${photo.longitude}`);
+        if (photo.photoDate) coordParts.push(new Date(photo.photoDate).toLocaleDateString('ru-RU'));
+        if (coordParts.length > 0) {
+          slide.addText(coordParts.join('  '), {
+            x: 5, y: 6.8, w: 4.8, h: 0.5,
+            fontSize: 8, align: 'right',
+            color: 'FFFF00',
+          });
+        }
+
+        if (photo.description) slide.addNotes(photo.description);
+      } catch (err) {
+        this.logger.error(`Error adding image ${photo.filename}:`, err);
+      }
     }
 
     const pptxBuffer = await pptx.write({ outputType: 'nodebuffer' }) as Buffer;
@@ -148,36 +162,46 @@ export class MonitoringPresentationService {
       const photoPath = this.photosService.getOriginalPath(monitoringId, photo.filename);
       if (!existsSync(photoPath)) continue;
 
-      const slide = pptx.addSlide();
+      try {
+        const slide = pptx.addSlide();
 
-      const imageBuffer = await readFile(photoPath);
-      const base64 = imageBuffer.toString('base64');
-      const ext = extname(photo.filename).toLowerCase();
-      const mimeType = ext === '.png' ? 'png' : 'jpeg';
+        const resized = await sharp(photoPath)
+          .rotate()
+          .resize(ALBUM_IMAGE_MAX_WIDTH, ALBUM_IMAGE_MAX_HEIGHT, {
+            fit: 'inside',
+            withoutEnlargement: true,
+          })
+          .jpeg({ quality: ALBUM_IMAGE_QUALITY })
+          .toBuffer();
 
-      slide.addImage({
-        data: `image/${mimeType};base64,${base64}`,
-        x: 0, y: 0, w: 10, h: 7.5,
-        sizing: { type: 'contain', w: 10, h: 7.5 },
-      });
+        const base64 = resized.toString('base64');
 
-      const coordParts: string[] = [];
-      if (photo.latitude && photo.longitude) {
-        coordParts.push(`${photo.latitude}, ${photo.longitude}`);
-      }
-      if (photo.photoDate) {
-        coordParts.push(new Date(photo.photoDate).toLocaleDateString('ru-RU'));
-      }
-      if (coordParts.length > 0) {
-        slide.addText(coordParts.join('  '), {
-          x: 5, y: 6.8, w: 4.8, h: 0.5,
-          fontSize: 8, align: 'right',
-          color: 'FFFF00',
+        slide.addImage({
+          data: `image/jpeg;base64,${base64}`,
+          x: 0, y: 0, w: 10, h: 7.5,
+          sizing: { type: 'contain', w: 10, h: 7.5 },
         });
-      }
 
-      if (photo.description) {
-        slide.addNotes(photo.description);
+        const coordParts: string[] = [];
+        if (photo.latitude && photo.longitude) {
+          coordParts.push(`${photo.latitude}, ${photo.longitude}`);
+        }
+        if (photo.photoDate) {
+          coordParts.push(new Date(photo.photoDate).toLocaleDateString('ru-RU'));
+        }
+        if (coordParts.length > 0) {
+          slide.addText(coordParts.join('  '), {
+            x: 5, y: 6.8, w: 4.8, h: 0.5,
+            fontSize: 8, align: 'right',
+            color: 'FFFF00',
+          });
+        }
+
+        if (photo.description) {
+          slide.addNotes(photo.description);
+        }
+      } catch (err) {
+        this.logger.error(`Error adding image ${photo.filename}:`, err);
       }
     }
 
