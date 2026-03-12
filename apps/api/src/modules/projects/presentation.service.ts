@@ -188,7 +188,7 @@ export class PresentationService {
 
     const pptxBuffer = await pptx.write({ outputType: 'nodebuffer' });
 
-    const safeName = objectName.replace(/[<>:"/\\|?*]/g, '_').trim();
+    const safeName = objectName.replace(/[<>:"/\\|?*]/g, '_').trim().slice(0, 80);
     const fileName = `${uuidv4()}_${safeName}_фотоальбом.pptx`;
     const filePath = join(this.generatedDir, fileName);
     await writeFile(filePath, pptxBuffer);
