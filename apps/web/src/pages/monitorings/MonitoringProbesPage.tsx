@@ -42,9 +42,11 @@ function ProbeCard({
   onUpdateCollectedAt: (probeId: string, date: string) => void;
 }) {
   const [editingDate, setEditingDate] = useState(false);
+  const [localCollectedAt, setLocalCollectedAt] = useState<string | null>(null);
   const collected = probe.status === 'COLLECTED';
   const hasCoords = !!probe.latitude && !!probe.longitude;
   const photos = probe._count?.photos ?? 0;
+  const displayedCollectedAt = localCollectedAt ?? probe.collectedAt;
 
   return (
     <div className="p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] flex flex-col gap-1.5">
@@ -75,12 +77,16 @@ function ProbeCard({
         editingDate ? (
           <input
             type="datetime-local"
-            defaultValue={toDatetimeLocal(probe.collectedAt)}
+            defaultValue={toDatetimeLocal(displayedCollectedAt)}
             className="w-full h-7 px-2 rounded bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] text-[11px] focus:outline-none focus:border-primary-500 [color-scheme:dark]"
             autoFocus
             onBlur={(e) => {
               setEditingDate(false);
-              if (e.target.value) onUpdateCollectedAt(probe.id, new Date(e.target.value).toISOString());
+              if (e.target.value) {
+                const iso = new Date(e.target.value).toISOString();
+                setLocalCollectedAt(iso);
+                onUpdateCollectedAt(probe.id, iso);
+              }
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
@@ -93,7 +99,7 @@ function ProbeCard({
             className="flex items-center gap-1 text-[11px] text-[var(--text-secondary)] hover:text-primary-400 transition-colors text-left"
           >
             <Clock className="w-3 h-3 shrink-0" />
-            {probe.collectedAt ? formatCollectedAt(probe.collectedAt) : 'Указать дату отбора'}
+            {displayedCollectedAt ? formatCollectedAt(displayedCollectedAt) : 'Указать дату отбора'}
           </button>
         )
       )}

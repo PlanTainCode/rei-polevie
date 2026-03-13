@@ -127,6 +127,9 @@ export class UpdateProbeDto {
   @IsString()
   @IsOptional()
   note?: string;
+
+  @IsOptional()
+  collectedAt?: string;
 }
 
 export class UpdateMonitoringPhotoDto {
