@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Plus, Droplets, Layers, MapPin, Trash2, Check, Camera } from 'lucide-react';
+import { ArrowLeft, Plus, Droplets, Layers, MapPin, Trash2, Check, Camera, Clock } from 'lucide-react';
 import { monitoringsApi, type MonitoringProbe } from '@/api/monitorings';
 import { Button, Card, CardContent } from '@/components/ui';
 
@@ -19,15 +19,29 @@ const FILTERS: { value: FilterTab; label: string }[] = [
   { value: 'SEDIMENT', label: 'ДО' },
 ];
 
+function formatCollectedAt(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function toDatetimeLocal(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toISOString().slice(0, 16);
+}
+
 function ProbeCard({
   probe,
   onCollect,
   onDelete,
+  onUpdateCollectedAt,
 }: {
   probe: MonitoringProbe;
   onCollect: (id: string) => void;
   onDelete: (id: string) => void;
+  onUpdateCollectedAt: (probeId: string, date: string) => void;
 }) {
+  const [editingDate, setEditingDate] = useState(false);
   const collected = probe.status === 'COLLECTED';
   const hasCoords = !!probe.latitude && !!probe.longitude;
   const photos = probe._count?.photos ?? 0;
@@ -56,6 +70,33 @@ function ProbeCard({
           {collected ? 'Отобрана' : 'Ожидает'}
         </span>
       </div>
+
+      {collected && (
+        editingDate ? (
+          <input
+            type="datetime-local"
+            defaultValue={toDatetimeLocal(probe.collectedAt)}
+            className="w-full h-7 px-2 rounded bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] text-[11px] focus:outline-none focus:border-primary-500 [color-scheme:dark]"
+            autoFocus
+            onBlur={(e) => {
+              setEditingDate(false);
+              if (e.target.value) onUpdateCollectedAt(probe.id, new Date(e.target.value).toISOString());
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              if (e.key === 'Escape') setEditingDate(false);
+            }}
+          />
+        ) : (
+          <button
+            onClick={() => setEditingDate(true)}
+            className="flex items-center gap-1 text-[11px] text-[var(--text-secondary)] hover:text-primary-400 transition-colors text-left"
+          >
+            <Clock className="w-3 h-3 shrink-0" />
+            {probe.collectedAt ? formatCollectedAt(probe.collectedAt) : 'Указать дату отбора'}
+          </button>
+        )
+      )}
 
       {hasCoords && (
         <a
@@ -123,6 +164,12 @@ export function MonitoringProbesPage() {
 
   const deleteMut = useMutation({
     mutationFn: (probeId: string) => monitoringsApi.deleteProbe(id!, probeId),
+    onSuccess: inv,
+  });
+
+  const updateCollectedAtMut = useMutation({
+    mutationFn: ({ probeId, collectedAt }: { probeId: string; collectedAt: string }) =>
+      monitoringsApi.updateProbe(id!, probeId, { collectedAt }),
     onSuccess: inv,
   });
 
@@ -209,6 +256,7 @@ export function MonitoringProbesPage() {
               probe={p}
               onCollect={(pid) => collectMut.mutate(pid)}
               onDelete={(pid) => deleteMut.mutate(pid)}
+              onUpdateCollectedAt={(probeId, collectedAt) => updateCollectedAtMut.mutate({ probeId, collectedAt })}
             />
           ))}
         </div>
