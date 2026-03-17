@@ -447,10 +447,11 @@ export class SamplesService {
   }
 
   /**
-   * Получает все пробы проекта с площадками
+   * Получает все пробы проекта с площадками.
+   * Координаты площадки берутся из первой пробы с координатами.
    */
   async getPlatformsByProject(projectId: string) {
-    return this.prisma.platform.findMany({
+    const platforms = await this.prisma.platform.findMany({
       where: { projectId },
       include: {
         _count: { select: { samples: true } },
@@ -459,6 +460,14 @@ export class SamplesService {
         },
       },
       orderBy: [{ type: 'asc' }, { number: 'asc' }],
+    });
+    return platforms.map((p) => {
+      const sampleWithCoords = p.samples.find((s) => s.latitude || s.longitude);
+      return {
+        ...p,
+        latitude: sampleWithCoords?.latitude ?? null,
+        longitude: sampleWithCoords?.longitude ?? null,
+      };
     });
   }
 
