@@ -52,13 +52,9 @@ object LocationUtils {
         }
     }
 
-    /** Формат как на вебе: градусы и минуты (55 50.792), знак для отрицательных. Locale.US для точки как десятичного разделителя. */
+    /** Десятичные градусы с 6 знаками (54.418384). Locale.US для точки. */
     fun formatCoordinate(value: Double): String {
-        val abs = kotlin.math.abs(value)
-        val degrees = abs.toInt()
-        val minutes = (abs - degrees) * 60
-        val sign = if (value < 0) "-" else ""
-        return "$sign$degrees ${String.format(Locale.US, "%.3f", minutes)}"
+        return String.format(Locale.US, "%.6f", value)
     }
 
     /** Парсит координату в десятичные градусы для URL карты. Поддерживает "55 50.792", "-55 50.792" и "55.75321" */
