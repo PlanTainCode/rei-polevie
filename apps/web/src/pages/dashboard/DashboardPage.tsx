@@ -48,7 +48,9 @@ export function DashboardPage() {
   const { user } = useAuthStore();
   const navigate = useNavigate();
   const normalizedEmail = user?.email?.trim().toLowerCase() || '';
-  const showBirthdayNotice = BIRTHDAY_USERS.has(normalizedEmail);
+  const today = new Date();
+  const isMarch23 = today.getMonth() === 2 && today.getDate() === 23;
+  const showBirthdayNotice = BIRTHDAY_USERS.has(normalizedEmail) && isMarch23;
 
   const { data: company, isLoading: companyLoading } = useQuery({
     queryKey: ['myCompany'],
@@ -226,10 +228,6 @@ function BirthdayNotice() {
         </div>
         <div className="flex-1">
           <h3 className="font-semibold text-primary-400 mb-1">С Днем рождения, Томас</h3>
-          <p className="text-sm text-[var(--text-secondary)]">
-            Пусть этот год будет сильным и спокойным: с ясными решениями, хорошей командной динамикой и
-            уверенным движением вперед.
-          </p>
         </div>
       </div>
     </div>
