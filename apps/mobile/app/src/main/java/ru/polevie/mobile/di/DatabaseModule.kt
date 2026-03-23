@@ -14,6 +14,9 @@ import ru.polevie.mobile.data.local.dao.PhotoDao
 import ru.polevie.mobile.data.local.dao.PlatformDao
 import ru.polevie.mobile.data.local.dao.ProjectDao
 import ru.polevie.mobile.data.local.dao.SampleDao
+import ru.polevie.mobile.data.local.dao.GtsElementDao
+import ru.polevie.mobile.data.local.dao.GtsMonitoringDao
+import ru.polevie.mobile.data.local.dao.GtsObjectDao
 import ru.polevie.mobile.data.local.dao.SyncQueueDao
 import javax.inject.Singleton
 
@@ -40,4 +43,7 @@ object DatabaseModule {
     @Provides fun provideMonitoringProbeDao(db: AppDatabase): MonitoringProbeDao = db.monitoringProbeDao()
     @Provides fun providePhotoDao(db: AppDatabase): PhotoDao = db.photoDao()
     @Provides fun provideSyncQueueDao(db: AppDatabase): SyncQueueDao = db.syncQueueDao()
+    @Provides fun provideGtsMonitoringDao(db: AppDatabase): GtsMonitoringDao = db.gtsMonitoringDao()
+    @Provides fun provideGtsObjectDao(db: AppDatabase): GtsObjectDao = db.gtsObjectDao()
+    @Provides fun provideGtsElementDao(db: AppDatabase): GtsElementDao = db.gtsElementDao()
 }

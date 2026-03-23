@@ -8,7 +8,13 @@ import ru.polevie.mobile.data.local.dao.PhotoDao
 import ru.polevie.mobile.data.local.dao.PlatformDao
 import ru.polevie.mobile.data.local.dao.ProjectDao
 import ru.polevie.mobile.data.local.dao.SampleDao
+import ru.polevie.mobile.data.local.dao.GtsElementDao
+import ru.polevie.mobile.data.local.dao.GtsMonitoringDao
+import ru.polevie.mobile.data.local.dao.GtsObjectDao
 import ru.polevie.mobile.data.local.dao.SyncQueueDao
+import ru.polevie.mobile.data.local.entity.GtsElementEntity
+import ru.polevie.mobile.data.local.entity.GtsMonitoringEntity
+import ru.polevie.mobile.data.local.entity.GtsObjectEntity
 import ru.polevie.mobile.data.local.entity.MonitoringEntity
 import ru.polevie.mobile.data.local.entity.MonitoringProbeEntity
 import ru.polevie.mobile.data.local.entity.PhotoEntity
@@ -41,6 +47,9 @@ class DataSyncRepository @Inject constructor(
     private val monitoringProbeDao: MonitoringProbeDao,
     private val photoDao: PhotoDao,
     private val syncQueueDao: SyncQueueDao,
+    private val gtsMonitoringDao: GtsMonitoringDao,
+    private val gtsObjectDao: GtsObjectDao,
+    private val gtsElementDao: GtsElementDao,
     private val syncProcessor: ru.polevie.mobile.sync.SyncProcessor,
     private val photoCacheManager: PhotoCacheManager,
 ) {
@@ -161,9 +170,97 @@ class DataSyncRepository @Inject constructor(
                 }
             }
 
+            val gtsRes = apiService.getGtsMonitorings()
+            if (gtsRes.isSuccessful) {
+                val gtsMonitorings = gtsRes.body() ?: emptyList()
+                gtsMonitoringDao.insertAll(gtsMonitorings.map { mapGtsMonitoringDto(it) })
+                gtsMonitorings.forEach { gm ->
+                    try { fetchGtsMonitoringDetails(gm.id) } catch (_: Exception) { }
+                }
+            }
+
             try { photoCacheManager.cacheNewPhotos() } catch (_: Exception) { }
         }
     }
+
+    // ============ GTS ============
+
+    suspend fun fetchAllGtsMonitorings(): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val response = apiService.getGtsMonitorings()
+            if (!response.isSuccessful) throw Exception("Ошибка загрузки ГТС мониторингов: ${response.code()}")
+            val list = response.body() ?: emptyList()
+            gtsMonitoringDao.insertAll(list.map { mapGtsMonitoringDto(it) })
+        }
+    }
+
+    suspend fun fetchGtsMonitoringDetails(monitoringId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val failures = syncProcessor.processAllPending()
+            if (failures > 0) throw Exception("$failures операций не синхронизировано")
+
+            val objectsRes = apiService.getGtsObjects(monitoringId)
+            if (objectsRes.isSuccessful) {
+                val objects = objectsRes.body() ?: emptyList()
+                val entities = objects.map { mapGtsObjectDto(it) }
+                gtsObjectDao.insertAll(entities)
+
+                for (obj in objects) {
+                    if (!obj.elements.isNullOrEmpty()) {
+                        val elements = obj.elements.map { mapGtsElementDto(it) }
+                        gtsElementDao.insertAll(elements)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun mapGtsMonitoringDto(dto: ru.polevie.mobile.data.remote.dto.GtsMonitoringDto): GtsMonitoringEntity =
+        GtsMonitoringEntity(
+            id = dto.id,
+            name = dto.name,
+            year = dto.year,
+            status = dto.status,
+            districtsCount = dto._count?.districts ?: 0,
+            objectsCount = dto._count?.objects ?: 0,
+            photosCount = dto._count?.photos ?: 0,
+            lastSyncedAt = System.currentTimeMillis(),
+        )
+
+    private fun mapGtsObjectDto(dto: ru.polevie.mobile.data.remote.dto.GtsObjectDto): GtsObjectEntity =
+        GtsObjectEntity(
+            id = dto.id,
+            gtsMonitoringId = dto.gtsMonitoringId,
+            gtsDistrictId = dto.gtsDistrictId,
+            districtName = dto.district?.name ?: "",
+            number = dto.number,
+            watercourseName = dto.watercourseName,
+            settlement = dto.settlement,
+            yearBuilt = dto.yearBuilt,
+            volume = dto.volume,
+            area = dto.area,
+            safetyLevel = dto.safetyLevel,
+            ownerName = dto.ownerName,
+            latitude = dto.latitude,
+            longitude = dto.longitude,
+            inspectionDate = dto.inspectionDate,
+            inspectorName = dto.inspectorName,
+            overallCondition = dto.overallCondition,
+            elementsCount = dto._count?.elements ?: 0,
+            photosCount = dto._count?.photos ?: 0,
+        )
+
+    private fun mapGtsElementDto(dto: ru.polevie.mobile.data.remote.dto.GtsElementDto): GtsElementEntity =
+        GtsElementEntity(
+            id = dto.id,
+            gtsObjectId = dto.gtsObjectId,
+            name = dto.name,
+            characteristics = dto.characteristics,
+            technicalCondition = dto.technicalCondition,
+            defects = dto.defects,
+            recommendations = dto.recommendations,
+            sortOrder = dto.sortOrder,
+        )
 
     suspend fun logout() = withContext(Dispatchers.IO) {
         tokenManager.clear()
@@ -171,6 +268,9 @@ class DataSyncRepository @Inject constructor(
         photoDao.deleteAll()
         projectDao.deleteAll()
         monitoringDao.deleteAll()
+        gtsMonitoringDao.deleteAll()
+        gtsObjectDao.deleteAll()
+        gtsElementDao.deleteAll()
     }
 
     private fun mapProjectDto(

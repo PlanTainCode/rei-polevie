@@ -28,6 +28,10 @@ import ru.polevie.mobile.ui.components.NetworkStatusBanner
 import ru.polevie.mobile.ui.login.LoginScreen
 import ru.polevie.mobile.util.NetworkMonitor
 import ru.polevie.mobile.ui.modeselect.ModeSelectScreen
+import ru.polevie.mobile.ui.gts.GtsMonitoringListScreen
+import ru.polevie.mobile.ui.gts.GtsDistrictListScreen
+import ru.polevie.mobile.ui.gts.GtsObjectListScreen
+import ru.polevie.mobile.ui.gts.GtsObjectScreen
 import ru.polevie.mobile.ui.monitoring.MonitoringListScreen
 import ru.polevie.mobile.ui.monitoring.MonitoringPointScreen
 import ru.polevie.mobile.ui.monitoring.MonitoringPointsScreen
@@ -93,156 +97,27 @@ class MainActivity : ComponentActivity() {
                                 }
                                 composable(Routes.MODE_SELECT) {
                                     ModeSelectScreen(
-                                        onNavigateToProjects = {
-                                            navController.navigate(Routes.PROJECTS)
-                                        },
-                                        onNavigateToMonitorings = {
-                                            navController.navigate(Routes.MONITORING_LIST)
-                                        },
+                                        onNavigateToProjects = { navController.navigate(Routes.PROJECTS) },
+                                        onNavigateToMonitorings = { navController.navigate(Routes.MONITORING_LIST) },
+                                        onNavigateToGts = { navController.navigate(Routes.GTS_MONITORING_LIST) },
                                         onLogout = {},
                                     )
                                 }
-                                composable(Routes.PROJECTS) {
-                                    ProjectsScreen(
-                                        onBack = { navController.popBackStack() },
-                                        onProjectSelect = { id ->
-                                            navController.navigate(Routes.project(id))
-                                        },
-                                    )
-                                }
-                                composable(
-                                    route = Routes.PROJECT,
-                                    arguments = listOf(navArgument("projectId") { type = NavType.StringType }),
-                                ) { backStackEntry ->
-                                    val projectId = backStackEntry.arguments?.getString("projectId")!!
-                                    ProjectScreen(
-                                        onBack = { navController.popBackStack() },
-                                        onPlatforms = {
-                                            navController.navigate(Routes.platforms(projectId))
-                                        },
-                                        onPhotos = {
-                                            navController.navigate(Routes.photos(projectId))
-                                        },
-                                    )
-                                }
-                                composable(
-                                    route = Routes.PLATFORMS,
-                                    arguments = listOf(navArgument("projectId") { type = NavType.StringType }),
-                                ) { backStackEntry ->
-                                    val projectId = backStackEntry.arguments?.getString("projectId")!!
-                                    PlatformsScreen(
-                                        projectId = projectId,
-                                        onBack = { navController.popBackStack() },
-                                        onPlatformSelect = { platformId ->
-                                            navController.navigate(Routes.platform(projectId, platformId))
-                                        },
-                                    )
-                                }
-                                composable(
-                                    route = Routes.PLATFORM,
-                                    arguments = listOf(
-                                        navArgument("projectId") { type = NavType.StringType },
-                                        navArgument("platformId") { type = NavType.StringType },
-                                    ),
-                                ) { backStackEntry ->
-                                    val projectId = backStackEntry.arguments?.getString("projectId")!!
-                                    val platformId = backStackEntry.arguments?.getString("platformId")!!
-                                    PlatformScreen(
-                                        onBack = { navController.popBackStack() },
-                                        onSamples = {
-                                            navController.navigate(Routes.samples(projectId, platformId))
-                                        },
-                                    )
-                                }
-                                composable(
-                                    route = Routes.SAMPLES,
-                                    arguments = listOf(
-                                        navArgument("projectId") { type = NavType.StringType },
-                                        navArgument("platformId") { type = NavType.StringType },
-                                    ),
-                                ) { backStackEntry ->
-                                    val projectId = backStackEntry.arguments?.getString("projectId")!!
-                                    val platformId = backStackEntry.arguments?.getString("platformId")!!
-                                    SamplesScreen(
-                                        onBack = { navController.popBackStack() },
-                                        onSampleSelect = { sampleId ->
-                                            navController.navigate(Routes.sample(projectId, platformId, sampleId))
-                                        },
-                                    )
-                                }
-                                composable(
-                                    route = Routes.SAMPLE,
-                                    arguments = listOf(
-                                        navArgument("projectId") { type = NavType.StringType },
-                                        navArgument("platformId") { type = NavType.StringType },
-                                        navArgument("sampleId") { type = NavType.StringType },
-                                    ),
-                                ) { backStackEntry ->
-                                    val sampleId = backStackEntry.arguments?.getString("sampleId")!!
-                                    SampleScreen(
-                                        sampleId = sampleId,
-                                        onBack = { navController.popBackStack() },
-                                    )
-                                }
-                                composable(
-                                    route = Routes.PHOTOS,
-                                    arguments = listOf(navArgument("projectId") { type = NavType.StringType }),
-                                ) { backStackEntry ->
-                                    val projectId = backStackEntry.arguments?.getString("projectId")!!
-                                    PhotosScreen(
-                                        projectId = projectId,
-                                        onBack = { navController.popBackStack() },
-                                    )
-                                }
-                                composable(Routes.MONITORING_LIST) {
-                                    MonitoringListScreen(
-                                        onBack = { navController.popBackStack() },
-                                        onMonitoringSelect = { id ->
-                                            navController.navigate(Routes.monitoring(id))
-                                        },
-                                    )
-                                }
-                                composable(
-                                    route = Routes.MONITORING,
-                                    arguments = listOf(navArgument("monitoringId") { type = NavType.StringType }),
-                                ) { backStackEntry ->
-                                    val monitoringId = backStackEntry.arguments?.getString("monitoringId")!!
-                                    MonitoringScreen(
-                                        monitoringId = monitoringId,
-                                        onBack = { navController.popBackStack() },
-                                        onProbes = {
-                                            navController.navigate(Routes.monitoringPoints(monitoringId))
-                                        },
-                                    )
-                                }
-                                composable(
-                                    route = Routes.MONITORING_POINTS,
-                                    arguments = listOf(navArgument("monitoringId") { type = NavType.StringType }),
-                                ) { backStackEntry ->
-                                    val monitoringId = backStackEntry.arguments?.getString("monitoringId")!!
-                                    MonitoringPointsScreen(
-                                        monitoringId = monitoringId,
-                                        onBack = { navController.popBackStack() },
-                                        onPointSelect = { pointName ->
-                                            navController.navigate(Routes.monitoringPoint(monitoringId, pointName))
-                                        },
-                                    )
-                                }
-                                composable(
-                                    route = Routes.MONITORING_POINT,
-                                    arguments = listOf(
-                                        navArgument("monitoringId") { type = NavType.StringType },
-                                        navArgument("pointName") { type = NavType.StringType },
-                                    ),
-                                ) { backStackEntry ->
-                                    val monitoringId = backStackEntry.arguments?.getString("monitoringId")!!
-                                    val pointName = backStackEntry.arguments?.getString("pointName")!!
-                                    MonitoringPointScreen(
-                                        monitoringId = monitoringId,
-                                        pointName = pointName,
-                                        onBack = { navController.popBackStack() },
-                                    )
-                                }
+                                composable(Routes.PROJECTS) { ProjectsScreen(onBack = { navController.popBackStack() }, onProjectSelect = { id -> navController.navigate(Routes.project(id)) }) }
+                                composable(route = Routes.PROJECT, arguments = listOf(navArgument("projectId") { type = NavType.StringType })) { backStackEntry -> val projectId = backStackEntry.arguments?.getString("projectId")!!; ProjectScreen(onBack = { navController.popBackStack() }, onPlatforms = { navController.navigate(Routes.platforms(projectId)) }, onPhotos = { navController.navigate(Routes.photos(projectId)) }) }
+                                composable(route = Routes.PLATFORMS, arguments = listOf(navArgument("projectId") { type = NavType.StringType })) { backStackEntry -> val projectId = backStackEntry.arguments?.getString("projectId")!!; PlatformsScreen(projectId = projectId, onBack = { navController.popBackStack() }, onPlatformSelect = { platformId -> navController.navigate(Routes.platform(projectId, platformId)) }) }
+                                composable(route = Routes.PLATFORM, arguments = listOf(navArgument("projectId") { type = NavType.StringType }, navArgument("platformId") { type = NavType.StringType })) { backStackEntry -> val projectId = backStackEntry.arguments?.getString("projectId")!!; val platformId = backStackEntry.arguments?.getString("platformId")!!; PlatformScreen(onBack = { navController.popBackStack() }, onSamples = { navController.navigate(Routes.samples(projectId, platformId)) }) }
+                                composable(route = Routes.SAMPLES, arguments = listOf(navArgument("projectId") { type = NavType.StringType }, navArgument("platformId") { type = NavType.StringType })) { backStackEntry -> val projectId = backStackEntry.arguments?.getString("projectId")!!; val platformId = backStackEntry.arguments?.getString("platformId")!!; SamplesScreen(onBack = { navController.popBackStack() }, onSampleSelect = { sampleId -> navController.navigate(Routes.sample(projectId, platformId, sampleId)) }) }
+                                composable(route = Routes.SAMPLE, arguments = listOf(navArgument("projectId") { type = NavType.StringType }, navArgument("platformId") { type = NavType.StringType }, navArgument("sampleId") { type = NavType.StringType })) { backStackEntry -> val sampleId = backStackEntry.arguments?.getString("sampleId")!!; SampleScreen(sampleId = sampleId, onBack = { navController.popBackStack() }) }
+                                composable(route = Routes.PHOTOS, arguments = listOf(navArgument("projectId") { type = NavType.StringType })) { backStackEntry -> val projectId = backStackEntry.arguments?.getString("projectId")!!; PhotosScreen(projectId = projectId, onBack = { navController.popBackStack() }) }
+                                composable(Routes.MONITORING_LIST) { MonitoringListScreen(onBack = { navController.popBackStack() }, onMonitoringSelect = { id -> navController.navigate(Routes.monitoring(id)) }) }
+                                composable(route = Routes.MONITORING, arguments = listOf(navArgument("monitoringId") { type = NavType.StringType })) { backStackEntry -> val monitoringId = backStackEntry.arguments?.getString("monitoringId")!!; MonitoringScreen(monitoringId = monitoringId, onBack = { navController.popBackStack() }, onProbes = { navController.navigate(Routes.monitoringPoints(monitoringId)) }) }
+                                composable(route = Routes.MONITORING_POINTS, arguments = listOf(navArgument("monitoringId") { type = NavType.StringType })) { backStackEntry -> val monitoringId = backStackEntry.arguments?.getString("monitoringId")!!; MonitoringPointsScreen(monitoringId = monitoringId, onBack = { navController.popBackStack() }, onPointSelect = { pointName -> navController.navigate(Routes.monitoringPoint(monitoringId, pointName)) }) }
+                                composable(route = Routes.MONITORING_POINT, arguments = listOf(navArgument("monitoringId") { type = NavType.StringType }, navArgument("pointName") { type = NavType.StringType })) { backStackEntry -> val monitoringId = backStackEntry.arguments?.getString("monitoringId")!!; val pointName = backStackEntry.arguments?.getString("pointName")!!; MonitoringPointScreen(monitoringId = monitoringId, pointName = pointName, onBack = { navController.popBackStack() }) }
+                                composable(Routes.GTS_MONITORING_LIST) { GtsMonitoringListScreen(onBack = { navController.popBackStack() }, onSelect = { id -> navController.navigate(Routes.gtsMonitoring(id)) }) }
+                                composable(route = Routes.GTS_MONITORING, arguments = listOf(navArgument("gtsMonitoringId") { type = NavType.StringType })) { backStackEntry -> val gtsMonitoringId = backStackEntry.arguments?.getString("gtsMonitoringId")!!; GtsDistrictListScreen(gtsMonitoringId = gtsMonitoringId, onBack = { navController.popBackStack() }, onDistrictSelect = { districtId -> navController.navigate(Routes.gtsDistrict(gtsMonitoringId, districtId)) }) }
+                                composable(route = Routes.GTS_DISTRICT, arguments = listOf(navArgument("gtsMonitoringId") { type = NavType.StringType }, navArgument("districtId") { type = NavType.StringType })) { backStackEntry -> val gtsMonitoringId = backStackEntry.arguments?.getString("gtsMonitoringId")!!; val districtId = backStackEntry.arguments?.getString("districtId")!!; GtsObjectListScreen(gtsMonitoringId = gtsMonitoringId, districtId = districtId, onBack = { navController.popBackStack() }, onObjectSelect = { objectId -> navController.navigate(Routes.gtsObject(gtsMonitoringId, objectId)) }) }
+                                composable(route = Routes.GTS_OBJECT, arguments = listOf(navArgument("gtsMonitoringId") { type = NavType.StringType }, navArgument("objectId") { type = NavType.StringType })) { backStackEntry -> val gtsMonitoringId = backStackEntry.arguments?.getString("gtsMonitoringId")!!; val objectId = backStackEntry.arguments?.getString("objectId")!!; GtsObjectScreen(gtsMonitoringId = gtsMonitoringId, objectId = objectId, onBack = { navController.popBackStack() }) }
                             }
                         }
                     }
@@ -254,156 +129,27 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 composable(Routes.MODE_SELECT) {
                                     ModeSelectScreen(
-                                        onNavigateToProjects = {
-                                            navController.navigate(Routes.PROJECTS)
-                                        },
-                                        onNavigateToMonitorings = {
-                                            navController.navigate(Routes.MONITORING_LIST)
-                                        },
+                                        onNavigateToProjects = { navController.navigate(Routes.PROJECTS) },
+                                        onNavigateToMonitorings = { navController.navigate(Routes.MONITORING_LIST) },
+                                        onNavigateToGts = { navController.navigate(Routes.GTS_MONITORING_LIST) },
                                         onLogout = {},
                                     )
                                 }
-                                composable(Routes.PROJECTS) {
-                                    ProjectsScreen(
-                                        onBack = { navController.popBackStack() },
-                                        onProjectSelect = { id ->
-                                            navController.navigate(Routes.project(id))
-                                        },
-                                    )
-                                }
-                                composable(
-                                    route = Routes.PROJECT,
-                                    arguments = listOf(navArgument("projectId") { type = NavType.StringType }),
-                                ) { backStackEntry ->
-                                    val projectId = backStackEntry.arguments?.getString("projectId")!!
-                                    ProjectScreen(
-                                        onBack = { navController.popBackStack() },
-                                        onPlatforms = {
-                                            navController.navigate(Routes.platforms(projectId))
-                                        },
-                                        onPhotos = {
-                                            navController.navigate(Routes.photos(projectId))
-                                        },
-                                    )
-                                }
-                                composable(
-                                    route = Routes.PLATFORMS,
-                                    arguments = listOf(navArgument("projectId") { type = NavType.StringType }),
-                                ) { backStackEntry ->
-                                    val projectId = backStackEntry.arguments?.getString("projectId")!!
-                                    PlatformsScreen(
-                                        projectId = projectId,
-                                        onBack = { navController.popBackStack() },
-                                        onPlatformSelect = { platformId ->
-                                            navController.navigate(Routes.platform(projectId, platformId))
-                                        },
-                                    )
-                                }
-                                composable(
-                                    route = Routes.PLATFORM,
-                                    arguments = listOf(
-                                        navArgument("projectId") { type = NavType.StringType },
-                                        navArgument("platformId") { type = NavType.StringType },
-                                    ),
-                                ) { backStackEntry ->
-                                    val projectId = backStackEntry.arguments?.getString("projectId")!!
-                                    val platformId = backStackEntry.arguments?.getString("platformId")!!
-                                    PlatformScreen(
-                                        onBack = { navController.popBackStack() },
-                                        onSamples = {
-                                            navController.navigate(Routes.samples(projectId, platformId))
-                                        },
-                                    )
-                                }
-                                composable(
-                                    route = Routes.SAMPLES,
-                                    arguments = listOf(
-                                        navArgument("projectId") { type = NavType.StringType },
-                                        navArgument("platformId") { type = NavType.StringType },
-                                    ),
-                                ) { backStackEntry ->
-                                    val projectId = backStackEntry.arguments?.getString("projectId")!!
-                                    val platformId = backStackEntry.arguments?.getString("platformId")!!
-                                    SamplesScreen(
-                                        onBack = { navController.popBackStack() },
-                                        onSampleSelect = { sampleId ->
-                                            navController.navigate(Routes.sample(projectId, platformId, sampleId))
-                                        },
-                                    )
-                                }
-                                composable(
-                                    route = Routes.SAMPLE,
-                                    arguments = listOf(
-                                        navArgument("projectId") { type = NavType.StringType },
-                                        navArgument("platformId") { type = NavType.StringType },
-                                        navArgument("sampleId") { type = NavType.StringType },
-                                    ),
-                                ) { backStackEntry ->
-                                    val sampleId = backStackEntry.arguments?.getString("sampleId")!!
-                                    SampleScreen(
-                                        sampleId = sampleId,
-                                        onBack = { navController.popBackStack() },
-                                    )
-                                }
-                                composable(
-                                    route = Routes.PHOTOS,
-                                    arguments = listOf(navArgument("projectId") { type = NavType.StringType }),
-                                ) { backStackEntry ->
-                                    val projectId = backStackEntry.arguments?.getString("projectId")!!
-                                    PhotosScreen(
-                                        projectId = projectId,
-                                        onBack = { navController.popBackStack() },
-                                    )
-                                }
-                                composable(Routes.MONITORING_LIST) {
-                                    MonitoringListScreen(
-                                        onBack = { navController.popBackStack() },
-                                        onMonitoringSelect = { id ->
-                                            navController.navigate(Routes.monitoring(id))
-                                        },
-                                    )
-                                }
-                                composable(
-                                    route = Routes.MONITORING,
-                                    arguments = listOf(navArgument("monitoringId") { type = NavType.StringType }),
-                                ) { backStackEntry ->
-                                    val monitoringId = backStackEntry.arguments?.getString("monitoringId")!!
-                                    MonitoringScreen(
-                                        monitoringId = monitoringId,
-                                        onBack = { navController.popBackStack() },
-                                        onProbes = {
-                                            navController.navigate(Routes.monitoringPoints(monitoringId))
-                                        },
-                                    )
-                                }
-                                composable(
-                                    route = Routes.MONITORING_POINTS,
-                                    arguments = listOf(navArgument("monitoringId") { type = NavType.StringType }),
-                                ) { backStackEntry ->
-                                    val monitoringId = backStackEntry.arguments?.getString("monitoringId")!!
-                                    MonitoringPointsScreen(
-                                        monitoringId = monitoringId,
-                                        onBack = { navController.popBackStack() },
-                                        onPointSelect = { pointName ->
-                                            navController.navigate(Routes.monitoringPoint(monitoringId, pointName))
-                                        },
-                                    )
-                                }
-                                composable(
-                                    route = Routes.MONITORING_POINT,
-                                    arguments = listOf(
-                                        navArgument("monitoringId") { type = NavType.StringType },
-                                        navArgument("pointName") { type = NavType.StringType },
-                                    ),
-                                ) { backStackEntry ->
-                                    val monitoringId = backStackEntry.arguments?.getString("monitoringId")!!
-                                    val pointName = backStackEntry.arguments?.getString("pointName")!!
-                                    MonitoringPointScreen(
-                                        monitoringId = monitoringId,
-                                        pointName = pointName,
-                                        onBack = { navController.popBackStack() },
-                                    )
-                                }
+                                composable(Routes.PROJECTS) { ProjectsScreen(onBack = { navController.popBackStack() }, onProjectSelect = { id -> navController.navigate(Routes.project(id)) }) }
+                                composable(route = Routes.PROJECT, arguments = listOf(navArgument("projectId") { type = NavType.StringType })) { backStackEntry -> val projectId = backStackEntry.arguments?.getString("projectId")!!; ProjectScreen(onBack = { navController.popBackStack() }, onPlatforms = { navController.navigate(Routes.platforms(projectId)) }, onPhotos = { navController.navigate(Routes.photos(projectId)) }) }
+                                composable(route = Routes.PLATFORMS, arguments = listOf(navArgument("projectId") { type = NavType.StringType })) { backStackEntry -> val projectId = backStackEntry.arguments?.getString("projectId")!!; PlatformsScreen(projectId = projectId, onBack = { navController.popBackStack() }, onPlatformSelect = { platformId -> navController.navigate(Routes.platform(projectId, platformId)) }) }
+                                composable(route = Routes.PLATFORM, arguments = listOf(navArgument("projectId") { type = NavType.StringType }, navArgument("platformId") { type = NavType.StringType })) { backStackEntry -> val projectId = backStackEntry.arguments?.getString("projectId")!!; val platformId = backStackEntry.arguments?.getString("platformId")!!; PlatformScreen(onBack = { navController.popBackStack() }, onSamples = { navController.navigate(Routes.samples(projectId, platformId)) }) }
+                                composable(route = Routes.SAMPLES, arguments = listOf(navArgument("projectId") { type = NavType.StringType }, navArgument("platformId") { type = NavType.StringType })) { backStackEntry -> val projectId = backStackEntry.arguments?.getString("projectId")!!; val platformId = backStackEntry.arguments?.getString("platformId")!!; SamplesScreen(onBack = { navController.popBackStack() }, onSampleSelect = { sampleId -> navController.navigate(Routes.sample(projectId, platformId, sampleId)) }) }
+                                composable(route = Routes.SAMPLE, arguments = listOf(navArgument("projectId") { type = NavType.StringType }, navArgument("platformId") { type = NavType.StringType }, navArgument("sampleId") { type = NavType.StringType })) { backStackEntry -> val sampleId = backStackEntry.arguments?.getString("sampleId")!!; SampleScreen(sampleId = sampleId, onBack = { navController.popBackStack() }) }
+                                composable(route = Routes.PHOTOS, arguments = listOf(navArgument("projectId") { type = NavType.StringType })) { backStackEntry -> val projectId = backStackEntry.arguments?.getString("projectId")!!; PhotosScreen(projectId = projectId, onBack = { navController.popBackStack() }) }
+                                composable(Routes.MONITORING_LIST) { MonitoringListScreen(onBack = { navController.popBackStack() }, onMonitoringSelect = { id -> navController.navigate(Routes.monitoring(id)) }) }
+                                composable(route = Routes.MONITORING, arguments = listOf(navArgument("monitoringId") { type = NavType.StringType })) { backStackEntry -> val monitoringId = backStackEntry.arguments?.getString("monitoringId")!!; MonitoringScreen(monitoringId = monitoringId, onBack = { navController.popBackStack() }, onProbes = { navController.navigate(Routes.monitoringPoints(monitoringId)) }) }
+                                composable(route = Routes.MONITORING_POINTS, arguments = listOf(navArgument("monitoringId") { type = NavType.StringType })) { backStackEntry -> val monitoringId = backStackEntry.arguments?.getString("monitoringId")!!; MonitoringPointsScreen(monitoringId = monitoringId, onBack = { navController.popBackStack() }, onPointSelect = { pointName -> navController.navigate(Routes.monitoringPoint(monitoringId, pointName)) }) }
+                                composable(route = Routes.MONITORING_POINT, arguments = listOf(navArgument("monitoringId") { type = NavType.StringType }, navArgument("pointName") { type = NavType.StringType })) { backStackEntry -> val monitoringId = backStackEntry.arguments?.getString("monitoringId")!!; val pointName = backStackEntry.arguments?.getString("pointName")!!; MonitoringPointScreen(monitoringId = monitoringId, pointName = pointName, onBack = { navController.popBackStack() }) }
+                                composable(Routes.GTS_MONITORING_LIST) { GtsMonitoringListScreen(onBack = { navController.popBackStack() }, onSelect = { id -> navController.navigate(Routes.gtsMonitoring(id)) }) }
+                                composable(route = Routes.GTS_MONITORING, arguments = listOf(navArgument("gtsMonitoringId") { type = NavType.StringType })) { backStackEntry -> val gtsMonitoringId = backStackEntry.arguments?.getString("gtsMonitoringId")!!; GtsDistrictListScreen(gtsMonitoringId = gtsMonitoringId, onBack = { navController.popBackStack() }, onDistrictSelect = { districtId -> navController.navigate(Routes.gtsDistrict(gtsMonitoringId, districtId)) }) }
+                                composable(route = Routes.GTS_DISTRICT, arguments = listOf(navArgument("gtsMonitoringId") { type = NavType.StringType }, navArgument("districtId") { type = NavType.StringType })) { backStackEntry -> val gtsMonitoringId = backStackEntry.arguments?.getString("gtsMonitoringId")!!; val districtId = backStackEntry.arguments?.getString("districtId")!!; GtsObjectListScreen(gtsMonitoringId = gtsMonitoringId, districtId = districtId, onBack = { navController.popBackStack() }, onObjectSelect = { objectId -> navController.navigate(Routes.gtsObject(gtsMonitoringId, objectId)) }) }
+                                composable(route = Routes.GTS_OBJECT, arguments = listOf(navArgument("gtsMonitoringId") { type = NavType.StringType }, navArgument("objectId") { type = NavType.StringType })) { backStackEntry -> val gtsMonitoringId = backStackEntry.arguments?.getString("gtsMonitoringId")!!; val objectId = backStackEntry.arguments?.getString("objectId")!!; GtsObjectScreen(gtsMonitoringId = gtsMonitoringId, objectId = objectId, onBack = { navController.popBackStack() }) }
                             }
                         }
                     }

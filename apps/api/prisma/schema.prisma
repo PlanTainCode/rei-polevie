@@ -31,6 +31,10 @@ model User {
   collectedMonitoringProbes MonitoringProbe[] @relation("MonitoringProbeCollectedBy")
   uploadedMonitoringPhotos MonitoringPhoto[]  @relation("MonitoringUploadedPhotos")
 
+  // ГТС
+  createdGtsMonitorings    GtsMonitoring[]    @relation("GtsMonitoringCreatedBy")
+  uploadedGtsPhotos        GtsPhoto[]         @relation("GtsPhotoUploadedBy")
+
   @@map("users")
 }
 
@@ -48,6 +52,7 @@ model Company {
   projects       Project[]
   technicalTasks TechnicalTask[]
   monitorings    Monitoring[]
+  gtsMonitorings GtsMonitoring[]
 
   @@map("companies")
 }
@@ -589,4 +594,127 @@ model MonitoringPhoto {
   uploadedBy User?           @relation("MonitoringUploadedPhotos", fields: [uploadedById], references: [id], onDelete: SetNull)
 
   @@map("monitoring_photos")
+}
+
+// ===================== МОНИТОРИНГ ГТС =====================
+
+model GtsMonitoring {
+  id             String             @id @default(cuid())
+  companyId      String
+  name           String
+  year           Int
+  status         GtsMonitoringStatus @default(DRAFT)
+
+  sourceFileName String?
+  sourceFileUrl  String?
+
+  createdById    String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  company   Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy User?          @relation("GtsMonitoringCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  districts GtsDistrict[]
+  objects   GtsObject[]
+  photos    GtsPhoto[]
+
+  @@map("gts_monitorings")
+}
+
+enum GtsMonitoringStatus {
+  DRAFT
+  ACTIVE
+  IN_PROGRESS
+  COMPLETED
+  ARCHIVED
+}
+
+model GtsDistrict {
+  id               String @id @default(cuid())
+  gtsMonitoringId  String
+  name             String
+  numberRange      String?
+  sortOrder        Int     @default(0)
+  createdAt        DateTime @default(now())
+
+  monitoring GtsMonitoring @relation(fields: [gtsMonitoringId], references: [id], onDelete: Cascade)
+  objects    GtsObject[]
+
+  @@unique([gtsMonitoringId, name])
+  @@map("gts_districts")
+}
+
+model GtsObject {
+  id               String @id @default(cuid())
+  gtsMonitoringId  String
+  gtsDistrictId    String
+
+  number           Int
+  watercourseName  String
+  settlement       String
+  yearBuilt        Int?
+  volume           String?
+  area             String?
+  safetyLevel      String?
+  ownerName        String?
+  latitude         String?
+  longitude        String?
+
+  inspectionDate   DateTime?
+  inspectorName    String?
+  overallCondition String?
+  hasTechnicalDoc  Boolean  @default(false)
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  monitoring GtsMonitoring @relation(fields: [gtsMonitoringId], references: [id], onDelete: Cascade)
+  district   GtsDistrict   @relation(fields: [gtsDistrictId], references: [id], onDelete: Cascade)
+  elements   GtsElement[]
+  photos     GtsPhoto[]
+
+  @@map("gts_objects")
+}
+
+model GtsElement {
+  id                 String  @id @default(cuid())
+  gtsObjectId        String
+
+  name               String
+  characteristics    String?
+  technicalCondition String?
+  defects            String?
+  recommendations    String?
+  sortOrder          Int     @default(0)
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  object GtsObject @relation(fields: [gtsObjectId], references: [id], onDelete: Cascade)
+
+  @@map("gts_elements")
+}
+
+model GtsPhoto {
+  id               String   @id @default(cuid())
+  gtsObjectId      String
+  gtsMonitoringId  String
+
+  filename         String
+  originalName     String
+  thumbnailName    String?
+  description      String?
+  latitude         String?
+  longitude        String?
+  photoDate        DateTime?
+  sortOrder        Int      @default(0)
+
+  uploadedAt       DateTime @default(now())
+  uploadedById     String?
+
+  object     GtsObject     @relation(fields: [gtsObjectId], references: [id], onDelete: Cascade)
+  monitoring GtsMonitoring @relation(fields: [gtsMonitoringId], references: [id], onDelete: Cascade)
+  uploadedBy User?         @relation("GtsPhotoUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@map("gts_photos")
 }

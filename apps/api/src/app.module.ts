@@ -16,6 +16,7 @@ import { InquiryRequestsModule } from './modules/inquiry-requests/inquiry-reques
 import { TechnicalTasksModule } from './modules/technical-tasks/technical-tasks.module';
 import { IndicatorsModule } from './modules/indicators/indicators.module';
 import { MonitoringsModule } from './modules/monitorings/monitorings.module';
+import { GtsMonitoringsModule } from './modules/gts-monitorings/gts-monitorings.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { MonitoringsModule } from './modules/monitorings/monitorings.module';
     TechnicalTasksModule,
     IndicatorsModule,
     MonitoringsModule,
+    GtsMonitoringsModule,
   ],
 })
 export class AppModule {}

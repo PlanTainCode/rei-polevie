@@ -15,6 +15,7 @@ import {
   Clock,
   User,
   Beaker,
+  Gift,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthStore } from '@/store/auth';
@@ -38,9 +39,16 @@ const STATUS_COLORS: Record<string, string> = {
   ARCHIVED: 'bg-gray-500/20 text-gray-400',
 };
 
+const BIRTHDAY_USERS = new Set([
+  'termolov@gruppa-rei.ru',
+  'plancode14@gmail.com',
+]);
+
 export function DashboardPage() {
   const { user } = useAuthStore();
   const navigate = useNavigate();
+  const normalizedEmail = user?.email?.trim().toLowerCase() || '';
+  const showBirthdayNotice = BIRTHDAY_USERS.has(normalizedEmail);
 
   const { data: company, isLoading: companyLoading } = useQuery({
     queryKey: ['myCompany'],
@@ -65,6 +73,8 @@ export function DashboardPage() {
   if (!company) {
     return (
       <div className="max-w-2xl mx-auto animate-fade-in">
+        {showBirthdayNotice && <BirthdayNotice />}
+
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold mb-2">
             Добро пожаловать, {user?.firstName}!
@@ -99,6 +109,8 @@ export function DashboardPage() {
   // Основная страница дашборда
   return (
     <div className="w-full animate-fade-in page-content">
+      {showBirthdayNotice && <BirthdayNotice />}
+
       {/* Beta информация */}
       <BetaNotice />
 
@@ -201,6 +213,25 @@ export function DashboardPage() {
           onNavigate={navigate}
         />
       )}
+    </div>
+  );
+}
+
+function BirthdayNotice() {
+  return (
+    <div className="mb-6 p-4 bg-primary-500/10 border border-primary-500/30 rounded-lg">
+      <div className="flex items-start gap-3">
+        <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-primary-500/20 flex items-center justify-center">
+          <Gift className="w-5 h-5 text-primary-400" />
+        </div>
+        <div className="flex-1">
+          <h3 className="font-semibold text-primary-400 mb-1">С Днем рождения, Томас</h3>
+          <p className="text-sm text-[var(--text-secondary)]">
+            Пусть этот год будет сильным и спокойным: с ясными решениями, хорошей командной динамикой и
+            уверенным движением вперед.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

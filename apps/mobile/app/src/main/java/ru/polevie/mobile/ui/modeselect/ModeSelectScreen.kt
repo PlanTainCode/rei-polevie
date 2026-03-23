@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Landscape
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -41,6 +42,8 @@ import ru.polevie.mobile.ui.components.AppHeader
 import ru.polevie.mobile.ui.theme.BgPrimary
 import ru.polevie.mobile.ui.theme.BgSecondary
 import ru.polevie.mobile.ui.theme.BorderColor
+import ru.polevie.mobile.ui.theme.Amber400
+import ru.polevie.mobile.ui.theme.Amber500
 import ru.polevie.mobile.ui.theme.Cyan400
 import ru.polevie.mobile.ui.theme.Cyan500
 import ru.polevie.mobile.ui.theme.Primary400
@@ -53,6 +56,7 @@ import ru.polevie.mobile.ui.theme.TextSecondary
 fun ModeSelectScreen(
     onNavigateToProjects: () -> Unit,
     onNavigateToMonitorings: () -> Unit,
+    onNavigateToGts: () -> Unit,
     onLogout: () -> Unit,
     viewModel: ModeSelectViewModel = hiltViewModel(),
 ) {
@@ -220,6 +224,57 @@ fun ModeSelectScreen(
                             )
                             Text(
                                 text = "Пробы воды и донных отложений",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // ГТС
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToGts() },
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = BgSecondary),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, BorderColor, RoundedCornerShape(16.dp))
+                            .padding(24.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Amber500.copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Landscape,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(28.dp),
+                                    tint = Amber400,
+                                )
+                            }
+                            Text(
+                                text = "Мониторинг ГТС",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = TextPrimary,
+                                textAlign = TextAlign.Center,
+                            )
+                            Text(
+                                text = "Гидротехнические сооружения",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = TextSecondary,
                                 textAlign = TextAlign.Center,

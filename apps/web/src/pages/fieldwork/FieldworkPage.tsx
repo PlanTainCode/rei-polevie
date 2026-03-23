@@ -29,6 +29,7 @@ import {
 import * as exifr from 'exifr';
 import { projectsApi, type Photo } from '@/api/projects';
 import { monitoringsApi, type MonitoringPhoto } from '@/api/monitorings';
+import { gtsMonitoringsApi } from '@/api/gts-monitorings';
 import { AuthImage } from '@/components/ui';
 
 // ===================== ТИПЫ =====================
@@ -45,7 +46,11 @@ type NavState =
   | { view: 'monitoring-list' }
   | { view: 'monitoring'; monitoringId: string }
   | { view: 'monitoring-points'; monitoringId: string }
-  | { view: 'monitoring-point'; monitoringId: string; pointName: string };
+  | { view: 'monitoring-point'; monitoringId: string; pointName: string }
+  | { view: 'gts-monitoring-list' }
+  | { view: 'gts-monitoring'; gtsMonitoringId: string }
+  | { view: 'gts-district'; gtsMonitoringId: string; districtId: string }
+  | { view: 'gts-object'; gtsMonitoringId: string; objectId: string };
 
 // ===================== КОНСТАНТЫ =====================
 
@@ -610,9 +615,11 @@ const APK_POPUP_KEY = 'polevie-apk-popup-dismissed';
 function ModeSelectScreen({
   onObjects,
   onMonitorings,
+  onGts,
 }: {
   onObjects: () => void;
   onMonitorings: () => void;
+  onGts: () => void;
 }) {
   const [showApkPopup, setShowApkPopup] = useState(() => {
     return !localStorage.getItem(APK_POPUP_KEY);
@@ -645,6 +652,16 @@ function ModeSelectScreen({
         </div>
         <span className="text-lg font-semibold">Мониторинги</span>
         <span className="text-sm text-[var(--text-secondary)]">Пробы воды и донных отложений</span>
+      </button>
+      <button
+        onClick={onGts}
+        className="w-full p-6 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-color)] hover:bg-[var(--bg-tertiary)] active:bg-[var(--bg-tertiary)] transition-colors flex flex-col items-center gap-3"
+      >
+        <div className="w-14 h-14 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center">
+          <Layers className="w-7 h-7" />
+        </div>
+        <span className="text-lg font-semibold">Мониторинг ГТС</span>
+        <span className="text-sm text-[var(--text-secondary)]">Гидротехнические сооружения</span>
       </button>
 
       <a
@@ -2356,6 +2373,174 @@ function MonitoringPointScreen({
 
 // ===================== ГЛАВНЫЙ КОМПОНЕНТ =====================
 
+// ===================== ГТС ЭКРАНЫ =====================
+
+function GtsMonitoringListScreen({ onSelect, onBack }: { onSelect: (id: string) => void; onBack: () => void }) {
+  const navigate = useNavigate();
+  const { data: monitorings, isLoading } = useQuery({
+    queryKey: ['gts-monitorings'],
+    queryFn: gtsMonitoringsApi.getAll,
+  });
+
+  return (
+    <>
+      <Header
+        title="Мониторинг ГТС"
+        onBack={onBack}
+        rightAction={<button onClick={() => navigate('/dashboard')} className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)]"><Home className="w-5 h-5 text-[var(--text-secondary)]" /></button>}
+      />
+      <div className="p-4 space-y-3">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary-500" /></div>
+        ) : !monitorings?.length ? (
+          <div className="text-center py-8 text-[var(--text-secondary)]">Нет мониторингов ГТС</div>
+        ) : monitorings.map((m) => (
+          <button key={m.id} onClick={() => onSelect(m.id)} className="w-full p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] hover:bg-[var(--bg-tertiary)] text-left">
+            <div className="font-semibold">{m.name}</div>
+            <div className="text-sm text-[var(--text-secondary)] mt-1">{m.year} · {m._count?.districts || 0} районов · {m._count?.objects || 0} ГТС</div>
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function GtsMonitoringDistrictsScreen({ gtsMonitoringId, onSelect, onBack }: { gtsMonitoringId: string; onSelect: (districtId: string) => void; onBack: () => void }) {
+  const { data: monitoring } = useQuery({ queryKey: ['gts-monitorings', gtsMonitoringId], queryFn: () => gtsMonitoringsApi.getById(gtsMonitoringId) });
+  const { data: districts, isLoading } = useQuery({ queryKey: ['gts-monitorings', gtsMonitoringId, 'districts'], queryFn: () => gtsMonitoringsApi.getDistricts(gtsMonitoringId) });
+
+  return (
+    <>
+      <Header title={monitoring?.name || 'Районы'} onBack={onBack} />
+      <div className="p-4 space-y-3">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary-500" /></div>
+        ) : !districts?.length ? (
+          <div className="text-center py-8 text-[var(--text-secondary)]">Нет районов</div>
+        ) : districts.map((d) => (
+          <button key={d.id} onClick={() => onSelect(d.id)} className="w-full p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] hover:bg-[var(--bg-tertiary)] text-left flex items-center justify-between">
+            <div>
+              <div className="font-semibold">{d.name}</div>
+              <div className="text-sm text-[var(--text-secondary)] mt-0.5">{d._count?.objects || 0} ГТС</div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-[var(--text-secondary)]" />
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function GtsDistrictObjectsScreen({ gtsMonitoringId, districtId, onSelect, onBack }: { gtsMonitoringId: string; districtId: string; onSelect: (objectId: string) => void; onBack: () => void }) {
+  const { data: objects, isLoading } = useQuery({ queryKey: ['gts-monitorings', gtsMonitoringId, 'objects', districtId], queryFn: () => gtsMonitoringsApi.getObjects(gtsMonitoringId, districtId) });
+
+  return (
+    <>
+      <Header title="Объекты ГТС" onBack={onBack} />
+      <div className="p-4 space-y-3">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary-500" /></div>
+        ) : !objects?.length ? (
+          <div className="text-center py-8 text-[var(--text-secondary)]">Нет объектов</div>
+        ) : objects.map((obj) => (
+          <button key={obj.id} onClick={() => onSelect(obj.id)} className="w-full p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] hover:bg-[var(--bg-tertiary)] text-left">
+            <div className="flex items-center gap-3">
+              <span className="w-8 h-8 rounded-full bg-primary-500/10 flex items-center justify-center text-xs font-bold text-primary-400 shrink-0">#{obj.number}</span>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold truncate">{obj.watercourseName} — {obj.settlement}</div>
+                <div className="text-sm text-[var(--text-secondary)] mt-0.5">{obj._count?.photos || 0} фото · {obj._count?.elements || 0} элементов</div>
+              </div>
+              <ChevronRight className="w-5 h-5 text-[var(--text-secondary)] shrink-0" />
+            </div>
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function GtsObjectFieldScreen({ gtsMonitoringId, objectId, onBack }: { gtsMonitoringId: string; objectId: string; onBack: () => void }) {
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: object } = useQuery({ queryKey: ['gts-object', objectId], queryFn: () => gtsMonitoringsApi.getObject(gtsMonitoringId, objectId) });
+  const { data: photos } = useQuery({ queryKey: ['gts-object-photos', objectId], queryFn: () => gtsMonitoringsApi.getObjectPhotos(gtsMonitoringId, objectId) });
+
+  const invalidate = () => { queryClient.invalidateQueries({ queryKey: ['gts-object', objectId] }); queryClient.invalidateQueries({ queryKey: ['gts-object-photos', objectId] }); };
+
+  const updateElementMut = useMutation({ mutationFn: ({ elementId, data }: { elementId: string; data: Record<string, any> }) => gtsMonitoringsApi.updateElement(gtsMonitoringId, objectId, elementId, data), onSuccess: invalidate });
+  const uploadMut = useMutation({ mutationFn: (files: File[]) => gtsMonitoringsApi.uploadPhotos(gtsMonitoringId, objectId, files), onSuccess: invalidate });
+  const updateObjMut = useMutation({ mutationFn: (data: Record<string, any>) => gtsMonitoringsApi.updateObject(gtsMonitoringId, objectId, data), onSuccess: invalidate });
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => { const files = Array.from(e.target.files || []); if (files.length) uploadMut.mutate(files); e.target.value = ''; };
+
+  if (!object) return (<><Header title="..." onBack={onBack} /><div className="flex items-center justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary-500" /></div></>);
+
+  return (
+    <>
+      <Header title={`#${object.number} ${object.settlement}`} onBack={onBack} />
+      <div className="p-4 space-y-4 pb-24">
+        {/* Основные данные */}
+        <div className="bg-[var(--bg-secondary)] rounded-xl p-4 border border-[var(--border-color)] space-y-3">
+          <div className="text-sm"><span className="text-[var(--text-secondary)]">Водоток:</span> {object.watercourseName}</div>
+          <div className="text-sm"><span className="text-[var(--text-secondary)]">Нас. пункт:</span> {object.settlement}</div>
+          {object.ownerName && <div className="text-sm"><span className="text-[var(--text-secondary)]">Собственник:</span> {object.ownerName}</div>}
+          <div>
+            <label className="block text-xs text-[var(--text-secondary)] mb-1">Дата обследования</label>
+            <input type="date" value={object.inspectionDate ? object.inspectionDate.slice(0, 10) : ''} onChange={(e) => updateObjMut.mutate({ inspectionDate: e.target.value })} className="w-full px-3 py-2 text-sm rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)]" />
+          </div>
+          <div>
+            <label className="block text-xs text-[var(--text-secondary)] mb-1">ФИО обследователя</label>
+            <input type="text" value={object.inspectorName || ''} onBlur={(e) => updateObjMut.mutate({ inspectorName: e.target.value })} onChange={() => {}} className="w-full px-3 py-2 text-sm rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)]" placeholder="Макеева М.С." />
+          </div>
+        </div>
+
+        {/* Элементы */}
+        <div>
+          <h3 className="font-semibold mb-2">Элементы ГТС</h3>
+          <div className="space-y-3">
+            {(object.elements || []).map((el) => (
+              <div key={el.id} className="bg-[var(--bg-secondary)] rounded-xl p-4 border border-[var(--border-color)]">
+                <div className="font-medium text-sm mb-2">{el.name}</div>
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-xs text-[var(--text-secondary)] mb-1">Дефекты</label>
+                    <textarea defaultValue={el.defects || ''} onBlur={(e) => updateElementMut.mutate({ elementId: el.id, data: { defects: e.target.value } })} rows={2} className="w-full px-3 py-2 text-sm rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] resize-y" placeholder="Выявленные дефекты..." />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[var(--text-secondary)] mb-1">Рекомендации</label>
+                    <textarea defaultValue={el.recommendations || ''} onBlur={(e) => updateElementMut.mutate({ elementId: el.id, data: { recommendations: e.target.value } })} rows={2} className="w-full px-3 py-2 text-sm rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] resize-y" placeholder="Рекомендации..." />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Фото */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-semibold">Фото ({photos?.length || 0})</h3>
+            <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileSelect} className="hidden" />
+            <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-500 text-white text-sm font-medium">
+              <Camera className="w-4 h-4" /> Добавить
+            </button>
+          </div>
+          {photos && photos.length > 0 && (
+            <div className="grid grid-cols-3 gap-2">
+              {photos.map((p) => (
+                <div key={p.id} className="aspect-square rounded-lg overflow-hidden bg-[var(--bg-tertiary)]">
+                  <AuthImage src={gtsMonitoringsApi.getPhotoThumbnailUrl(gtsMonitoringId, p.id)} alt="" className="w-full h-full object-cover" loading="lazy" />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function FieldworkPage() {
   const navigate = useNavigate();
   const [nav, setNav] = useState<NavState>(loadNav);
@@ -2373,6 +2558,7 @@ export function FieldworkPage() {
           <ModeSelectScreen
             onObjects={() => go({ view: 'projects' })}
             onMonitorings={() => go({ view: 'monitoring-list' })}
+            onGts={() => go({ view: 'gts-monitoring-list' })}
           />
         );
 
@@ -2513,6 +2699,42 @@ export function FieldworkPage() {
             monitoringId={nav.monitoringId}
             pointName={nav.pointName}
             onBack={() => go({ view: 'monitoring-points', monitoringId: nav.monitoringId })}
+          />
+        );
+
+      case 'gts-monitoring-list':
+        return (
+          <GtsMonitoringListScreen
+            onSelect={(id) => go({ view: 'gts-monitoring', gtsMonitoringId: id })}
+            onBack={() => go({ view: 'mode-select' })}
+          />
+        );
+
+      case 'gts-monitoring':
+        return (
+          <GtsMonitoringDistrictsScreen
+            gtsMonitoringId={nav.gtsMonitoringId}
+            onSelect={(districtId) => go({ view: 'gts-district', gtsMonitoringId: nav.gtsMonitoringId, districtId })}
+            onBack={() => go({ view: 'gts-monitoring-list' })}
+          />
+        );
+
+      case 'gts-district':
+        return (
+          <GtsDistrictObjectsScreen
+            gtsMonitoringId={nav.gtsMonitoringId}
+            districtId={nav.districtId}
+            onSelect={(objectId) => go({ view: 'gts-object', gtsMonitoringId: nav.gtsMonitoringId, objectId })}
+            onBack={() => go({ view: 'gts-monitoring', gtsMonitoringId: nav.gtsMonitoringId })}
+          />
+        );
+
+      case 'gts-object':
+        return (
+          <GtsObjectFieldScreen
+            gtsMonitoringId={nav.gtsMonitoringId}
+            objectId={nav.objectId}
+            onBack={() => go({ view: 'gts-monitoring', gtsMonitoringId: nav.gtsMonitoringId })}
           />
         );
     }

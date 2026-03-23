@@ -28,6 +28,10 @@ import { CreateMonitoringPage } from '@/pages/monitorings/CreateMonitoringPage';
 import { MonitoringDetailPage } from '@/pages/monitorings/MonitoringDetailPage';
 import { MonitoringProbesPage } from '@/pages/monitorings/MonitoringProbesPage';
 import { MonitoringPhotosPage } from '@/pages/monitorings/MonitoringPhotosPage';
+import { GtsMonitoringsPage } from '@/pages/gts-monitorings/GtsMonitoringsPage';
+import { CreateGtsMonitoringPage } from '@/pages/gts-monitorings/CreateGtsMonitoringPage';
+import { GtsMonitoringDetailPage } from '@/pages/gts-monitorings/GtsMonitoringDetailPage';
+import { GtsObjectPage } from '@/pages/gts-monitorings/GtsObjectPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuthStore();
@@ -118,6 +122,10 @@ export default function App() {
         <Route path="/monitorings/:id" element={<MonitoringDetailPage />} />
         <Route path="/monitorings/:id/probes" element={<MonitoringProbesPage />} />
         <Route path="/monitorings/:id/photos" element={<MonitoringPhotosPage />} />
+        <Route path="/gts-monitorings" element={<GtsMonitoringsPage />} />
+        <Route path="/gts-monitorings/create" element={<CreateGtsMonitoringPage />} />
+        <Route path="/gts-monitorings/:id" element={<GtsMonitoringDetailPage />} />
+        <Route path="/gts-monitorings/:id/objects/:objectId" element={<GtsObjectPage />} />
         <Route path="/guide" element={<GuidePage />} />
       </Route>
 

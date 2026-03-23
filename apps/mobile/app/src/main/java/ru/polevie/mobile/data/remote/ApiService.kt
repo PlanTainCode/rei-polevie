@@ -143,4 +143,53 @@ interface ApiService {
         @Path("photoId") photoId: String,
         @Part audio: MultipartBody.Part,
     ): Response<Unit>
+
+    // ============ GTS MONITORINGS ============
+
+    @GET("gts-monitorings")
+    suspend fun getGtsMonitorings(): Response<List<GtsMonitoringDto>>
+
+    @GET("gts-monitorings/{id}")
+    suspend fun getGtsMonitoring(@Path("id") id: String): Response<GtsMonitoringDto>
+
+    @GET("gts-monitorings/{id}/districts")
+    suspend fun getGtsDistricts(@Path("id") monitoringId: String): Response<List<GtsDistrictDto>>
+
+    @GET("gts-monitorings/{id}/objects")
+    suspend fun getGtsObjects(@Path("id") monitoringId: String): Response<List<GtsObjectDto>>
+
+    @GET("gts-monitorings/{id}/objects/{objectId}")
+    suspend fun getGtsObject(
+        @Path("id") monitoringId: String,
+        @Path("objectId") objectId: String,
+    ): Response<GtsObjectDto>
+
+    @PATCH("gts-monitorings/{id}/objects/{objectId}")
+    suspend fun updateGtsObject(
+        @Path("id") monitoringId: String,
+        @Path("objectId") objectId: String,
+        @Body request: UpdateGtsObjectRequest,
+    ): Response<Unit>
+
+    @PATCH("gts-monitorings/{id}/objects/{objectId}/elements/{elementId}")
+    suspend fun updateGtsElement(
+        @Path("id") monitoringId: String,
+        @Path("objectId") objectId: String,
+        @Path("elementId") elementId: String,
+        @Body request: UpdateGtsElementRequest,
+    ): Response<Unit>
+
+    @GET("gts-monitorings/{id}/objects/{objectId}/photos")
+    suspend fun getGtsObjectPhotos(
+        @Path("id") monitoringId: String,
+        @Path("objectId") objectId: String,
+    ): Response<List<GtsPhotoDto>>
+
+    @Multipart
+    @POST("gts-monitorings/{id}/objects/{objectId}/photos")
+    suspend fun uploadGtsPhoto(
+        @Path("id") monitoringId: String,
+        @Path("objectId") objectId: String,
+        @Part photos: MultipartBody.Part,
+    ): Response<List<GtsPhotoDto>>
 }

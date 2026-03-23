@@ -15,6 +15,7 @@ import {
   Settings,
   Compass,
   Activity,
+  Landmark,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 
@@ -29,6 +30,7 @@ const navigation: {
   { name: 'Компания', href: '/company', icon: Building2 },
   { name: 'Объекты', href: '/projects', icon: FileText },
   { name: 'Мониторинги', href: '/monitorings', icon: Activity },
+  { name: 'ГТС', href: '/gts-monitorings', icon: Landmark },
   { name: 'ТЗ', href: '/technical-tasks', icon: ClipboardList, beta: true },
   { name: 'Инструкция', href: '/guide', icon: BookOpen, highlight: true },
 ];

@@ -29,4 +29,13 @@ object Routes {
     fun monitoringPoints(id: String) = "monitoring_points/$id"
     fun monitoringPoint(id: String, pointName: String) =
         "monitoring_point/$id/${java.net.URLEncoder.encode(pointName, "UTF-8").replace("+", "%20")}"
+
+    const val GTS_MONITORING_LIST = "gts_monitoring_list"
+    const val GTS_MONITORING = "gts_monitoring/{gtsMonitoringId}"
+    const val GTS_DISTRICT = "gts_district/{gtsMonitoringId}/{districtId}"
+    const val GTS_OBJECT = "gts_object/{gtsMonitoringId}/{objectId}"
+
+    fun gtsMonitoring(id: String) = "gts_monitoring/$id"
+    fun gtsDistrict(monitoringId: String, districtId: String) = "gts_district/$monitoringId/$districtId"
+    fun gtsObject(monitoringId: String, objectId: String) = "gts_object/$monitoringId/$objectId"
 }
