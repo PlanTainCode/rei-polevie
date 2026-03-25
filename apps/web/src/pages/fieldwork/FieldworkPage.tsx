@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ChevronLeft,
@@ -29,7 +30,11 @@ import {
 import * as exifr from 'exifr';
 import { projectsApi, type Photo } from '@/api/projects';
 import { monitoringsApi, type MonitoringPhoto } from '@/api/monitorings';
-import { gtsMonitoringsApi } from '@/api/gts-monitorings';
+import {
+  gtsMonitoringsApi,
+  type GtsPhoto as GtsElementPhoto,
+  type GtsLegacyMedia,
+} from '@/api/gts-monitorings';
 import { AuthImage } from '@/components/ui';
 
 // ===================== ТИПЫ =====================
@@ -2461,18 +2466,15 @@ function GtsDistrictObjectsScreen({ gtsMonitoringId, districtId, onSelect, onBac
 
 function GtsObjectFieldScreen({ gtsMonitoringId, objectId, onBack }: { gtsMonitoringId: string; objectId: string; onBack: () => void }) {
   const queryClient = useQueryClient();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   const { data: object } = useQuery({ queryKey: ['gts-object', objectId], queryFn: () => gtsMonitoringsApi.getObject(gtsMonitoringId, objectId) });
-  const { data: photos } = useQuery({ queryKey: ['gts-object-photos', objectId], queryFn: () => gtsMonitoringsApi.getObjectPhotos(gtsMonitoringId, objectId) });
 
-  const invalidate = () => { queryClient.invalidateQueries({ queryKey: ['gts-object', objectId] }); queryClient.invalidateQueries({ queryKey: ['gts-object-photos', objectId] }); };
+  const invalidate = () => { queryClient.invalidateQueries({ queryKey: ['gts-object', objectId] }); };
 
-  const updateElementMut = useMutation({ mutationFn: ({ elementId, data }: { elementId: string; data: Record<string, any> }) => gtsMonitoringsApi.updateElement(gtsMonitoringId, objectId, elementId, data), onSuccess: invalidate });
-  const uploadMut = useMutation({ mutationFn: (files: File[]) => gtsMonitoringsApi.uploadPhotos(gtsMonitoringId, objectId, files), onSuccess: invalidate });
+  const updateElementMut = useMutation({
+    mutationFn: ({ elementId, data }: { elementId: string; data: Record<string, any> }) =>
+      gtsMonitoringsApi.proposeElementEdit(gtsMonitoringId, objectId, elementId, data),
+  });
   const updateObjMut = useMutation({ mutationFn: (data: Record<string, any>) => gtsMonitoringsApi.updateObject(gtsMonitoringId, objectId, data), onSuccess: invalidate });
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => { const files = Array.from(e.target.files || []); if (files.length) uploadMut.mutate(files); e.target.value = ''; };
 
   if (!object) return (<><Header title="..." onBack={onBack} /><div className="flex items-center justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary-500" /></div></>);
 
@@ -2495,6 +2497,8 @@ function GtsObjectFieldScreen({ gtsMonitoringId, objectId, onBack }: { gtsMonito
           </div>
         </div>
 
+        <GtsLegacyMediaFieldBlock gtsMonitoringId={gtsMonitoringId} objectId={objectId} />
+
         {/* Элементы */}
         <div>
           <h3 className="font-semibold mb-2">Элементы ГТС</h3>
@@ -2503,41 +2507,454 @@ function GtsObjectFieldScreen({ gtsMonitoringId, objectId, onBack }: { gtsMonito
               <div key={el.id} className="bg-[var(--bg-secondary)] rounded-xl p-4 border border-[var(--border-color)]">
                 <div className="font-medium text-sm mb-2">{el.name}</div>
                 <div className="space-y-2">
-                  <div>
-                    <label className="block text-xs text-[var(--text-secondary)] mb-1">Дефекты</label>
-                    <textarea defaultValue={el.defects || ''} onBlur={(e) => updateElementMut.mutate({ elementId: el.id, data: { defects: e.target.value } })} rows={2} className="w-full px-3 py-2 text-sm rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] resize-y" placeholder="Выявленные дефекты..." />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-[var(--text-secondary)] mb-1">Рекомендации</label>
-                    <textarea defaultValue={el.recommendations || ''} onBlur={(e) => updateElementMut.mutate({ elementId: el.id, data: { recommendations: e.target.value } })} rows={2} className="w-full px-3 py-2 text-sm rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] resize-y" placeholder="Рекомендации..." />
+                  <GtsVoiceTextarea
+                    label="Характеристика"
+                    initialValue={el.proposedCharacteristics ?? el.characteristics ?? ''}
+                    placeholder="Описание конструкции..."
+                    onSave={(value) => updateElementMut.mutate({ elementId: el.id, data: { characteristics: value } })}
+                  />
+                  <GtsVoiceTextarea
+                    label="Дефекты"
+                    initialValue={el.proposedDefects ?? el.defects ?? ''}
+                    placeholder="Выявленные дефекты..."
+                    onSave={(value) => updateElementMut.mutate({ elementId: el.id, data: { defects: value } })}
+                  />
+                  <GtsVoiceTextarea
+                    label="Рекомендации"
+                    initialValue={el.proposedRecommendations ?? el.recommendations ?? ''}
+                    placeholder="Рекомендации..."
+                    onSave={(value) => updateElementMut.mutate({ elementId: el.id, data: { recommendations: value } })}
+                  />
+                  <div className="text-[11px] text-amber-300/90">
+                    Изменения сохраняются как предложенные и применяются после подтверждения в админке.
                   </div>
                 </div>
+
+                <GtsElementFieldPhotos
+                  gtsMonitoringId={gtsMonitoringId}
+                  objectId={objectId}
+                  elementId={el.id}
+                />
               </div>
             ))}
           </div>
         </div>
-
-        {/* Фото */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-semibold">Фото ({photos?.length || 0})</h3>
-            <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileSelect} className="hidden" />
-            <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-500 text-white text-sm font-medium">
-              <Camera className="w-4 h-4" /> Добавить
-            </button>
-          </div>
-          {photos && photos.length > 0 && (
-            <div className="grid grid-cols-3 gap-2">
-              {photos.map((p) => (
-                <div key={p.id} className="aspect-square rounded-lg overflow-hidden bg-[var(--bg-tertiary)]">
-                  <AuthImage src={gtsMonitoringsApi.getPhotoThumbnailUrl(gtsMonitoringId, p.id)} alt="" className="w-full h-full object-cover" loading="lazy" />
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
     </>
+  );
+}
+
+function GtsLegacyMediaFieldBlock({
+  gtsMonitoringId,
+  objectId,
+}: {
+  gtsMonitoringId: string;
+  objectId: string;
+}) {
+  const [showGallery, setShowGallery] = useState(false);
+  const [viewingImage, setViewingImage] = useState<GtsLegacyMedia | null>(null);
+
+  const { data: media } = useQuery({
+    queryKey: ['gts-legacy-media', objectId],
+    queryFn: () => gtsMonitoringsApi.getLegacyMedia(gtsMonitoringId, objectId),
+  });
+
+  const isImage = (item: GtsLegacyMedia) => item.mimeType.startsWith('image/');
+
+  return (
+    <div className="bg-[var(--bg-secondary)] rounded-xl p-4 border border-[var(--border-color)]">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setShowGallery(true)}
+          disabled={!media?.length}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-primary)] text-xs font-medium disabled:opacity-50"
+        >
+          Просмотреть
+        </button>
+      </div>
+      <div className="mt-2 text-xs text-[var(--text-secondary)]">
+        Загружено файлов: {media?.length || 0}
+      </div>
+
+      {showGallery && createPortal(
+        <div className="fixed inset-0 z-[80] bg-black/80 p-4 overflow-y-auto" onClick={() => setShowGallery(false)}>
+          <div
+            className="max-w-5xl mx-auto bg-[var(--bg-secondary)] rounded-xl p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold">Галерея прошлых материалов</h3>
+              <button type="button" className="p-2 rounded hover:bg-[var(--bg-tertiary)]" onClick={() => setShowGallery(false)}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {!media?.length ? (
+              <div className="text-sm text-[var(--text-secondary)] py-6 text-center">Файлы не загружены</div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {media.map((item) => (
+                  <div key={item.id} className="border border-[var(--border-color)] rounded-lg overflow-hidden">
+                    {isImage(item) ? (
+                      <button type="button" className="w-full" onClick={() => setViewingImage(item)}>
+                        <AuthImage
+                          src={gtsMonitoringsApi.getLegacyMediaOriginalUrl(gtsMonitoringId, item.id)}
+                          alt={item.originalName}
+                          className="w-full aspect-square object-cover"
+                          loading="lazy"
+                        />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="w-full aspect-square flex flex-col items-center justify-center bg-[var(--bg-tertiary)]"
+                        onClick={() => gtsMonitoringsApi.openLegacyMedia(gtsMonitoringId, item.id, item.originalName)}
+                      >
+                        <FileText className="w-8 h-8 text-red-400" />
+                        <span className="text-xs mt-2 text-[var(--text-secondary)]">PDF</span>
+                      </button>
+                    )}
+                    <div className="p-2 text-[11px] text-[var(--text-secondary)] truncate">{item.originalName}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body,
+      )}
+
+      {viewingImage && (
+        <FieldworkZoomableImageModal
+          src={gtsMonitoringsApi.getLegacyMediaOriginalUrl(gtsMonitoringId, viewingImage.id)}
+          alt={viewingImage.originalName}
+          onClose={() => setViewingImage(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function FieldworkZoomableImageModal({
+  src,
+  alt,
+  onClose,
+}: {
+  src: string;
+  alt: string;
+  onClose: () => void;
+}) {
+  const [scale, setScale] = useState(1);
+  const [translate, setTranslate] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const clampScale = (next: number) => Math.max(1, Math.min(5, Number(next.toFixed(2))));
+
+  const zoomAtPoint = (nextScaleRaw: number, clientX: number, clientY: number) => {
+    setScale((prevScale) => {
+      const nextScale = clampScale(nextScaleRaw);
+      if (nextScale === prevScale) return prevScale;
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return nextScale;
+      const cx = clientX - (rect.left + rect.width / 2);
+      const cy = clientY - (rect.top + rect.height / 2);
+      setTranslate((prevTranslate) => {
+        if (nextScale === 1) return { x: 0, y: 0 };
+        return {
+          x: cx - ((cx - prevTranslate.x) / prevScale) * nextScale,
+          y: cy - ((cy - prevTranslate.y) / prevScale) * nextScale,
+        };
+      });
+      return nextScale;
+    });
+  };
+
+  const centerZoom = (delta: number) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    const x = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
+    const y = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
+    zoomAtPoint(scale + delta, x, y);
+  };
+
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const delta = e.deltaY < 0 ? 0.15 : -0.15;
+    zoomAtPoint(scale + delta, e.clientX, e.clientY);
+  };
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (scale <= 1) return;
+    setDragging(true);
+    dragStartRef.current = { x: e.clientX - translate.x, y: e.clientY - translate.y };
+  };
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!dragging || scale <= 1) return;
+    setTranslate({ x: e.clientX - dragStartRef.current.x, y: e.clientY - dragStartRef.current.y });
+  };
+  const handleMouseUp = () => setDragging(false);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[90] bg-black/95" onClick={onClose}>
+      <div
+        ref={containerRef}
+        className="w-full h-full flex items-center justify-center overflow-hidden relative"
+        onClick={(e) => e.stopPropagation()}
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+      >
+        <div className="absolute top-3 right-3 z-10 flex items-center gap-2 bg-black/45 backdrop-blur rounded-full px-2 py-1 border border-white/15">
+          <button type="button" onClick={() => centerZoom(-0.25)} disabled={scale <= 1} className="px-2 py-1 rounded bg-white/10 text-white disabled:opacity-40">-</button>
+          <button type="button" className="px-2 py-1 text-xs text-white/90 hover:text-white" onClick={() => { setScale(1); setTranslate({ x: 0, y: 0 }); }}>
+            {Math.round(scale * 100)}%
+          </button>
+          <button type="button" onClick={() => centerZoom(0.25)} className="px-2 py-1 rounded bg-white/10 text-white">+</button>
+          <button type="button" className="p-2 rounded-full bg-white/10 text-white hover:bg-white/20" onClick={onClose}>
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div
+          style={{
+            transform: `translate(${translate.x}px, ${translate.y}px) scale(${scale})`,
+            transformOrigin: 'center center',
+            transition: dragging ? 'none' : 'transform 120ms ease',
+            cursor: scale > 1 ? (dragging ? 'grabbing' : 'grab') : 'default',
+          }}
+        >
+          <AuthImage src={src} alt={alt} className="max-w-full max-h-[90vh] object-contain select-none" />
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function GtsVoiceTextarea({
+  label,
+  initialValue,
+  placeholder,
+  onSave,
+}: {
+  label: string;
+  initialValue: string;
+  placeholder: string;
+  onSave: (value: string) => void;
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const recognitionRef = useRef<any>(null);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedRef = useRef(initialValue);
+  const [value, setValue] = useState(initialValue);
+  const [isRecording, setIsRecording] = useState(false);
+
+  useEffect(() => {
+    setValue(initialValue);
+    lastSavedRef.current = initialValue;
+  }, [initialValue]);
+
+  const resize = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const nextHeight = Math.min(el.scrollHeight, 100);
+    el.style.height = `${nextHeight}px`;
+    el.style.overflowY = el.scrollHeight > 100 ? 'auto' : 'hidden';
+  }, []);
+
+  useEffect(() => {
+    resize();
+  }, [value, resize]);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch { /* ignore */ }
+      }
+    };
+  }, []);
+
+  const commitSave = useCallback((nextValue: string, force = false) => {
+    if (!force && nextValue === lastSavedRef.current) return;
+    lastSavedRef.current = nextValue;
+    onSave(nextValue);
+  }, [onSave]);
+
+  const scheduleSave = useCallback((nextValue: string) => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      commitSave(nextValue);
+      saveTimeoutRef.current = null;
+    }, 500);
+  }, [commitSave]);
+
+  const handleBlur = () => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    commitSave(value);
+  };
+
+  const toggleRecording = () => {
+    if (isRecording && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsRecording(false);
+      return;
+    }
+
+    const SpeechRecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor) {
+      window.alert('Голосовой ввод не поддерживается в этом браузере');
+      return;
+    }
+
+    const recognition = new SpeechRecognitionCtor();
+    recognitionRef.current = recognition;
+    recognition.lang = 'ru-RU';
+    recognition.interimResults = false;
+    recognition.continuous = false;
+
+    recognition.onresult = (event: any) => {
+      const transcript = Array.from(event.results)
+        .map((r: any) => r[0]?.transcript || '')
+        .join(' ')
+        .trim();
+      if (!transcript) return;
+      setValue(transcript);
+      scheduleSave(transcript);
+    };
+    recognition.onerror = () => {
+      setIsRecording(false);
+    };
+    recognition.onend = () => {
+      setIsRecording(false);
+    };
+
+    recognition.start();
+    setIsRecording(true);
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <label className="block text-xs text-[var(--text-secondary)]">{label}</label>
+        <button
+          type="button"
+          onClick={toggleRecording}
+          className={`p-1.5 rounded-md ${isRecording ? 'bg-red-500/20 text-red-400' : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]'}`}
+          title={isRecording ? 'Остановить запись' : 'Голосовой ввод'}
+        >
+          {isRecording ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+        </button>
+      </div>
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={(e) => {
+          const nextValue = e.target.value;
+          setValue(nextValue);
+          scheduleSave(nextValue);
+        }}
+        onBlur={handleBlur}
+        rows={1}
+        className="w-full px-3 py-2 text-sm rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] resize-none"
+        placeholder={placeholder}
+      />
+    </div>
+  );
+}
+
+function GtsElementFieldPhotos({
+  gtsMonitoringId,
+  objectId,
+  elementId,
+}: {
+  gtsMonitoringId: string;
+  objectId: string;
+  elementId: string;
+}) {
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [viewingPhoto, setViewingPhoto] = useState<GtsElementPhoto | null>(null);
+  const { data: photos } = useQuery({
+    queryKey: ['gts-element-photos', elementId],
+    queryFn: () => gtsMonitoringsApi.getElementPhotos(gtsMonitoringId, objectId, elementId),
+  });
+
+  const uploadMut = useMutation({
+    mutationFn: (files: File[]) => gtsMonitoringsApi.uploadElementPhotos(gtsMonitoringId, objectId, elementId, files),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['gts-element-photos', elementId] }),
+  });
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!files.length) return;
+    if ((photos?.length || 0) + files.length > 4) {
+      window.alert('Для одного элемента можно загрузить максимум 4 фото');
+      return;
+    }
+    uploadMut.mutate(files);
+  };
+
+  return (
+    <div className="mt-3 pt-3 border-t border-[var(--border-color)]">
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-sm font-medium">Фото элемента ({photos?.length || 0}/4)</h4>
+        <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileSelect} className="hidden" />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={(photos?.length || 0) >= 4 || uploadMut.isPending}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-500 text-white text-xs font-medium disabled:opacity-50"
+        >
+          <Camera className="w-3.5 h-3.5" /> Добавить
+        </button>
+      </div>
+
+      {photos && photos.length > 0 ? (
+        <div className="grid grid-cols-4 gap-2">
+          {photos.map((p) => (
+            <button
+              type="button"
+              key={p.id}
+              className="aspect-square rounded-lg overflow-hidden bg-[var(--bg-tertiary)]"
+              onClick={() => setViewingPhoto(p)}
+            >
+              <AuthImage src={gtsMonitoringsApi.getPhotoThumbnailUrl(gtsMonitoringId, p.id)} alt="" className="w-full h-full object-cover" loading="lazy" />
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="text-xs text-[var(--text-secondary)]">Фото пока не загружены</div>
+      )}
+
+      {viewingPhoto && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setViewingPhoto(null)}
+        >
+          <button
+            type="button"
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 text-white hover:bg-white/20"
+            onClick={() => setViewingPhoto(null)}
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <div className="max-w-full max-h-full" onClick={(e) => e.stopPropagation()}>
+            <AuthImage
+              src={gtsMonitoringsApi.getPhotoOriginalUrl(gtsMonitoringId, viewingPhoto.id)}
+              alt={viewingPhoto.description || ''}
+              className="max-w-full max-h-[90vh] object-contain"
+            />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

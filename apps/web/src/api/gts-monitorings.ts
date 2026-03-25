@@ -42,6 +42,12 @@ export interface GtsObject {
   inspectorName: string | null;
   overallCondition: string | null;
   hasTechnicalDoc: boolean;
+  sourceDvOriginalName: string | null;
+  sourceDvStoredName: string | null;
+  sourceDvUploadedAt: string | null;
+  generatedDvOriginalName: string | null;
+  generatedDvStoredName: string | null;
+  generatedDvGeneratedAt: string | null;
   district?: { id: string; name: string };
   elements?: GtsElement[];
   _count?: { elements: number; photos: number };
@@ -55,12 +61,17 @@ export interface GtsElement {
   technicalCondition: string | null;
   defects: string | null;
   recommendations: string | null;
+  proposedCharacteristics: string | null;
+  proposedDefects: string | null;
+  proposedRecommendations: string | null;
+  proposedUpdatedAt: string | null;
   sortOrder: number;
 }
 
 export interface GtsPhoto {
   id: string;
   gtsObjectId: string;
+  gtsElementId: string | null;
   gtsMonitoringId: string;
   filename: string;
   originalName: string;
@@ -73,6 +84,16 @@ export interface GtsPhoto {
   uploadedAt: string;
   uploadedById: string | null;
   uploadedBy?: { id: string; firstName: string; lastName: string } | null;
+}
+
+export interface GtsLegacyMedia {
+  id: string;
+  gtsObjectId: string;
+  gtsMonitoringId: string;
+  filename: string;
+  originalName: string;
+  mimeType: string;
+  uploadedAt: string;
 }
 
 function downloadBlob(response: any, fallbackName: string) {
@@ -146,12 +167,73 @@ export const gtsMonitoringsApi = {
     return response.data;
   },
 
+  uploadSourceDefectStatement: async (monitoringId: string, objectId: string, file: File): Promise<GtsObject> => {
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+    const response = await apiClient.post<GtsObject>(
+      `${BASE}/${monitoringId}/objects/${objectId}/defect-statement/source`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    );
+    return response.data;
+  },
+
+  downloadSourceDefectStatement: async (monitoringId: string, objectId: string): Promise<void> => {
+    const response = await apiClient.get(
+      `${BASE}/${monitoringId}/objects/${objectId}/defect-statement/source`,
+      { responseType: 'blob' },
+    );
+    downloadBlob(response, 'Старая_ДВ.docx');
+  },
+
+  downloadGeneratedDefectStatement: async (monitoringId: string, objectId: string): Promise<void> => {
+    const response = await apiClient.get(
+      `${BASE}/${monitoringId}/objects/${objectId}/defect-statement/generated`,
+      { responseType: 'blob' },
+    );
+    downloadBlob(response, 'ДВ_последняя.pdf');
+  },
+
   // ========== ЭЛЕМЕНТЫ ==========
 
   updateElement: async (monitoringId: string, objectId: string, elementId: string, data: Record<string, any>): Promise<GtsElement> => {
     const response = await apiClient.patch<GtsElement>(
       `${BASE}/${monitoringId}/objects/${objectId}/elements/${elementId}`,
       data,
+    );
+    return response.data;
+  },
+
+  proposeElementEdit: async (monitoringId: string, objectId: string, elementId: string, data: Record<string, any>): Promise<GtsElement> => {
+    const response = await apiClient.patch<GtsElement>(
+      `${BASE}/${monitoringId}/objects/${objectId}/elements/${elementId}/proposed`,
+      data,
+    );
+    return response.data;
+  },
+
+  acceptElementEdit: async (
+    monitoringId: string,
+    objectId: string,
+    elementId: string,
+    field: 'characteristics' | 'defects' | 'recommendations',
+  ): Promise<GtsElement> => {
+    const response = await apiClient.post<GtsElement>(
+      `${BASE}/${monitoringId}/objects/${objectId}/elements/${elementId}/proposed/accept`,
+      { field },
+    );
+    return response.data;
+  },
+
+  rejectElementEdit: async (
+    monitoringId: string,
+    objectId: string,
+    elementId: string,
+    field: 'characteristics' | 'defects' | 'recommendations',
+  ): Promise<GtsElement> => {
+    const response = await apiClient.post<GtsElement>(
+      `${BASE}/${monitoringId}/objects/${objectId}/elements/${elementId}/proposed/reject`,
+      { field },
     );
     return response.data;
   },
@@ -163,10 +245,49 @@ export const gtsMonitoringsApi = {
     return response.data;
   },
 
+  getElementPhotos: async (monitoringId: string, objectId: string, elementId: string): Promise<GtsPhoto[]> => {
+    const response = await apiClient.get<GtsPhoto[]>(
+      `${BASE}/${monitoringId}/objects/${objectId}/elements/${elementId}/photos`,
+    );
+    return response.data;
+  },
+
+  getLegacyMedia: async (monitoringId: string, objectId: string): Promise<GtsLegacyMedia[]> => {
+    const response = await apiClient.get<GtsLegacyMedia[]>(
+      `${BASE}/${monitoringId}/objects/${objectId}/legacy-media`,
+    );
+    return response.data;
+  },
+
   uploadPhotos: async (monitoringId: string, objectId: string, files: File[]): Promise<any[]> => {
     const formData = new FormData();
     files.forEach((file) => formData.append('photos', file, file.name || `photo_${Date.now()}.jpg`));
     const response = await apiClient.post(`${BASE}/${monitoringId}/objects/${objectId}/photos`, formData);
+    return response.data;
+  },
+
+  uploadElementPhotos: async (
+    monitoringId: string,
+    objectId: string,
+    elementId: string,
+    files: File[],
+  ): Promise<any[]> => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append('photos', file, file.name || `photo_${Date.now()}.jpg`));
+    const response = await apiClient.post(
+      `${BASE}/${monitoringId}/objects/${objectId}/elements/${elementId}/photos`,
+      formData,
+    );
+    return response.data;
+  },
+
+  uploadLegacyMedia: async (monitoringId: string, objectId: string, files: File[]): Promise<GtsLegacyMedia[]> => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append('files', file, file.name || `legacy_${Date.now()}`));
+    const response = await apiClient.post<GtsLegacyMedia[]>(
+      `${BASE}/${monitoringId}/objects/${objectId}/legacy-media`,
+      formData,
+    );
     return response.data;
   },
 
@@ -183,6 +304,19 @@ export const gtsMonitoringsApi = {
     return response.data;
   },
 
+  reorderElementPhotos: async (
+    monitoringId: string,
+    objectId: string,
+    elementId: string,
+    orders: { id: string; sortOrder: number }[],
+  ): Promise<GtsPhoto[]> => {
+    const response = await apiClient.post<GtsPhoto[]>(
+      `${BASE}/${monitoringId}/objects/${objectId}/elements/${elementId}/photos/reorder`,
+      { orders },
+    );
+    return response.data;
+  },
+
   deletePhoto: async (monitoringId: string, photoId: string): Promise<void> => {
     await apiClient.delete(`${BASE}/${monitoringId}/photos/${photoId}`);
   },
@@ -193,6 +327,23 @@ export const gtsMonitoringsApi = {
   getPhotoOriginalUrl: (monitoringId: string, photoId: string): string =>
     `${BASE}/${monitoringId}/photos/${photoId}/original`,
 
+  getLegacyMediaOriginalUrl: (monitoringId: string, mediaId: string): string =>
+    `${BASE}/${monitoringId}/legacy-media/${mediaId}/original`,
+
+  openLegacyMedia: async (monitoringId: string, mediaId: string, fallbackName = 'legacy-file'): Promise<void> => {
+    const response = await apiClient.get(
+      `${BASE}/${monitoringId}/legacy-media/${mediaId}/original`,
+      { responseType: 'blob' },
+    );
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const tab = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!tab) {
+      downloadBlob(response, fallbackName);
+    } else {
+      setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+    }
+  },
+
   // ========== ГЕНЕРАЦИЯ ==========
 
   generateObjectDefectStatement: async (monitoringId: string, objectId: string): Promise<void> => {
@@ -201,7 +352,7 @@ export const gtsMonitoringsApi = {
       {},
       { responseType: 'blob', timeout: 180000 },
     );
-    downloadBlob(response, 'ДВ.pdf');
+    downloadBlob(response, 'ДВ.docx');
   },
 
   generateDistrictDefectStatements: async (monitoringId: string, districtId: string): Promise<void> => {

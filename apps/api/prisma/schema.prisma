@@ -617,6 +617,7 @@ model GtsMonitoring {
   districts GtsDistrict[]
   objects   GtsObject[]
   photos    GtsPhoto[]
+  legacyMedia GtsLegacyMedia[]
 
   @@map("gts_monitorings")
 }
@@ -665,6 +666,13 @@ model GtsObject {
   overallCondition String?
   hasTechnicalDoc  Boolean  @default(false)
 
+  sourceDvOriginalName    String?
+  sourceDvStoredName      String?
+  sourceDvUploadedAt      DateTime?
+  generatedDvOriginalName String?
+  generatedDvStoredName   String?
+  generatedDvGeneratedAt  DateTime?
+
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -672,6 +680,7 @@ model GtsObject {
   district   GtsDistrict   @relation(fields: [gtsDistrictId], references: [id], onDelete: Cascade)
   elements   GtsElement[]
   photos     GtsPhoto[]
+  legacyMedia GtsLegacyMedia[]
 
   @@map("gts_objects")
 }
@@ -685,12 +694,18 @@ model GtsElement {
   technicalCondition String?
   defects            String?
   recommendations    String?
+  proposedCharacteristics    String?
+  proposedTechnicalCondition String?
+  proposedDefects            String?
+  proposedRecommendations    String?
+  proposedUpdatedAt          DateTime?
   sortOrder          Int     @default(0)
 
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
   object GtsObject @relation(fields: [gtsObjectId], references: [id], onDelete: Cascade)
+  photos GtsPhoto[]
 
   @@map("gts_elements")
 }
@@ -698,6 +713,7 @@ model GtsElement {
 model GtsPhoto {
   id               String   @id @default(cuid())
   gtsObjectId      String
+  gtsElementId     String?
   gtsMonitoringId  String
 
   filename         String
@@ -713,8 +729,25 @@ model GtsPhoto {
   uploadedById     String?
 
   object     GtsObject     @relation(fields: [gtsObjectId], references: [id], onDelete: Cascade)
+  element    GtsElement?   @relation(fields: [gtsElementId], references: [id], onDelete: SetNull)
   monitoring GtsMonitoring @relation(fields: [gtsMonitoringId], references: [id], onDelete: Cascade)
   uploadedBy User?         @relation("GtsPhotoUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
 
   @@map("gts_photos")
+}
+
+model GtsLegacyMedia {
+  id               String   @id @default(cuid())
+  gtsObjectId      String
+  gtsMonitoringId  String
+
+  filename         String
+  originalName     String
+  mimeType         String
+  uploadedAt       DateTime @default(now())
+
+  object     GtsObject     @relation(fields: [gtsObjectId], references: [id], onDelete: Cascade)
+  monitoring GtsMonitoring @relation(fields: [gtsMonitoringId], references: [id], onDelete: Cascade)
+
+  @@map("gts_legacy_media")
 }

@@ -14,7 +14,7 @@ import { GtsDefectStatementService } from './gts-defect-statement.service';
 import { GtsPresentationService } from './gts-presentation.service';
 import {
   CreateGtsMonitoringDto, UpdateGtsMonitoringDto,
-  UpdateGtsObjectDto, UpdateGtsElementDto,
+  UpdateGtsObjectDto, UpdateGtsElementDto, ProposeGtsElementDto, AcceptGtsElementProposalDto,
   UpdateGtsPhotoDto, ReorderGtsPhotosDto,
 } from './dto/gts-monitoring.dto';
 
@@ -94,6 +94,45 @@ export class GtsMonitoringsController {
     return this.service.updateObject(objectId, dto);
   }
 
+  @Post(':id/objects/:objectId/defect-statement/source')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadSourceDefectStatement(
+    @Param('objectId') objectId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('Файл не загружен');
+    await this.defectService.uploadSourceForObject(objectId, file);
+    return this.service.getObjectById(objectId);
+  }
+
+  @Get(':id/objects/:objectId/defect-statement/source')
+  async downloadSourceDefectStatement(
+    @Param('objectId') objectId: string,
+    @Res() res: Response,
+  ) {
+    const file = await this.defectService.getSourceFile(objectId);
+    res.set({
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.filename)}`,
+    });
+    return res.sendFile(file.path);
+  }
+
+  @Get(':id/objects/:objectId/defect-statement/generated')
+  async downloadGeneratedDefectStatement(
+    @Param('objectId') objectId: string,
+    @Res() res: Response,
+  ) {
+    const file = await this.defectService.getGeneratedFile(objectId);
+    const isDocx = file.filename.toLowerCase().endsWith('.docx');
+    res.set({
+      'Content-Type': isDocx
+        ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        : 'application/pdf',
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.filename)}`,
+    });
+    return res.sendFile(file.path);
+  }
+
   // ========== ЭЛЕМЕНТЫ ==========
 
   @Patch(':id/objects/:objectId/elements/:elementId')
@@ -101,11 +140,42 @@ export class GtsMonitoringsController {
     return this.service.updateElement(elementId, dto);
   }
 
+  @Patch(':id/objects/:objectId/elements/:elementId/proposed')
+  async proposeElementEdit(@Param('elementId') elementId: string, @Body() dto: ProposeGtsElementDto) {
+    return this.service.proposeElementEdit(elementId, dto);
+  }
+
+  @Post(':id/objects/:objectId/elements/:elementId/proposed/accept')
+  async acceptElementEdit(
+    @Param('elementId') elementId: string,
+    @Body() dto: AcceptGtsElementProposalDto,
+  ) {
+    return this.service.acceptElementProposal(elementId, dto.field);
+  }
+
+  @Post(':id/objects/:objectId/elements/:elementId/proposed/reject')
+  async rejectElementEdit(
+    @Param('elementId') elementId: string,
+    @Body() dto: AcceptGtsElementProposalDto,
+  ) {
+    return this.service.rejectElementProposal(elementId, dto.field);
+  }
+
   // ========== ФОТО ==========
 
   @Get(':id/objects/:objectId/photos')
   async getObjectPhotos(@Param('objectId') objectId: string) {
     return this.photosService.getPhotosByObject(objectId);
+  }
+
+  @Get(':id/objects/:objectId/elements/:elementId/photos')
+  async getElementPhotos(@Param('elementId') elementId: string) {
+    return this.photosService.getPhotosByElement(elementId);
+  }
+
+  @Get(':id/objects/:objectId/legacy-media')
+  async getLegacyMedia(@Param('objectId') objectId: string) {
+    return this.photosService.getLegacyMediaByObject(objectId);
   }
 
   @Post(':id/objects/:objectId/photos')
@@ -116,8 +186,31 @@ export class GtsMonitoringsController {
     @UploadedFiles() files: Express.Multer.File[],
     @Request() req: any,
   ) {
+    throw new BadRequestException('Загрузка фото выполняется только на уровне элемента ГТС');
+  }
+
+  @Post(':id/objects/:objectId/elements/:elementId/photos')
+  @UseInterceptors(FilesInterceptor('photos', 4))
+  async uploadElementPhotos(
+    @Param('id') id: string,
+    @Param('objectId') objectId: string,
+    @Param('elementId') elementId: string,
+    @UploadedFiles() files: Express.Multer.File[],
+    @Request() req: any,
+  ) {
     if (!files || files.length === 0) throw new BadRequestException('Нет файлов');
-    return this.photosService.uploadPhotos(id, objectId, files, req.user.userId);
+    return this.photosService.uploadPhotos(id, objectId, elementId, files, req.user.userId);
+  }
+
+  @Post(':id/objects/:objectId/legacy-media')
+  @UseInterceptors(FilesInterceptor('files', 30))
+  async uploadLegacyMedia(
+    @Param('id') id: string,
+    @Param('objectId') objectId: string,
+    @UploadedFiles() files: Express.Multer.File[],
+  ) {
+    if (!files || files.length === 0) throw new BadRequestException('Нет файлов');
+    return this.photosService.uploadLegacyMedia(id, objectId, files);
   }
 
   @Patch(':id/photos/:photoId')
@@ -129,7 +222,16 @@ export class GtsMonitoringsController {
 
   @Post(':id/objects/:objectId/photos/reorder')
   async reorderPhotos(@Param('objectId') objectId: string, @Body() dto: ReorderGtsPhotosDto) {
-    return this.photosService.reorderPhotos(objectId, dto.orders);
+    throw new BadRequestException('Сортировка фото выполняется только на уровне элемента ГТС');
+  }
+
+  @Post(':id/objects/:objectId/elements/:elementId/photos/reorder')
+  async reorderElementPhotos(
+    @Param('objectId') objectId: string,
+    @Param('elementId') elementId: string,
+    @Body() dto: ReorderGtsPhotosDto,
+  ) {
+    return this.photosService.reorderPhotos(objectId, elementId, dto.orders);
   }
 
   @Delete(':id/photos/:photoId')
@@ -160,6 +262,18 @@ export class GtsMonitoringsController {
     return res.sendFile(originalPath);
   }
 
+  @Get(':id/legacy-media/:mediaId/original')
+  async getLegacyMediaOriginal(@Param('mediaId') mediaId: string, @Res() res: Response) {
+    const media = await this.photosService.getLegacyMediaById(mediaId);
+    const filePath = this.photosService.getLegacyPath(media.gtsMonitoringId, media.filename);
+    if (!existsSync(filePath)) throw new NotFoundException('Файл не найден');
+    res.set({
+      'Content-Type': media.mimeType,
+      'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(media.originalName)}`,
+    });
+    return res.sendFile(filePath);
+  }
+
   // ========== ГЕНЕРАЦИЯ ==========
 
   @Post(':id/objects/:objectId/generate-defect-statement')
@@ -169,8 +283,11 @@ export class GtsMonitoringsController {
     @Res() res: Response,
   ) {
     const result = await this.defectService.generateForObject(objectId);
+    const isDocx = result.filename.toLowerCase().endsWith('.docx');
     res.set({
-      'Content-Type': 'application/pdf',
+      'Content-Type': isDocx
+        ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        : 'application/pdf',
       'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(result.filename)}`,
       'Content-Length': String(result.buffer.length),
     });

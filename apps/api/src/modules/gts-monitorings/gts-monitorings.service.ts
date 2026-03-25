@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -163,6 +163,84 @@ export class GtsMonitoringsService {
         ...(data.technicalCondition !== undefined ? { technicalCondition: data.technicalCondition } : {}),
         ...(data.defects !== undefined ? { defects: data.defects } : {}),
         ...(data.recommendations !== undefined ? { recommendations: data.recommendations } : {}),
+      },
+    });
+  }
+
+  async proposeElementEdit(elementId: string, data: {
+    characteristics?: string;
+    defects?: string;
+    recommendations?: string;
+  }) {
+    const element = await this.prisma.gtsElement.findUnique({ where: { id: elementId } });
+    if (!element) throw new NotFoundException('Элемент ГТС не найден');
+
+    const normalize = (value: string | undefined) => {
+      if (value === undefined) return undefined;
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    };
+
+    const nextCharacteristics = normalize(data.characteristics);
+    const nextDefects = normalize(data.defects);
+    const nextRecommendations = normalize(data.recommendations);
+
+    return this.prisma.gtsElement.update({
+      where: { id: elementId },
+      data: {
+        ...(nextCharacteristics !== undefined ? { proposedCharacteristics: nextCharacteristics === element.characteristics ? null : nextCharacteristics } : {}),
+        ...(nextDefects !== undefined ? { proposedDefects: nextDefects === element.defects ? null : nextDefects } : {}),
+        ...(nextRecommendations !== undefined ? { proposedRecommendations: nextRecommendations === element.recommendations ? null : nextRecommendations } : {}),
+        proposedUpdatedAt: new Date(),
+      },
+    });
+  }
+
+  async acceptElementProposal(
+    elementId: string,
+    field: 'characteristics' | 'defects' | 'recommendations',
+  ) {
+    const element = await this.prisma.gtsElement.findUnique({ where: { id: elementId } });
+    if (!element) throw new NotFoundException('Элемент ГТС не найден');
+
+    const mapping = {
+      characteristics: { source: element.proposedCharacteristics, target: 'characteristics', proposed: 'proposedCharacteristics' },
+      defects: { source: element.proposedDefects, target: 'defects', proposed: 'proposedDefects' },
+      recommendations: { source: element.proposedRecommendations, target: 'recommendations', proposed: 'proposedRecommendations' },
+    } as const;
+
+    const selected = mapping[field];
+    if (!selected.source?.trim()) {
+      throw new BadRequestException('Нет отредактированного текста для принятия');
+    }
+
+    return this.prisma.gtsElement.update({
+      where: { id: elementId },
+      data: {
+        [selected.target]: selected.source,
+        [selected.proposed]: null,
+      },
+    });
+  }
+
+  async rejectElementProposal(
+    elementId: string,
+    field: 'characteristics' | 'defects' | 'recommendations',
+  ) {
+    const element = await this.prisma.gtsElement.findUnique({ where: { id: elementId } });
+    if (!element) throw new NotFoundException('Элемент ГТС не найден');
+
+    const mapping = {
+      characteristics: 'proposedCharacteristics',
+      defects: 'proposedDefects',
+      recommendations: 'proposedRecommendations',
+    } as const;
+
+    const proposedField = mapping[field];
+    return this.prisma.gtsElement.update({
+      where: { id: elementId },
+      data: {
+        [proposedField]: null,
       },
     });
   }

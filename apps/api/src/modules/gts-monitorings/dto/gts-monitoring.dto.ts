@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsArray, ValidateNested, IsNumber, IsBoolean } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray, ValidateNested, IsNumber, IsBoolean, IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateGtsMonitoringDto {
@@ -61,6 +61,26 @@ export class UpdateGtsElementDto {
   @IsString()
   @IsOptional()
   recommendations?: string;
+}
+
+export class ProposeGtsElementDto {
+  @IsString()
+  @IsOptional()
+  characteristics?: string;
+
+  @IsString()
+  @IsOptional()
+  defects?: string;
+
+  @IsString()
+  @IsOptional()
+  recommendations?: string;
+}
+
+export class AcceptGtsElementProposalDto {
+  @IsString()
+  @IsIn(['characteristics', 'defects', 'recommendations'])
+  field: 'characteristics' | 'defects' | 'recommendations';
 }
 
 export class UpdateGtsPhotoDto {
