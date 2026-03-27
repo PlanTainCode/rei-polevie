@@ -395,6 +395,34 @@ export class ProjectsController {
     };
   }
 
+  // Генерация программы ИГМИ (Word)
+  @Post(':id/generate-program-igmi')
+  async generateProgramIgmi(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    // Проверяем доступ к проекту
+    const project = await this.projectsService.findById(id, req.user.userId);
+
+    // Запрещаем генерацию программы ИГМИ для допотборов — она общая с родительским проектом
+    if (project.parentProjectId) {
+      throw new BadRequestException(
+        'Программа ИГМИ генерируется только для основного проекта. Для допотбора используйте программу родительского проекта.',
+      );
+    }
+
+    const result = await this.wordService.generateProgramIgmi({
+      projectId: id,
+      userId: req.user.userId,
+    });
+
+    return {
+      success: true,
+      fileName: result.fileName,
+      downloadUrl: `/generated/${result.fileName}`,
+    };
+  }
+
   // Скачивание сгенерированного Word
   @Get(':id/word/:fileName')
   async downloadWord(
@@ -778,6 +806,49 @@ export class ProjectsController {
   // Удалить обзорную схему
   @Delete(':id/program-iei/overview-image')
   async deleteOverviewImage(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    await this.projectsService.findById(id, req.user.userId);
+    return this.programIeiService.deleteOverviewImage(id);
+  }
+
+  // ============ ПРОГРАММА ИГМИ ============
+  // Используем тот же storage полей, что и у программы ИЭИ:
+  // на странице ИГМИ по умолчанию отображаются уже заполненные значения из ИЭИ.
+
+  @Get(':id/program-igmi')
+  async getProgramIgmi(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    await this.projectsService.findById(id, req.user.userId);
+    return this.programIeiService.get(id);
+  }
+
+  @Patch(':id/program-igmi')
+  async updateProgramIgmi(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @Body() dto: UpdateProgramIeiDto,
+  ) {
+    await this.projectsService.findById(id, req.user.userId);
+    return this.programIeiService.update(id, dto);
+  }
+
+  @Post(':id/program-igmi/overview-image')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadProgramIgmiOverviewImage(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    await this.projectsService.findById(id, req.user.userId);
+    return this.programIeiService.uploadOverviewImage(id, file);
+  }
+
+  @Delete(':id/program-igmi/overview-image')
+  async deleteProgramIgmiOverviewImage(
     @Request() req: { user: { userId: string } },
     @Param('id') id: string,
   ) {

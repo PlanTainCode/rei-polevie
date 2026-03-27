@@ -328,6 +328,7 @@ export function InquiryRequestsPage() {
     success: boolean;
     message: string;
   }>({ show: false, success: false, message: '' });
+  const [isHeaderScrolled, setIsHeaderScrolled] = useState(false);
 
   // Мутация для отправки email
   const sendEmailMutation = useMutation({
@@ -413,6 +414,13 @@ export function InquiryRequestsPage() {
       }
     }
   }, [inquiryRequest]);
+
+  useEffect(() => {
+    const onScroll = () => setIsHeaderScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   // Проверяем нужно ли показывать поле хим. веществ
   const showChemicals = Array.from(selectedInquiries).some((id) =>
@@ -574,28 +582,30 @@ export function InquiryRequestsPage() {
         </div>
       )}
 
-      {/* Навигация */}
-      <div className="mb-6">
-        <Link
-          to={`/projects/${id}`}
-          className="inline-flex items-center gap-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Назад к объекту
-        </Link>
-      </div>
+      <div className={`sticky top-0 z-30 rounded-xl py-4 mb-6 transition-all ${isHeaderScrolled ? 'bg-[var(--bg-tertiary)] px-4' : 'bg-[var(--bg-primary)]'}`}>
+        {/* Навигация */}
+        <div className="mb-3">
+          <Link
+            to={`/projects/${id}`}
+            className="inline-flex items-center gap-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Назад к объекту
+          </Link>
+        </div>
 
-      {/* Заголовок */}
-      <div className="flex items-start justify-between mb-8">
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-xl bg-teal-500/20 flex items-center justify-center">
-            <FileText className="w-7 h-7 text-teal-400" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold">Запросы справок</h1>
-            <p className="text-sm text-[var(--text-secondary)] mt-1">
-              {project.objectName || project.name}
-            </p>
+        {/* Заголовок */}
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-xl bg-teal-500/20 flex items-center justify-center">
+              <FileText className="w-7 h-7 text-teal-400" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold">Запросы справок</h1>
+              <p className="text-sm text-[var(--text-secondary)] mt-1">
+                {project.objectName || project.name}
+              </p>
+            </div>
           </div>
         </div>
       </div>

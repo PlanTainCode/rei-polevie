@@ -125,6 +125,12 @@ export interface GenerateProgramIeiResult {
   downloadUrl: string;
 }
 
+export interface GenerateProgramIgmiResult {
+  success: boolean;
+  fileName: string;
+  downloadUrl: string;
+}
+
 // Программа ИЭИ
 export interface ProgramIei {
   id: string;
@@ -144,9 +150,14 @@ export interface ProgramIei {
   generatedFileName: string | null;
   generatedFileUrl: string | null;
   generatedAt: string | null;
+  igmiGeneratedFileName: string | null;
+  igmiGeneratedFileUrl: string | null;
+  igmiGeneratedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+export type ProgramIgmi = ProgramIei;
 
 export interface UpdateProgramIeiData {
   cadastralNumber?: string;
@@ -158,6 +169,8 @@ export interface UpdateProgramIeiData {
   openGroundPercent?: number | null;
   section82Text?: string;
 }
+
+export type UpdateProgramIgmiData = UpdateProgramIeiData;
 
 // Расстояние от офиса до объекта
 export interface DistanceResult {
@@ -496,6 +509,13 @@ export const projectsApi = {
     return response.data;
   },
 
+  generateProgramIgmi: async (projectId: string): Promise<GenerateProgramIgmiResult> => {
+    const response = await apiClient.post<GenerateProgramIgmiResult>(
+      `/projects/${projectId}/generate-program-igmi`,
+    );
+    return response.data;
+  },
+
   downloadWord: async (projectId: string, fileName: string): Promise<void> => {
     const response = await apiClient.get(`/projects/${projectId}/word/${fileName}`, {
       responseType: 'blob',
@@ -677,6 +697,38 @@ export const projectsApi = {
 
   deleteOverviewImage: async (projectId: string): Promise<ProgramIei> => {
     const response = await apiClient.delete<ProgramIei>(`/projects/${projectId}/program-iei/overview-image`);
+    return response.data;
+  },
+
+  // ========== ПРОГРАММА ИГМИ ==========
+
+  getProgramIgmi: async (projectId: string): Promise<ProgramIgmi> => {
+    const response = await apiClient.get<ProgramIgmi>(`/projects/${projectId}/program-igmi`);
+    return response.data;
+  },
+
+  updateProgramIgmi: async (projectId: string, data: UpdateProgramIgmiData): Promise<ProgramIgmi> => {
+    const response = await apiClient.patch<ProgramIgmi>(`/projects/${projectId}/program-igmi`, data);
+    return response.data;
+  },
+
+  uploadProgramIgmiOverviewImage: async (projectId: string, file: File): Promise<ProgramIgmi> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await apiClient.post<ProgramIgmi>(
+      `/projects/${projectId}/program-igmi/overview-image`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      },
+    );
+    return response.data;
+  },
+
+  deleteProgramIgmiOverviewImage: async (projectId: string): Promise<ProgramIgmi> => {
+    const response = await apiClient.delete<ProgramIgmi>(`/projects/${projectId}/program-igmi/overview-image`);
     return response.data;
   },
 

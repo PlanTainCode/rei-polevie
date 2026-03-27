@@ -695,6 +695,7 @@ export class WordService {
 
   private readonly templateDir = join(process.cwd(), 'templates');
   private readonly programIeiTemplate = 'Программа ИЭИ [EKkcZq].docx';
+  private readonly programIgmiTemplate = 'Программа ИГМИ (1).docx';
 
   /**
    * Генерирует программу инженерно-экологических изысканий
@@ -1590,11 +1591,11 @@ export class WordService {
     // Создаём папку и сохраняем файл
     await mkdir(this.outputDir, { recursive: true });
 
-    const safeObjectName = (project.objectName || project.name || 'Объект')
-      .replace(/[^a-zA-Zа-яА-ЯёЁ0-9\s]/g, '')
-      .substring(0, 50)
-      .trim();
-    const fileName = `Программа_ИЭИ_${safeObjectName}_${Date.now()}.docx`;
+    const safeDocumentNumber = String(project.documentNumber || '801-000-25')
+      .replace(/[^0-9A-Za-zА-Яа-яЁё-]/g, '')
+      .substring(0, 40)
+      .trim() || '801-000-25';
+    const fileName = `${safeDocumentNumber}_ПЭ_${Date.now()}.docx`;
     const filePath = join(this.outputDir, fileName);
 
     await writeFile(filePath, buffer);
@@ -1619,6 +1620,415 @@ export class WordService {
   }
 
   /**
+   * Генерирует программу инженерно-гидрометеорологических изысканий (ИГМИ).
+   * Заполняет разделы до п.4 включительно, остальное оставляет как в шаблоне.
+   * Использует paraId-замены (в ИГМИ-шаблоне нет HYPERLINK-плейсхолдеров).
+   */
+  async generateProgramIgmi(options: GenerateOptions): Promise<GeneratedWordResult> {
+    const { projectId } = options;
+
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+    });
+
+
+    if (!project) {
+      throw new NotFoundException('Проект не найден');
+    }
+
+    // ─── Извлечение данных из ТЗ — идентично ИЭИ ───
+    let tzText: string | null = null;
+    let section1Data: ProgramIeiSection1Data | null = null;
+
+    if (project.tzFileUrl) {
+      try {
+        const tzPath = join(this.uploadsDir, project.tzFileUrl);
+        const tzBuffer = await readFile(tzPath);
+        const tzResult = await mammoth.extractRawText({ buffer: tzBuffer });
+        tzText = tzResult.value;
+        const templateSection1Text = await this.extractSection1FromTemplate();
+        section1Data = await this.aiService.extractProgramIeiSection1(tzText, templateSection1Text);
+
+        if (section1Data) {
+          const merged = mergeSiteDescriptionWithArea({
+            siteDescription: section1Data.siteDescription,
+            siteArea: section1Data.siteArea,
+            tzText: tzText,
+          });
+          section1Data.siteDescription = merged.siteDescription;
+          if (!section1Data.siteArea && merged.siteAreaSentence) {
+            section1Data.siteArea = merged.siteAreaSentence;
+          }
+        }
+        console.log('[IGMI] AI извлёк данные раздела 1');
+      } catch (error) {
+        console.error('[IGMI] Ошибка чтения ТЗ или AI:', error);
+      }
+    }
+
+    if (!section1Data) {
+      section1Data = {
+        objectName: project.objectName || project.name || '',
+        objectLocation: project.objectAddress || '',
+        clientName: project.clientName || '',
+        clientOgrn: '',
+        clientAddress: project.clientAddress || '',
+        clientContactName: '',
+        clientContactPhone: '',
+        clientContactEmail: '',
+        goalsAndTasks: '',
+        objectPurpose: project.objectPurpose || '',
+        transportInfrastructure: 'Нет',
+        hazardousProduction: 'Нет',
+        fireHazard: 'Нет данных',
+        responsibilityLevel: 'Нормальный',
+        permanentOccupancy: '',
+        urbanPlanningActivity: '',
+        surveyStage: 'Инженерные изыскания для подготовки проектной документации',
+        technicalCharacteristics: '',
+        excavationDepth: '',
+        siteDescription: '',
+        siteArea: '',
+        technicalCustomerName: '',
+        technicalCustomerDirectorPosition: 'Генеральный директор',
+        technicalCustomerDirectorName: '',
+        clientDirectorPosition: 'Директор',
+        clientDirectorName: '',
+        clientShortName: '',
+        coordinates: null,
+        cadastralNumber: '',
+        backgroundConcentrationsRef: '',
+        previousSurveyReport: '',
+        reportCopiesText: '',
+        contractorRole: 'Подрядчик',
+        titleSignatories: [],
+      };
+    }
+
+    // Подписанты — фолбэк ФИО из ТЗ (как в ИЭИ)
+    if (section1Data.titleSignatories && section1Data.titleSignatories.length > 0) {
+      if (tzText && /УТВЕРЖДА/i.test(tzText)) {
+        const hasApproval = section1Data.titleSignatories.some(s => /УТВЕРЖДА/i.test(s.header));
+        if (!hasApproval && section1Data.titleSignatories.length > 0) {
+          section1Data.titleSignatories[0].header = 'УТВЕРЖДАЮ';
+        }
+      }
+      for (const sig of section1Data.titleSignatories) {
+        if (sig.name || !tzText || !sig.organization) continue;
+        const orgShort = sig.organization
+          .replace(/^(ООО|АО|ЗАО|ПАО|ГУП|МУП|ФГУП|ФГБУ)\s*[«"]/i, '')
+          .replace(/[»"]\s*$/, '')
+          .trim();
+        if (orgShort.length < 3) continue;
+        let searchFrom = 0;
+        while (searchFrom < tzText.length) {
+          const orgIdx = tzText.indexOf(orgShort, searchFrom);
+          if (orgIdx === -1) break;
+          const afterOrg = tzText.substring(orgIdx, orgIdx + orgShort.length + 150);
+          const nameMatch = afterOrg.match(/([А-ЯЁ]\.[А-ЯЁ]\.[\s]?[А-ЯЁ][а-яё]{2,})/);
+          if (nameMatch) { sig.name = nameMatch[1].trim(); break; }
+          searchFrom = orgIdx + orgShort.length;
+        }
+      }
+    }
+
+    // ─── ЕГРН из БД ───
+    const programIei = await this.prisma.programIei.findUnique({
+      where: { projectId },
+    });
+
+    // ─── Загрузка ИГМИ-шаблона ───
+    const templatePath = join(this.templateDir, 'игми', this.programIgmiTemplate);
+    const templateContent = await readFile(templatePath, 'binary');
+    const zip = new PizZip(templateContent);
+    let docXml = zip.file('word/document.xml')?.asText() || '';
+
+    // ═══════════════════════════════════════════════════════
+    // ТИТУЛ — paraId-замены (в ИГМИ нет HYPERLINK-плейсхолдеров)
+    // ═══════════════════════════════════════════════════════
+
+    // Наименование объекта — жёстко из БД
+    const objectName = String(project.objectName || section1Data.objectName || project.name || '').trim();
+    if (objectName) {
+      docXml = replaceParagraphTextByParaIdPreserveRunProps(docXml, '22CE0801', objectName);
+      docXml = replaceParagraphTextByParaIdPreserveRunProps(docXml, '1B932D72', objectName);
+    }
+
+    // Подписанты — переиспользуем динамическую генерацию из ИЭИ (paraId «Программа» = 45F9CC84)
+    if (section1Data?.titleSignatories && section1Data.titleSignatories.length > 0) {
+      docXml = replaceTitleSignatories({
+        xml: docXml,
+        signatories: section1Data.titleSignatories,
+        contractorRole: section1Data.contractorRole || 'Подрядчик',
+        programmaParaId: '45F9CC84',
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // РАЗДЕЛ 1 — paraId-замены (для полей которые не HYPERLINK)
+    // ═══════════════════════════════════════════════════════
+
+    // 1.1 Местоположение объекта
+    const objectLocation = String(section1Data.objectLocation || project.objectAddress || '').trim();
+    if (objectLocation) {
+      docXml = replaceParagraphTextByParaIdPreserveRunProps(docXml, '5FD52690', objectLocation);
+    }
+
+    // 1.3.1 Сведения о заказчике — первый заказчик, остальные удаляем
+    {
+      const clientLine1 = [
+        section1Data.clientName || project.clientName || '',
+        section1Data.clientOgrn ? `, ОГРН ${section1Data.clientOgrn}` : '',
+      ].join('');
+      const clientLine2 = section1Data.clientAddress || project.clientAddress || '';
+      if (clientLine1) docXml = replaceParagraphTextByParaIdPreserveRunProps(docXml, '6FDC7127', clientLine1);
+      if (clientLine2) docXml = replaceParagraphTextByParaIdPreserveRunProps(docXml, '704C104C', clientLine2);
+      for (const pid of ['736B7648', '000744B0', '31E2B3A2', '34058FC7', '46449462', '2999382D']) {
+        docXml = this.removeParagraphByParaId(docXml, pid);
+      }
+    }
+
+    // 1.3.2 Контактное лицо
+    {
+      const contactParts = [
+        section1Data.clientContactName || '',
+        section1Data.clientContactPhone || '',
+        section1Data.clientContactEmail || '',
+      ].filter(Boolean);
+      docXml = replaceParagraphTextByParaIdPreserveRunProps(docXml, '67BAE660',
+        contactParts.length > 0 ? contactParts.join(', ') : 'Нет данных');
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // ParaId-ЗАМЕНЫ — для полей без текстовых маркеров в ИГМИ
+    // ═══════════════════════════════════════════════════════
+
+    if (section1Data) {
+      // 1.5 Цели и задачи (маркер «Инженерно-экологические изыскания» отсутствует в ИГМИ)
+      if (section1Data.goalsAndTasks) {
+        docXml = this.replaceParagraphTextWithBreaks(docXml, '0776C9D2', section1Data.goalsAndTasks);
+      }
+
+      // 1.6.1 Назначение объекта
+      if (section1Data.objectPurpose || project.objectPurpose) {
+        docXml = replaceParagraphTextByParaIdPreserveRunProps(docXml, '0A50C18A',
+          section1Data.objectPurpose || project.objectPurpose || '');
+      }
+
+      // 1.6.5 Уровень ответственности
+      if (section1Data.responsibilityLevel) {
+        docXml = replaceParagraphTextByParaIdPreserveRunProps(docXml, '4B564305', section1Data.responsibilityLevel);
+      }
+
+      // 1.6.6 Наличие помещений с постоянным нахождением людей
+      {
+        const occupancyVal = section1Data.permanentOccupancy || 'Отсутствуют';
+        docXml = replaceParagraphTextByParaIdPreserveRunProps(docXml, '5E2E8280', occupancyVal);
+      }
+
+      // 1.8 Этап выполнения
+      if (section1Data.surveyStage) {
+        docXml = replaceParagraphTextByParaIdPreserveRunProps(docXml, '5F0BF964', section1Data.surveyStage);
+      }
+
+      // 1.9.2 Границы площадки / описание территории (маркер отличается от ИЭИ)
+      {
+        const siteDesc = section1Data.siteDescription || objectLocation || '';
+        if (siteDesc) {
+          docXml = this.replaceParagraphTextWithBreaks(docXml, '148B1686', siteDesc);
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // TEXT_BASED ЗАМЕНЫ — работают и в ИЭИ, и в ИГМИ (маркеры совпадают)
+    // ═══════════════════════════════════════════════════════
+
+    if (section1Data) {
+      // 1.7 Вид градостроительной деятельности
+      docXml = this.replaceUrbanPlanningActivityOptions(docXml, section1Data.urbanPlanningActivity);
+
+      // 1.6.2/1.6.3/1.6.4 — значения в таблице
+      docXml = this.replaceSection162Value(docXml, section1Data.transportInfrastructure);
+      docXml = this.replaceSection163Value(docXml, section1Data.hazardousProduction);
+      docXml = this.replaceSection164Value(docXml, section1Data.fireHazard);
+
+      // 1.9.1 Краткая техническая характеристика
+      docXml = this.replaceTechnicalCharacteristicsBlock(docXml, section1Data.technicalCharacteristics);
+    }
+
+    // 1.10 ЕГРН — paraId-замены (маркеры «Кадастровый номер участка» отсутствуют в ИГМИ)
+    {
+      if (programIei?.cadastralNumber || programIei?.egrnDescription) {
+        const cadastralText = programIei?.cadastralNumber
+          ? `Территория изысканий расположена в кадастровом квартале ${programIei.cadastralNumber}`
+          : '';
+        if (cadastralText) {
+          docXml = replaceParagraphTextByParaIdPreserveRunProps(docXml, '4F881704', cadastralText);
+        }
+        if (programIei?.egrnDescription) {
+          docXml = this.replaceParagraphTextWithBreaks(docXml, '64264199', programIei.egrnDescription);
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // ОБЗОРНАЯ СХЕМА (п.1.9.3) — вставка нового изображения в ячейку
+    // ═══════════════════════════════════════════════════════
+    if (programIei?.overviewImageName) {
+      try {
+        const imagePath = join(process.cwd(), 'uploads', 'program-iei', programIei.overviewImageName);
+        const imageBuffer = await readFile(imagePath);
+        const ext = programIei.overviewImageName.split('.').pop()?.toLowerCase() || 'png';
+
+        const mediaName = `image2.${ext}`;
+        zip.file(`word/media/${mediaName}`, imageBuffer);
+
+        const relsFile = zip.file('word/_rels/document.xml.rels');
+        if (relsFile) {
+          let relsXml = relsFile.asText();
+          const newRid = 'rId100';
+          if (!relsXml.includes(`Id="${newRid}"`)) {
+            relsXml = relsXml.replace(
+              '</Relationships>',
+              `<Relationship Id="${newRid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${mediaName}"/></Relationships>`,
+            );
+            zip.file('word/_rels/document.xml.rels', relsXml);
+          }
+
+          if (ext === 'jpg' || ext === 'jpeg') {
+            const ctFile = zip.file('[Content_Types].xml');
+            if (ctFile) {
+              let ctXml = ctFile.asText();
+              if (!ctXml.includes('Extension="jpg"') && !ctXml.includes('Extension="jpeg"')) {
+                ctXml = ctXml.replace('</Types>',
+                  '<Default Extension="jpg" ContentType="image/jpeg"/><Default Extension="jpeg" ContentType="image/jpeg"/></Types>');
+                zip.file('[Content_Types].xml', ctXml);
+              }
+            }
+          }
+
+          let imgWidthEmu = 5400000;
+          let imgHeightEmu = 3600000;
+          if (ext === 'png' && imageBuffer.length > 24) {
+            const w = imageBuffer.readUInt32BE(16);
+            const h = imageBuffer.readUInt32BE(20);
+            if (w > 0 && h > 0) {
+              const maxWidthEmu = 5400000;
+              const ratio = h / w;
+              imgWidthEmu = maxWidthEmu;
+              imgHeightEmu = Math.round(maxWidthEmu * ratio);
+            }
+          }
+
+          const drawingXml =
+            `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">` +
+            `<wp:extent cx="${imgWidthEmu}" cy="${imgHeightEmu}"/>` +
+            `<wp:docPr id="100" name="OverviewImage"/>` +
+            `<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">` +
+            `<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+            `<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+            `<pic:nvPicPr><pic:cNvPr id="0" name="${mediaName}"/><pic:cNvPicPr/></pic:nvPicPr>` +
+            `<pic:blipFill><a:blip r:embed="${newRid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>` +
+            `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${imgWidthEmu}" cy="${imgHeightEmu}"/></a:xfrm>` +
+            `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>` +
+            `</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+
+          const targetParaId = '3180C077';
+          const paraRe = new RegExp(
+            `(<w:p[^>]*w14:paraId="${targetParaId}"[^>]*>)([\\s\\S]*?)(</w:p>)`,
+          );
+          docXml = docXml.replace(paraRe, (_m, open, body, close) => {
+            const pPrMatch = body.match(/<w:pPr[\s\S]*?<\/w:pPr>/);
+            const pPr = pPrMatch ? pPrMatch[0] : '';
+            return `${open}${pPr}${drawingXml}${close}`;
+          });
+        }
+      } catch (error) {
+        console.error('[IGMI] Ошибка вставки обзорной схемы:', error);
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // НОРМАЛИЗАЦИЯ СТИЛЕЙ (идентично ИЭИ)
+    // ═══════════════════════════════════════════════════════
+    docXml = normalizeDocumentStyles(docXml);
+    docXml = this.normalizeGeneratedTextFormatting(docXml);
+    zip.file('word/document.xml', docXml);
+
+    // Колонтитулы — номер документа
+    const docNumber = project.documentNumber || '801-000-25';
+    const docParts = docNumber.split('-');
+    const middle = docParts.length >= 2 ? docParts[1] : '000';
+    const year = docParts.length >= 3 ? docParts[2] : '25';
+
+    for (const footerFile of ['word/footer1.xml', 'word/footer2.xml']) {
+      const footer = zip.file(footerFile);
+      if (footer) {
+        let footerXml = footer.asText();
+        // \u2026 = … (многоточие)
+        footerXml = footerXml.replace(/(<w:t[^>]*>)\u2026(<\/w:t>)/g, `$1${middle}$2`);
+        // Год в "-25-ПГМ"
+        footerXml = footerXml.replace(
+          /(<w:t[^>]*>)-\d{2}(-\u041F\u0413\u041C)/g,
+          `$1-${year}$2`,
+        );
+        footerXml = normalizeDocumentStyles(footerXml);
+        zip.file(footerFile, footerXml);
+      }
+    }
+
+    for (const headerFile of ['word/header1.xml', 'word/header2.xml']) {
+      const header = zip.file(headerFile);
+      if (header) {
+        let headerXml = header.asText();
+        headerXml = normalizeDocumentStyles(headerXml);
+        zip.file(headerFile, headerXml);
+      }
+    }
+
+    // styles.xml
+    const stylesFile = zip.file('word/styles.xml');
+    if (stylesFile) {
+      let stylesXml = stylesFile.asText();
+      stylesXml = stylesXml.replace(/w:val="0000FF"/gi, 'w:val="000000"');
+      stylesXml = stylesXml.replace(/<w:u w:val="[^"]*"\/>/g, '');
+      zip.file('word/styles.xml', stylesXml);
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // ГЕНЕРАЦИЯ ФАЙЛА + СОХРАНЕНИЕ В БД
+    // ═══════════════════════════════════════════════════════
+    const buffer = zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+
+    await mkdir(this.outputDir, { recursive: true });
+    const safeDocumentNumber = String(project.documentNumber || '801-000-25')
+      .replace(/[^0-9A-Za-zА-Яа-яЁё-]/g, '')
+      .substring(0, 40).trim() || '801-000-25';
+    const fileName = `${safeDocumentNumber}_ПГМИ_${Date.now()}.docx`;
+    const filePath = join(this.outputDir, fileName);
+    await writeFile(filePath, buffer);
+
+    await this.prisma.programIei.upsert({
+      where: { projectId },
+      create: {
+        projectId,
+        igmiGeneratedFileName: fileName,
+        igmiGeneratedFileUrl: `/generated/${fileName}`,
+        igmiGeneratedAt: new Date(),
+      },
+      update: {
+        igmiGeneratedFileName: fileName,
+        igmiGeneratedFileUrl: `/generated/${fileName}`,
+        igmiGeneratedAt: new Date(),
+      },
+    });
+
+    return { filePath, fileName };
+  }
+
+
+      /**
    * Извлекает текст раздела 1 из шаблона программы ИЭИ для контекста AI
    */
   private async extractSection1FromTemplate(): Promise<string> {
@@ -2881,7 +3291,41 @@ export class WordService {
     }
 
     // --- Условия/ограничения (выбираем один из шаблонных вариантов)
-    const condition = section32Data?.territoryCondition || 'UNKNOWN';
+    const inferConditionFromInputs = (): ProgramIeiSection32Data['territoryCondition'] => {
+      const aiCondition = section32Data?.territoryCondition || 'UNKNOWN';
+      if (aiCondition !== 'UNKNOWN') return aiCondition;
+
+      const openGround = programIei?.openGroundPercent;
+      const currentLandUse = String(section32Data?.currentLandUse || '').toLowerCase();
+      const nearbyBlob = [south, east, west, north].join(' ').toLowerCase();
+      const context = `${currentLandUse} ${nearbyBlob}`;
+
+      if (/(режим|пропуск|допуск|охраняем|закрыт|территория ограниченного доступа)/i.test(context)) {
+        return 'RESTRICTED';
+      }
+
+      if (typeof openGround === 'number') {
+        if (openGround >= 80) return 'OPEN_SOIL';
+        if (openGround <= 5) return 'OCCUPIED_BY_BUILDING';
+        return 'PARTIALLY_SEALED';
+      }
+
+      if (/(здан|строен|сооружен|помещени|корпус|цех)/i.test(context)) {
+        return 'OCCUPIED_BY_BUILDING';
+      }
+
+      if (/(асфальт|тротуар|бетон|плит|парковк|дорог|запечатан)/i.test(context)) {
+        return 'PARTIALLY_SEALED';
+      }
+
+      if (/(грунт|пустыр|газон|луг|лес|почв|открыт)/i.test(context)) {
+        return 'OPEN_SOIL';
+      }
+
+      return 'PARTIALLY_SEALED';
+    };
+
+    const condition = inferConditionFromInputs();
     const textFromAi = String(section32Data?.territoryConditionText || '').trim();
 
     const cleanParen = (t: string) =>
@@ -3008,6 +3452,87 @@ export class WordService {
 
       return `${open}${pPr}<w:r>${rPr}${runParts.join('')}</w:r>${close}`;
     });
+  }
+
+  private buildProgramIgmiSection4WorksText(
+    services: ServiceMatch[],
+    quantitiesByRow: Record<number, number>,
+  ): string {
+    if (!services.length) {
+      return 'Состав и объем работ уточняется по тексту поручения заказчика.';
+    }
+
+    const lines = services.map((service, index) => {
+      const qty = quantitiesByRow[service.row];
+      const qtyText = qty && qty > 0 ? ` — ${qty} ${service.unit || ''}`.trim() : '';
+      return `${index + 1}. ${service.name}${qtyText}`;
+    });
+
+    return lines.join('\n');
+  }
+
+  private getParagraphDescriptors(xml: string): Array<{ paraId: string; text: string }> {
+    const out: Array<{ paraId: string; text: string }> = [];
+    const paragraphMatches = String(xml).match(/<w:p\b[\s\S]*?<\/w:p>/g) || [];
+
+    for (const p of paragraphMatches) {
+      const paraIdMatch = p.match(/w14:paraId="([A-F0-9]+)"/i);
+      if (!paraIdMatch) continue;
+
+      const textMatches = p.match(/<w:t[^>]*>[\s\S]*?<\/w:t>/g) || [];
+      if (!textMatches.length) continue;
+
+      const text = textMatches
+        .map((t) =>
+          t
+            .replace(/^<w:t[^>]*>/, '')
+            .replace(/<\/w:t>$/, '')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .trim(),
+        )
+        .join('')
+        .trim();
+
+      if (!text) continue;
+      out.push({ paraId: paraIdMatch[1], text });
+    }
+
+    return out;
+  }
+
+  private findParagraphAfterLabelParaId(
+    xml: string,
+    label: string,
+    occurrence = 0,
+  ): string | null {
+    const paragraphs = this.getParagraphDescriptors(xml);
+    const foundIndexes = paragraphs
+      .map((p, i) => (p.text.includes(label) ? i : -1))
+      .filter((i) => i >= 0);
+
+    const labelIndex = foundIndexes[occurrence];
+    if (labelIndex === undefined) return null;
+
+    const target = paragraphs[labelIndex + 1];
+    return target?.paraId || null;
+  }
+
+  private replaceParagraphAfterLabel(
+    xml: string,
+    label: string,
+    newText: string,
+    occurrence = 0,
+  ): string {
+    const text = String(newText || '').trim();
+    if (!text) return xml;
+
+    const paraId = this.findParagraphAfterLabelParaId(xml, label, occurrence);
+    if (!paraId) return xml;
+
+    return this.replaceParagraphTextWithBreaks(xml, paraId, text);
   }
 
   /**

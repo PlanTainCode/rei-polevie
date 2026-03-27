@@ -178,23 +178,21 @@ export function replaceTitleSignatories(params: {
   xml: string;
   signatories: TitleSignatory[];
   contractorRole: string;
+  programmaParaId?: string;
 }): string {
   let { xml } = params;
   const signatories = params.signatories;
+  const programmaParaId = params.programmaParaId || '4A7786BB';
 
   if (!signatories || signatories.length === 0) return xml;
 
-  // Ищем первую таблицу подписантов: она начинается после блока СРО
-  // и содержит «СОГЛАСОВАНО» или «УТВЕРЖДАЮ».
-  // Маркер начала: первая таблица, содержащая "СОГЛАСОВАНО" или "УТВЕРЖДАЮ"
   const firstSigText = xml.indexOf('СОГЛАСОВАНО');
   if (firstSigText < 0) return xml;
 
   const firstTblStart = xml.lastIndexOf('<w:tbl>', firstSigText);
   if (firstTblStart < 0) return xml;
 
-  // Маркер конца: параграф с «Программа» (paraId 4A7786BB)
-  const programmaIdx = xml.indexOf('w14:paraId="4A7786BB"');
+  const programmaIdx = xml.indexOf(`w14:paraId="${programmaParaId}"`);
   if (programmaIdx < 0) return xml;
 
   // Находим начало параграфа «Программа»

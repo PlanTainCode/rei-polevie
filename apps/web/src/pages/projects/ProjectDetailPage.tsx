@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -36,6 +36,17 @@ import { projectsApi, type GenerateExcelResult, type ExcelGenerateMode } from '@
 import { indicatorsApi } from '@/api/indicators';
 import { Button, Input, Card, CardHeader, CardTitle, CardContent, Select } from '@/components/ui';
 
+function normalizeDisplayedFilename(name: string | null): string | null {
+  if (!name) return null;
+  if (!/[ÐÑ]/.test(name)) return name;
+  try {
+    const decoded = decodeURIComponent(escape(name));
+    return /[А-Яа-яЁё]/.test(decoded) ? decoded : name;
+  } catch {
+    return name;
+  }
+}
+
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -51,6 +62,7 @@ export function ProjectDetailPage() {
   });
   const [excelResult, setExcelResult] = useState<GenerateExcelResult | null>(null);
   const [excelMode, setExcelMode] = useState<ExcelGenerateMode>('full');
+  const [isHeaderScrolled, setIsHeaderScrolled] = useState(false);
   
   // Даты документов
   const [documentDates, setDocumentDates] = useState<{
@@ -205,6 +217,13 @@ export function ProjectDetailPage() {
     setNewOrderFile(null);
   };
 
+  useEffect(() => {
+    const onScroll = () => setIsHeaderScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -251,7 +270,8 @@ export function ProjectDetailPage() {
       )}
 
       {/* Заголовок */}
-      <div className="flex items-start justify-between mb-8">
+      <div className={`sticky top-0 z-30 rounded-xl py-4 mb-6 transition-all ${isHeaderScrolled ? 'bg-[var(--bg-tertiary)] px-4' : 'bg-[var(--bg-primary)]'}`}>
+        <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 rounded-xl bg-primary-500/20 flex items-center justify-center">
             <FolderOpen className="w-7 h-7 text-primary-400" />
@@ -320,6 +340,7 @@ export function ProjectDetailPage() {
               )}
             </>
           )}
+        </div>
         </div>
       </div>
 
@@ -608,6 +629,36 @@ export function ProjectDetailPage() {
                 </div>
               </div>
               <ArrowRight className="w-5 h-5 text-[var(--text-secondary)] group-hover:text-purple-400 transition-colors" />
+            </Link>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Программа ИГМИ — отдельная страница (только для корневых проектов) */}
+      {!isChildProject && (
+        <Card className="mb-6">
+          <CardContent className="py-4">
+            <Link
+              to={`/projects/${id}/program-igmi`}
+              className="flex items-center justify-between p-4 bg-[var(--bg-tertiary)] rounded-lg hover:bg-[var(--bg-secondary)] transition-colors group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center">
+                  <FileText className="w-5 h-5 text-cyan-400" />
+                </div>
+                <div>
+                  <p className="font-medium flex items-center gap-2">
+                    Программа ИГМИ
+                    <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase bg-amber-500/20 text-amber-400 rounded">
+                      beta
+                    </span>
+                  </p>
+                  <p className="text-sm text-[var(--text-secondary)]">
+                    Программа инженерно-гидрометеорологических изысканий
+                  </p>
+                </div>
+              </div>
+              <ArrowRight className="w-5 h-5 text-[var(--text-secondary)] group-hover:text-cyan-400 transition-colors" />
             </Link>
           </CardContent>
         </Card>
@@ -1074,7 +1125,7 @@ function FileItem({
             {newFile ? (
               <span className="text-primary-400">{newFile.name} (новый)</span>
             ) : fileName ? (
-              fileName
+              normalizeDisplayedFilename(fileName)
             ) : (
               'Не загружен'
             )}

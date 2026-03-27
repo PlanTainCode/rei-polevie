@@ -15,6 +15,7 @@ import { ProjectDetailPage } from '@/pages/projects/ProjectDetailPage';
 import { ProjectSamplesPage } from '@/pages/projects/ProjectSamplesPage';
 import { ProjectPhotosPage } from '@/pages/projects/ProjectPhotosPage';
 import { ProgramIeiPage } from '@/pages/projects/ProgramIeiPage';
+import { ProgramIgmiPage } from '@/pages/projects/ProgramIgmiPage';
 import { InquiryRequestsPage } from '@/pages/projects/InquiryRequestsPage';
 import { TechnicalTasksPage } from '@/pages/technical-tasks/TechnicalTasksPage';
 import { CreateTechnicalTaskPage } from '@/pages/technical-tasks/CreateTechnicalTaskPage';
@@ -111,6 +112,7 @@ export default function App() {
         <Route path="/projects/:id/samples" element={<ProjectSamplesPage />} />
         <Route path="/projects/:id/photos" element={<ProjectPhotosPage />} />
         <Route path="/projects/:id/program-iei" element={<ProgramIeiPage />} />
+        <Route path="/projects/:id/program-igmi" element={<ProgramIgmiPage />} />
         <Route path="/projects/:id/inquiry-requests" element={<InquiryRequestsPage />} />
         <Route path="/projects/:id/indicators" element={<IndicatorDetailPage />} />
         <Route path="/settings" element={<SettingsPage />} />

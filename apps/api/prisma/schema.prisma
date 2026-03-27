@@ -294,10 +294,15 @@ model ProgramIei {
   // 8.2 Обоснование границ изучаемой территории
   section82Text     String?   // Текст пункта 8.2 (редактируемый)
 
-  // Сгенерированный файл
+  // Сгенерированный файл ИЭИ
   generatedFileName String?
   generatedFileUrl  String?
   generatedAt       DateTime?
+
+  // Сгенерированный файл ИГМИ
+  igmiGeneratedFileName String?
+  igmiGeneratedFileUrl  String?
+  igmiGeneratedAt       DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

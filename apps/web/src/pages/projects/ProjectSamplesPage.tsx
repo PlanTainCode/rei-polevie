@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -71,6 +71,7 @@ export function ProjectSamplesPage() {
   const queryClient = useQueryClient();
   const [editingSampleId, setEditingSampleId] = useState<string | null>(null);
   const [editData, setEditData] = useState({ description: '', latitude: '', longitude: '' });
+  const [isHeaderScrolled, setIsHeaderScrolled] = useState(false);
 
   const { data: project, isLoading: projectLoading } = useQuery({
     queryKey: ['project', id],
@@ -127,6 +128,13 @@ export function ProjectSamplesPage() {
     setEditData({ description: '', latitude: '', longitude: '' });
   };
 
+  useEffect(() => {
+    const onScroll = () => setIsHeaderScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
   if (projectLoading || samplesLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -171,10 +179,10 @@ export function ProjectSamplesPage() {
   return (
     <div className="w-full animate-fade-in page-content">
       {/* Заголовок */}
-      <div className="mb-8">
+      <div className={`sticky top-0 z-30 rounded-xl py-4 mb-6 transition-all ${isHeaderScrolled ? 'bg-[var(--bg-tertiary)] px-4' : 'bg-[var(--bg-primary)]'}`}>
         <Link
           to={`/projects/${id}`}
-          className="inline-flex items-center gap-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] mb-4"
+          className="inline-flex items-center gap-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] mb-3"
         >
           <ArrowLeft className="w-4 h-4" />
           Назад к объекту
