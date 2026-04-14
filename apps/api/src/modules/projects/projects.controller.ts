@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   Request,
   UseInterceptors,
@@ -32,7 +33,7 @@ import { WordService } from '../word/word.service';
 import { DistanceService } from '../distance/distance.service';
 import { AiService } from '../ai/ai.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { CreateProjectDto, UpdateSampleDto, UpdatePhotoDto, ReorderPhotosDto, GenerateAlbumDto, UpdateProgramIeiDto, UpdatePlatformCoordinatesDto } from './dto/project.dto';
+import { CreateProjectDto, UpdateSampleDto, UpdatePhotoDto, ReorderPhotosDto, GenerateAlbumDto, UpdateProgramIeiDto, UpdatePlatformCoordinatesDto, CreatePhotoAlbumDto, UpdatePhotoAlbumDto } from './dto/project.dto';
 
 // Multer config для документов Word
 const documentsStorage = diskStorage({
@@ -186,7 +187,24 @@ export class ProjectsController {
       req.user.userId,
     );
 
-    res.download(path, fileName || 'document.docx');
+    const name = fileName || 'document.docx';
+    res.set({
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(name)}"; filename*=UTF-8''${encodeURIComponent(name)}`,
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+    res.sendFile(path);
+  }
+
+  // Обновить количество услуги по row
+  @Patch(':id/service-quantity')
+  async updateServiceQuantity(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @Body() body: { row: number; quantity: number | string },
+  ) {
+    const project = await this.projectsService.findById(id, req.user.userId);
+    if (!project.canEdit) throw new NotFoundException('Нет прав');
+    return this.projectsService.updateServiceQuantity(id, body.row, body.quantity);
   }
 
   // Повторная обработка документов
@@ -220,6 +238,30 @@ export class ProjectsController {
       throw new NotFoundException('Файл ТЗ не загружен');
     }
     return this.projectsService.regenerateFromTz(id, tzFile, req.user.userId);
+  }
+
+  // Перегенерация проекта из нового поручения (с перегенерацией проб)
+  @Post(':id/regenerate-from-order')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [{ name: 'order', maxCount: 1 }],
+      {
+        storage: documentsStorage,
+        fileFilter: documentsFilter,
+      },
+    ),
+  )
+  async regenerateFromOrder(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @UploadedFiles()
+    files: { order?: Express.Multer.File[] },
+  ) {
+    const orderFile = files?.order?.[0];
+    if (!orderFile) {
+      throw new NotFoundException('Файл поручения не загружен');
+    }
+    return this.projectsService.regenerateFromOrder(id, orderFile, req.user.userId);
   }
 
   // Создание дочернего проекта (допотбор)
@@ -547,38 +589,79 @@ export class ProjectsController {
 
   // ============ РАБОТА С ФОТОГРАФИЯМИ ============
 
-  // Получить все фото проекта
+  // ============ ПОДАЛЬБОМЫ ============
+
+  @Get(':id/photo-albums')
+  async getPhotoAlbums(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    await this.projectsService.findById(id, req.user.userId);
+    return this.photosService.getAlbums(id);
+  }
+
+  @Post(':id/photo-albums')
+  async createPhotoAlbum(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @Body() dto: CreatePhotoAlbumDto,
+  ) {
+    const project = await this.projectsService.findById(id, req.user.userId);
+    if (!project.canEditPhotos) throw new NotFoundException('Нет прав');
+    return this.photosService.createAlbum(id, dto.name);
+  }
+
+  @Patch(':id/photo-albums/:albumId')
+  async renamePhotoAlbum(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @Param('albumId') albumId: string,
+    @Body() dto: UpdatePhotoAlbumDto,
+  ) {
+    const project = await this.projectsService.findById(id, req.user.userId);
+    if (!project.canEditPhotos) throw new NotFoundException('Нет прав');
+    return this.photosService.renameAlbum(albumId, dto.name);
+  }
+
+  @Delete(':id/photo-albums/:albumId')
+  async deletePhotoAlbum(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @Param('albumId') albumId: string,
+  ) {
+    const project = await this.projectsService.findById(id, req.user.userId);
+    if (!project.canEditPhotos) throw new NotFoundException('Нет прав');
+    return this.photosService.deleteAlbum(albumId);
+  }
+
+  // ============ ФОТОМАТЕРИАЛЫ ============
+
   @Get(':id/photos')
   async getPhotos(
     @Request() req: { user: { userId: string } },
     @Param('id') id: string,
+    @Query('albumId') albumId?: string,
   ) {
-    // Проверяем доступ к проекту
     await this.projectsService.findById(id, req.user.userId);
-    
+    if (albumId === 'null') return this.photosService.getPhotosByProject(id, null);
+    if (albumId) return this.photosService.getPhotosByProject(id, albumId);
     return this.photosService.getPhotosByProject(id);
   }
 
-  // Загрузить фото (одно или несколько)
   @Post(':id/photos')
-  @UseInterceptors(FilesInterceptor('photos', 50)) // до 50 фото за раз
+  @UseInterceptors(FilesInterceptor('photos', 50))
   async uploadPhotos(
     @Request() req: { user: { userId: string } },
     @Param('id') id: string,
     @UploadedFiles() files: Express.Multer.File[],
+    @Body() body: { albumId?: string },
   ) {
-    // Проверяем доступ к проекту
     const project = await this.projectsService.findById(id, req.user.userId);
-    
-    if (!project.canEdit) {
-      throw new NotFoundException('Нет прав на редактирование проекта');
-    }
+    if (!project.canEditPhotos) throw new NotFoundException('Нет прав на редактирование проекта');
+    if (!files || files.length === 0) throw new BadRequestException('Файлы не загружены.');
 
-    if (!files || files.length === 0) {
-      throw new BadRequestException('Файлы не загружены. Попробуйте выбрать фото заново.');
-    }
-
-    return this.photosService.uploadPhotos(id, files, req.user.userId);
+    const albumId = body?.albumId || undefined;
+    return this.photosService.uploadPhotos(id, files, req.user.userId, albumId);
   }
 
   // Обновить данные фото
@@ -589,10 +672,9 @@ export class ProjectsController {
     @Param('photoId') photoId: string,
     @Body() dto: UpdatePhotoDto,
   ) {
-    // Проверяем доступ к проекту
     const project = await this.projectsService.findById(id, req.user.userId);
     
-    if (!project.canEdit) {
+    if (!project.canEditPhotos) {
       throw new NotFoundException('Нет прав на редактирование проекта');
     }
 
@@ -638,10 +720,9 @@ export class ProjectsController {
     @Param('id') id: string,
     @Body() dto: ReorderPhotosDto,
   ) {
-    // Проверяем доступ к проекту
     const project = await this.projectsService.findById(id, req.user.userId);
     
-    if (!project.canEdit) {
+    if (!project.canEditPhotos) {
       throw new NotFoundException('Нет прав на редактирование проекта');
     }
 
@@ -655,10 +736,9 @@ export class ProjectsController {
     @Param('id') id: string,
     @Param('photoId') photoId: string,
   ) {
-    // Проверяем доступ к проекту
     const project = await this.projectsService.findById(id, req.user.userId);
     
-    if (!project.canEdit) {
+    if (!project.canEditPhotos) {
       throw new NotFoundException('Нет прав на редактирование проекта');
     }
 
@@ -709,12 +789,13 @@ export class ProjectsController {
   async downloadAllPhotos(
     @Request() req: { user: { userId: string } },
     @Param('id') id: string,
+    @Query('albumId') albumId: string | undefined,
     @Res() res: Response,
   ) {
-    // Проверяем доступ к проекту
     const project = await this.projectsService.findById(id, req.user.userId);
 
-    const { buffer, filename } = await this.photosService.createPhotosArchive(id, project.name);
+    const effectiveAlbumId = albumId === 'null' ? null : albumId;
+    const { buffer, filename } = await this.photosService.createPhotosArchive(id, project.name, effectiveAlbumId);
 
     res.set({
       'Content-Type': 'application/zip',
@@ -765,7 +846,7 @@ export class ProjectsController {
   ) {
     await this.projectsService.findById(id, req.user.userId);
 
-    return this.presentationService.generatePhotoAlbum(id, dto.crewMembers);
+    return this.presentationService.generatePhotoAlbum(id, dto.crewMembers, dto.albumId);
   }
 
   // ============ ПРОГРАММА ИЭИ ============
@@ -863,36 +944,42 @@ export class ProjectsController {
     @Param('id') id: string,
   ) {
     const project = await this.projectsService.findById(id, req.user.userId);
-    
+
+    // Приоритет: пользовательский адрес из ProgramIei > адрес из ТЗ
+    const programIei = await this.programIeiService.get(id);
+    const effectiveAddress = programIei?.customObjectAddress?.trim() || project.objectAddress;
+
     // Если расстояние уже сохранено — возвращаем его
     if (project.distanceKm != null) {
       return {
         distanceKm: project.distanceKm,
         fromAddress: 'ул. Островитянова, д.6, Москва',
-        toAddress: project.objectAddress,
+        toAddress: effectiveAddress,
+        customObjectAddress: programIei?.customObjectAddress || null,
         isManual: true,
-        yandexMapsUrl: project.objectAddress
-          ? `https://yandex.ru/maps/?rtext=55.6443432,37.4906093~${encodeURIComponent(project.objectAddress)}&rtt=auto`
+        yandexMapsUrl: effectiveAddress
+          ? `https://yandex.ru/maps/?rtext=55.6443432,37.4906093~${encodeURIComponent(effectiveAddress)}&rtt=auto`
           : null,
       };
     }
 
-    if (!project.objectAddress) {
+    if (!effectiveAddress) {
       return { distanceKm: null, error: 'Адрес объекта не указан' };
     }
 
     const distanceKm = await this.distanceService.getDistanceToAddress(
-      project.objectAddress,
+      effectiveAddress,
       project.objectName || undefined,
     );
 
     return {
       distanceKm,
       fromAddress: 'ул. Островитянова, д.6, Москва',
-      toAddress: project.objectAddress,
+      toAddress: effectiveAddress,
+      customObjectAddress: programIei?.customObjectAddress || null,
       isManual: false,
       yandexMapsUrl: distanceKm != null 
-        ? `https://yandex.ru/maps/?rtext=55.6443432,37.4906093~${encodeURIComponent(project.objectAddress)}&rtt=auto`
+        ? `https://yandex.ru/maps/?rtext=55.6443432,37.4906093~${encodeURIComponent(effectiveAddress)}&rtt=auto`
         : null,
     };
   }
@@ -915,17 +1002,19 @@ export class ProjectsController {
     @Param('id') id: string,
   ) {
     const project = await this.projectsService.findById(id, req.user.userId);
-    
-    if (!project.objectAddress) {
+
+    const programIei = await this.programIeiService.get(id);
+    const effectiveAddress = programIei?.customObjectAddress?.trim() || project.objectAddress;
+
+    if (!effectiveAddress) {
       return { distanceKm: null, error: 'Адрес объекта не указан' };
     }
 
     const distanceKm = await this.distanceService.getDistanceToAddress(
-      project.objectAddress,
+      effectiveAddress,
       project.objectName || undefined,
     );
 
-    // Сохраняем рассчитанное значение
     if (distanceKm != null) {
       await this.projectsService.updateDistance(id, distanceKm);
     }
@@ -933,10 +1022,11 @@ export class ProjectsController {
     return {
       distanceKm,
       fromAddress: 'ул. Островитянова, д.6, Москва',
-      toAddress: project.objectAddress,
+      toAddress: effectiveAddress,
+      customObjectAddress: programIei?.customObjectAddress || null,
       isManual: false,
       yandexMapsUrl: distanceKm != null 
-        ? `https://yandex.ru/maps/?rtext=55.6443432,37.4906093~${encodeURIComponent(project.objectAddress)}&rtt=auto`
+        ? `https://yandex.ru/maps/?rtext=55.6443432,37.4906093~${encodeURIComponent(effectiveAddress)}&rtt=auto`
         : null,
     };
   }

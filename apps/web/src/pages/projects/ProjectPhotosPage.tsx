@@ -18,6 +18,8 @@ import {
   Download,
   FolderDown,
   Presentation,
+  Plus,
+  FolderOpen,
 } from 'lucide-react';
 import { projectsApi, type Photo } from '@/api/projects';
 import { Button, Input, Card, CardContent, AuthImage } from '@/components/ui';
@@ -47,6 +49,13 @@ export function ProjectPhotosPage() {
   const [downloadingPhotoId, setDownloadingPhotoId] = useState<string | null>(null);
   const [isHeaderScrolled, setIsHeaderScrolled] = useState(false);
   
+  // Подальбомы
+  const [selectedAlbumId, setSelectedAlbumId] = useState<string | undefined>(undefined);
+  const [showCreateAlbum, setShowCreateAlbum] = useState(false);
+  const [newAlbumName, setNewAlbumName] = useState('');
+  const [renamingAlbumId, setRenamingAlbumId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  
   // Генерация альбома
   const [showAlbumModal, setShowAlbumModal] = useState(false);
   const [crewMembers, setCrewMembers] = useState('');
@@ -59,16 +68,50 @@ export function ProjectPhotosPage() {
     enabled: !!id,
   });
 
-  const { data: photos, isLoading: photosLoading } = useQuery({
-    queryKey: ['project-photos', id],
-    queryFn: () => projectsApi.getPhotos(id!),
+  const { data: albums } = useQuery({
+    queryKey: ['photo-albums', id],
+    queryFn: () => projectsApi.getPhotoAlbums(id!),
     enabled: !!id,
   });
 
+  const { data: photos, isLoading: photosLoading } = useQuery({
+    queryKey: ['project-photos', id, selectedAlbumId],
+    queryFn: () => projectsApi.getPhotos(id!, selectedAlbumId),
+    enabled: !!id,
+  });
+
+  const createAlbumMutation = useMutation({
+    mutationFn: (name: string) => projectsApi.createPhotoAlbum(id!, name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['photo-albums', id] });
+      setShowCreateAlbum(false);
+      setNewAlbumName('');
+    },
+  });
+
+  const renameAlbumMutation = useMutation({
+    mutationFn: ({ albumId, name }: { albumId: string; name: string }) =>
+      projectsApi.renamePhotoAlbum(id!, albumId, name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['photo-albums', id] });
+      setRenamingAlbumId(null);
+    },
+  });
+
+  const deleteAlbumMutation = useMutation({
+    mutationFn: (albumId: string) => projectsApi.deletePhotoAlbum(id!, albumId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['photo-albums', id] });
+      queryClient.invalidateQueries({ queryKey: ['project-photos', id] });
+      setSelectedAlbumId(undefined);
+    },
+  });
+
   const uploadMutation = useMutation({
-    mutationFn: (files: File[]) => projectsApi.uploadPhotos(id!, files),
+    mutationFn: (files: File[]) => projectsApi.uploadPhotos(id!, files, selectedAlbumId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project-photos', id] });
+      queryClient.invalidateQueries({ queryKey: ['photo-albums', id] });
       setIsUploading(false);
     },
     onError: () => {
@@ -118,11 +161,11 @@ export function ProjectPhotosPage() {
     if (!id) return;
     setIsDownloadingAll(true);
     try {
-      await projectsApi.downloadAllPhotos(id);
+      await projectsApi.downloadAllPhotos(id, selectedAlbumId);
     } finally {
       setIsDownloadingAll(false);
     }
-  }, [id]);
+  }, [id, selectedAlbumId]);
 
   const handleDownloadPhoto = useCallback(async (photoId: string) => {
     if (!id) return;
@@ -139,7 +182,7 @@ export function ProjectPhotosPage() {
     setIsGeneratingAlbum(true);
     setAlbumError(null);
     try {
-      await projectsApi.generatePhotoAlbum(id, crewMembers.trim());
+      await projectsApi.generatePhotoAlbum(id, crewMembers.trim(), selectedAlbumId);
       setShowAlbumModal(false);
       setCrewMembers('');
     } catch (err: unknown) {
@@ -149,7 +192,7 @@ export function ProjectPhotosPage() {
     } finally {
       setIsGeneratingAlbum(false);
     }
-  }, [id, crewMembers]);
+  }, [id, crewMembers, selectedAlbumId]);
 
   useEffect(() => {
     const onScroll = () => setIsHeaderScrolled(window.scrollY > 8);
@@ -200,7 +243,7 @@ export function ProjectPhotosPage() {
     reorderMutation.mutate(orders);
   };
 
-  const canEdit = project?.canEdit ?? false;
+  const canEdit = project?.canEditPhotos ?? project?.canEdit ?? false;
 
   if (projectLoading || photosLoading) {
     return (
@@ -236,7 +279,7 @@ export function ProjectPhotosPage() {
               <Camera className="w-7 h-7 text-primary-400" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold">Фотоальбом</h1>
+              <h1 className="text-2xl font-bold">Фотоматериалы</h1>
               <p className="text-[var(--text-secondary)]">{project.name}</p>
             </div>
           </div>
@@ -287,6 +330,100 @@ export function ProjectPhotosPage() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Подальбомы */}
+      <div className="flex flex-wrap items-center gap-2 mb-6">
+        <button
+          onClick={() => setSelectedAlbumId(undefined)}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+            selectedAlbumId === undefined
+              ? 'bg-primary-500 text-white'
+              : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
+          }`}
+        >
+          <FolderOpen className="w-4 h-4" />
+          Все фото
+        </button>
+
+        {albums?.map((album) => (
+          <div key={album.id} className="relative group/album flex items-center">
+            {renamingAlbumId === album.id ? (
+              <div className="flex items-center gap-1">
+                <Input
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  className="text-sm h-9 w-40"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && renameValue.trim()) renameAlbumMutation.mutate({ albumId: album.id, name: renameValue.trim() });
+                    if (e.key === 'Escape') setRenamingAlbumId(null);
+                  }}
+                />
+                <button onClick={() => { if (renameValue.trim()) renameAlbumMutation.mutate({ albumId: album.id, name: renameValue.trim() }); }} className="p-1 text-green-400 hover:text-green-300"><Check className="w-4 h-4" /></button>
+                <button onClick={() => setRenamingAlbumId(null)} className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"><X className="w-4 h-4" /></button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setSelectedAlbumId(album.id)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+                  selectedAlbumId === album.id
+                    ? 'bg-primary-500 text-white'
+                    : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
+                }`}
+              >
+                {album.name}
+                <span className="text-xs opacity-70">{album._count.photos}</span>
+              </button>
+            )}
+            {canEdit && renamingAlbumId !== album.id && (
+              <div className="absolute -top-2 -right-2 hidden group-hover/album:flex items-center gap-0.5">
+                <button
+                  onClick={() => { setRenamingAlbumId(album.id); setRenameValue(album.name); }}
+                  className="p-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-primary-400 shadow"
+                  title="Переименовать"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+                <button
+                  onClick={() => { if (confirm(`Удалить подальбом «${album.name}»? Фото перенесутся в общий.`)) deleteAlbumMutation.mutate(album.id); }}
+                  className="p-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-red-400 shadow"
+                  title="Удалить"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+
+        {canEdit && (
+          showCreateAlbum ? (
+            <div className="flex items-center gap-1">
+              <Input
+                value={newAlbumName}
+                onChange={(e) => setNewAlbumName(e.target.value)}
+                placeholder="Название..."
+                className="text-sm h-9 w-40"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newAlbumName.trim()) createAlbumMutation.mutate(newAlbumName.trim());
+                  if (e.key === 'Escape') { setShowCreateAlbum(false); setNewAlbumName(''); }
+                }}
+              />
+              <button onClick={() => { if (newAlbumName.trim()) createAlbumMutation.mutate(newAlbumName.trim()); }} className="p-1 text-green-400 hover:text-green-300"><Check className="w-4 h-4" /></button>
+              <button onClick={() => { setShowCreateAlbum(false); setNewAlbumName(''); }} className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"><X className="w-4 h-4" /></button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowCreateAlbum(true)}
+              className="px-3 py-2 rounded-lg text-sm font-medium bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors flex items-center gap-1 border border-dashed border-[var(--border-primary)]"
+            >
+              <Plus className="w-4 h-4" />
+              Подальбом
+            </button>
+          )
+        )}
       </div>
 
       {/* Статистика */}
@@ -609,7 +746,7 @@ export function ProjectPhotosPage() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold flex items-center gap-2">
                 <Presentation className="w-5 h-5 text-primary-400" />
-                Создать фотоальбом
+                Создать презентацию
               </h2>
               <button
                 className="p-1 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)]"

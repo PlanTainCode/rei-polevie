@@ -575,6 +575,7 @@ export class ProjectsService {
     return {
       ...mergedProject,
       canEdit: project.createdById === userId || ['OWNER', 'ADMIN'].includes(membership.role),
+      canEditPhotos: project.createdById === userId || ['OWNER', 'ADMIN', 'EMPLOYEE'].includes(membership.role),
       canDelete: ['OWNER', 'ADMIN'].includes(membership.role),
     };
   }
@@ -646,11 +647,64 @@ export class ProjectsService {
   }
 
   /**
+   * Обновляет quantity конкретной услуги (по row) в JSON-поле services
+   */
+  async updateServiceQuantity(projectId: string, row: number, quantity: number | string) {
+    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) throw new NotFoundException('Проект не найден');
+
+    const services = (Array.isArray(project.services) ? project.services : []) as Array<Record<string, unknown>>;
+    const updated = services.map((s) =>
+      s.row === row ? { ...s, quantity } : s,
+    );
+
+    await this.prisma.project.update({
+      where: { id: projectId },
+      data: { services: updated as unknown as object },
+    });
+
+    return { success: true };
+  }
+
+  /**
    * Повторно обрабатывает документы
    */
   async reprocessDocuments(id: string, userId: string) {
     await this.findById(id, userId); // Проверка доступа
     await this.processDocuments(id);
+    return this.findById(id, userId);
+  }
+
+  /**
+   * Перегенерация данных проекта из нового поручения.
+   * Заменяет файл поручения, запускает полный processDocuments
+   * (перепарсит оба документа, пересоздаёт пробы и обновляет услуги).
+   */
+  async regenerateFromOrder(
+    id: string,
+    orderFile: Express.Multer.File,
+    userId: string,
+  ) {
+    const project = await this.findById(id, userId);
+
+    if (!project.canEdit) {
+      throw new ForbiddenException('Нет прав на редактирование проекта');
+    }
+
+    if (project.orderFileUrl) {
+      await this.deleteFile(project.orderFileUrl);
+    }
+
+    await this.prisma.project.update({
+      where: { id },
+      data: {
+        orderFileName: orderFile.originalname,
+        orderFileUrl: orderFile.filename,
+      },
+    });
+
+    await this.processDocuments(id);
+
     return this.findById(id, userId);
   }
 

@@ -155,17 +155,19 @@ function formatNumber(num: number): string {
 function formatValue(value: string | number | undefined | null): string {
   if (value === undefined || value === null) return '—';
   if (typeof value === 'string') {
+    // Убираем суффиксы "(н)", "(n)" из значений
+    const cleaned = value.replace(/\s*\([нnНN]\)\s*/g, '').trim();
     // Обработка "менее X" значений
-    if (value.toLowerCase().includes('менее')) {
-      const num = value.match(/[\d.,]+/);
-      return num ? `<${num[0]}` : value;
+    if (cleaned.toLowerCase().includes('менее')) {
+      const num = cleaned.match(/[\d.,]+/);
+      return num ? `<${num[0]}` : cleaned;
     }
     // Попробуем преобразовать в число для форматирования
-    const parsed = parseFloat(value.replace(',', '.'));
+    const parsed = parseFloat(cleaned.replace(',', '.'));
     if (!isNaN(parsed)) {
       return formatNumber(parsed);
     }
-    return value;
+    return cleaned;
   }
   return formatNumber(value);
 }
@@ -316,7 +318,25 @@ export function IndicatorDetailPage() {
       string,
       { value: string | number }
     > | null;
-    return data?.[key]?.value ?? null;
+    const direct = data?.[key]?.value ?? null;
+    if (direct !== null) return direct;
+
+    // Расчёт Аэфф если отсутствует: Аэфф = Ra226 + 1.31*Th232 + 0.085*K40
+    if (key === 'Aeff' && data) {
+      const toNum = (v: string | number | undefined): number | null => {
+        if (v === undefined || v === null) return null;
+        if (typeof v === 'number') return v;
+        const n = parseFloat(String(v).replace(',', '.'));
+        return isNaN(n) ? null : n;
+      };
+      const ra = toNum(data.Ra226?.value);
+      const th = toNum(data.Th232?.value);
+      const k = toNum(data.K40?.value);
+      if (ra !== null && th !== null && k !== null) {
+        return Math.round(ra + 1.31 * th + 0.085 * k);
+      }
+    }
+    return null;
   };
 
   // Проверка наличия радиационных данных хотя бы у одной пробы

@@ -1301,12 +1301,28 @@ export class WordService {
 
           // Таблица 4.2 → блок \"Краткая характеристика природных условий\" (пункты 1–10)
           // и количества проб по остальным пунктам (берём из сопоставленных услуг).
+          const orderRadiometry = Object.keys(quantitiesByRow).length > 0 ? Number(String(quantitiesByRow[16] ?? '').replace(',', '.')) : undefined;
+
+          // Значение из project.services (редактируемое в админке)
+          const savedServices = Array.isArray((project as any)?.services) ? ((project as any).services as ServiceMatch[]) : [];
+          const savedRadiometryRow = savedServices.find(s => s.row === 16);
+          const savedRadiometryHa = savedRadiometryRow
+            ? (typeof savedRadiometryRow.quantity === 'number' ? savedRadiometryRow.quantity : Number(String(savedRadiometryRow.quantity).replace(',', '.')) || undefined)
+            : undefined;
+
+          // Приоритет: ручное поле ProgramIei → значение из adminки (services) → парсинг текста поручения
+          const effectiveRadiometryHa = (programIei?.radiometryAreaHa != null && programIei.radiometryAreaHa > 0)
+            ? programIei.radiometryAreaHa
+            : (savedRadiometryHa != null && savedRadiometryHa > 0)
+              ? savedRadiometryHa
+              : orderRadiometry;
+
           docXml = applyProgramIeiSection42NaturalConditionsTop10({
             xml: docXml,
             rows: extracted42.rows,
             section1Data,
             tzText,
-            radiometryAreaHa: Object.keys(quantitiesByRow).length > 0 ? Number(String(quantitiesByRow[16] ?? '').replace(',', '.')) : undefined,
+            radiometryAreaHa: effectiveRadiometryHa,
             orderFlags,
             project,
             distanceFromOfficeKm,
@@ -1330,6 +1346,7 @@ export class WordService {
               rows: extracted42.rows,
               services: servicesForQuantities,
               areaHa,
+              manualRadiometryHa: effectiveRadiometryHa,
             });
 
             // Жёсткая защита: если в поручении нет воды/донок — вычищаем эти блоки из таблицы
@@ -1860,9 +1877,13 @@ export class WordService {
     // 1.10 ЕГРН — paraId-замены (маркеры «Кадастровый номер участка» отсутствуют в ИГМИ)
     {
       if (programIei?.cadastralNumber || programIei?.egrnDescription) {
-        const cadastralText = programIei?.cadastralNumber
-          ? `Территория изысканий расположена в кадастровом квартале ${programIei.cadastralNumber}`
-          : '';
+        const cadastralNumbers = this.parseCadastralNumbers(programIei?.cadastralNumber || '');
+        let cadastralText = '';
+        if (cadastralNumbers.length === 1) {
+          cadastralText = `Территория изысканий расположена в кадастровом квартале ${cadastralNumbers[0]}`;
+        } else if (cadastralNumbers.length > 1) {
+          cadastralText = `Территория изысканий расположена в кадастровых кварталах ${cadastralNumbers.join(', ')}`;
+        }
         if (cadastralText) {
           docXml = replaceParagraphTextByParaIdPreserveRunProps(docXml, '4F881704', cadastralText);
         }
@@ -2148,6 +2169,15 @@ export class WordService {
     xml = xml.replace(/<w:highlight[^>]*>[^<]*<\/w:highlight>/g, '');
     
     return xml;
+  }
+
+  private parseCadastralNumbers(raw: string): string[] {
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.filter((n: string) => n.trim());
+    } catch {}
+    return raw.trim() ? [raw.trim()] : [];
   }
 
   /**
@@ -2756,13 +2786,14 @@ export class WordService {
    * Заполняет пункт 1.10 данными из ЕГРН
    */
   private replaceEgrnBlock(xml: string, egrnData: EgrnData): string {
-    // Заменяем "Кадастровый номер участка" на реальный кадастровый номер
-    if (egrnData.cadastralNumber) {
+    const cadastralNumbers = this.parseCadastralNumbers(egrnData.cadastralNumber);
+    if (cadastralNumbers.length > 0) {
+      const label = cadastralNumbers.length === 1 ? 'Кадастровый номер участка' : 'Кадастровые номера участков';
+      const joined = cadastralNumbers.map((n) => this.escapeXml(n)).join(', ');
       xml = xml.split('>Кадастровый номер участка</w:t>').join(
-        `>Кадастровый номер участка: ${this.escapeXml(egrnData.cadastralNumber)}</w:t>`,
+        `>${label}: ${joined}</w:t>`,
       );
     } else {
-      // Нет кадастрового номера — убираем надпись, оставляем только описание
       xml = xml.split('>Кадастровый номер участка</w:t>').join(
         '></w:t>',
       );
@@ -3216,6 +3247,32 @@ export class WordService {
    *
    * Если данных по направлению нет — строку удаляем, чтобы не оставлять неверный шаблонный текст.
    */
+  private parseNearbyDirections(text: string): { south: string; east: string; west: string; north: string } {
+    const markers = [
+      { key: 'south' as const, prefix: /к\s*югу\s*:\s*/i },
+      { key: 'east' as const, prefix: /к\s*востоку\s*:\s*/i },
+      { key: 'west' as const, prefix: /к\s*западу\s*:\s*/i },
+      { key: 'north' as const, prefix: /к\s*северу\s*:\s*/i },
+    ];
+    const result = { south: '', east: '', west: '', north: '' };
+    const positions: { key: keyof typeof result; start: number; prefixEnd: number }[] = [];
+
+    for (const m of markers) {
+      const match = text.match(m.prefix);
+      if (match && match.index !== undefined) {
+        positions.push({ key: m.key, start: match.index, prefixEnd: match.index + match[0].length });
+      }
+    }
+    positions.sort((a, b) => a.start - b.start);
+
+    for (let i = 0; i < positions.length; i++) {
+      const from = positions[i].prefixEnd;
+      const to = i + 1 < positions.length ? positions[i + 1].start : text.length;
+      result[positions[i].key] = text.slice(from, to).trim();
+    }
+    return result;
+  }
+
   private replaceProgramIeiSection32Block(
     xml: string,
     programIei: any | null,
@@ -3236,10 +3293,25 @@ export class WordService {
     };
 
     // --- Границы (paraId из шаблона)
-    const south = normalizeNearby(getPrefer(programIei?.nearbySouth, section32Data?.nearbySouth));
-    const east = normalizeNearby(getPrefer(programIei?.nearbyEast, section32Data?.nearbyEast));
-    const west = normalizeNearby(getPrefer(programIei?.nearbyWest, section32Data?.nearbyWest));
-    const north = normalizeNearby(getPrefer(programIei?.nearbyNorth, section32Data?.nearbyNorth));
+    // Приоритет: nearbyText (свободный ввод) → 4 отдельных поля → AI-данные
+    let south = '';
+    let east = '';
+    let west = '';
+    let north = '';
+
+    const freeText = String(programIei?.nearbyText ?? '').trim();
+    if (freeText) {
+      const parsed = this.parseNearbyDirections(freeText);
+      south = normalizeNearby(parsed.south);
+      east = normalizeNearby(parsed.east);
+      west = normalizeNearby(parsed.west);
+      north = normalizeNearby(parsed.north);
+    } else {
+      south = normalizeNearby(getPrefer(programIei?.nearbySouth, section32Data?.nearbySouth));
+      east = normalizeNearby(getPrefer(programIei?.nearbyEast, section32Data?.nearbyEast));
+      west = normalizeNearby(getPrefer(programIei?.nearbyWest, section32Data?.nearbyWest));
+      north = normalizeNearby(getPrefer(programIei?.nearbyNorth, section32Data?.nearbyNorth));
+    }
 
     const hasAnyNearby = Boolean(south || east || west || north);
 

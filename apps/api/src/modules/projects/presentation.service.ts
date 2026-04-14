@@ -36,8 +36,8 @@ export class PresentationService {
   async generatePhotoAlbum(
     projectId: string,
     crewMembers: string,
+    albumId?: string,
   ): Promise<{ fileName: string; downloadUrl: string }> {
-    // Получаем данные проекта
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
     });
@@ -46,8 +46,7 @@ export class PresentationService {
       throw new NotFoundException('Проект не найден');
     }
 
-    // Получаем фотографии
-    const photos = await this.photosService.getPhotosByProject(projectId);
+    const photos = await this.photosService.getPhotosByProject(projectId, albumId);
 
     if (photos.length === 0) {
       throw new NotFoundException('Нет фотографий для генерации альбома');

@@ -463,6 +463,25 @@ export class IndicatorsService {
       };
     }
 
+    // Расчёт Аэфф если отсутствует: Аэфф = ARa-226 + 1.31*ATh-232 + 0.085*AK-40
+    if (!result.Aeff) {
+      const toNum = (v: string | number | undefined): number | null => {
+        if (v === undefined) return null;
+        if (typeof v === 'number') return v;
+        const n = parseFloat(String(v).replace(',', '.'));
+        return isNaN(n) ? null : n;
+      };
+      const ra = toNum(result.Ra226?.value);
+      const th = toNum(result.Th232?.value);
+      const k = toNum(result.K40?.value);
+      if (ra !== null && th !== null && k !== null) {
+        result.Aeff = {
+          value: Math.round(ra + 1.31 * th + 0.085 * k),
+          unit: result.Ra226?.unit || 'Бк/кг',
+        };
+      }
+    }
+
     return result;
   }
 

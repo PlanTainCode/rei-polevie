@@ -58,6 +58,22 @@ export class GenerateAlbumDto {
   @IsString()
   @IsNotEmpty({ message: 'Состав ПБ обязателен' })
   crewMembers: string;
+
+  @IsString()
+  @IsOptional()
+  albumId?: string;
+}
+
+export class CreatePhotoAlbumDto {
+  @IsString()
+  @IsNotEmpty({ message: 'Название подальбома обязательно' })
+  name: string;
+}
+
+export class UpdatePhotoAlbumDto {
+  @IsString()
+  @IsNotEmpty({ message: 'Название подальбома обязательно' })
+  name: string;
 }
 
 export class UpdatePlatformCoordinatesDto {
@@ -79,6 +95,15 @@ export class UpdateProgramIeiDto {
   @IsOptional()
   egrnDescription?: string;
 
+  // 3.2 - координаты (ручной ввод)
+  @IsString()
+  @IsOptional()
+  coordinatesLat?: string;
+
+  @IsString()
+  @IsOptional()
+  coordinatesLon?: string;
+
   // 3.2 - окружение участка
   @IsString()
   @IsOptional()
@@ -96,9 +121,21 @@ export class UpdateProgramIeiDto {
   @IsOptional()
   nearbyNorth?: string;
 
+  @IsOptional()
+  nearbyText?: string | null;
+
   // 3.2 - площадь открытого грунта (0-100%)
   @IsOptional()
   openGroundPercent?: number | null;
+
+  // 4.2 - Пользовательский адрес объекта (для расчёта расстояния)
+  @IsString()
+  @IsOptional()
+  customObjectAddress?: string;
+
+  // 4.2 - Площадь радиометрии (га)
+  @IsOptional()
+  radiometryAreaHa?: number | null;
 
   // 8.2 - Обоснование границ изучаемой территории
   @IsString()

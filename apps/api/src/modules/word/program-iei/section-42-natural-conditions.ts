@@ -232,12 +232,12 @@ export function applyProgramIeiSection42QuantitiesFromServices(params: {
   rows: ProgramIeiSection42RowMeta[];
   services: ServiceMatch[];
   areaHa?: number;
+  manualRadiometryHa?: number;
 }): string {
   let xml = params.xml;
   const services = params.services || [];
   const areaHa = typeof params.areaHa === 'number' && Number.isFinite(params.areaHa) ? params.areaHa : null;
 
-  // Базовые количества проб по прейскуранту
   const pprCount = qtyFromServicesRow(services, 17);
   const radiometryHaRaw = qtyFromServicesRow(services, 16);
   const soilCount = qtyFromServicesRow(services, 20);
@@ -257,8 +257,9 @@ export function applyProgramIeiSection42QuantitiesFromServices(params: {
     return Number.isFinite(n) ? n : null;
   };
 
-  // Радиометрия по территории (га): приоритет — из поручения (row 16), затем из площади участка.
-  const radiometryHa = toNum(radiometryHaRaw) ?? areaHa;
+  // Приоритет: ручное значение → из поручения (row 16) → из площади участка
+  const manualHa = (params.manualRadiometryHa != null && params.manualRadiometryHa > 0) ? params.manualRadiometryHa : null;
+  const radiometryHa = manualHa ?? toNum(radiometryHaRaw) ?? areaHa;
 
   const hasSediment = (toNum(sedimentCount) ?? 0) > 0;
   const hasSurfaceWater = (toNum(surfaceWaterCount) ?? 0) > 0;

@@ -164,6 +164,7 @@ model Project {
   platforms      Platform[]
   samples        Sample[]
   photos         Photo[]
+  photoAlbums    PhotoAlbum[]
   programIei     ProgramIei?
   inquiryRequest InquiryRequest?
   indicator      Indicator?
@@ -289,7 +290,14 @@ model ProgramIei {
   nearbyEast        String?   // "К востоку: ..."
   nearbyWest        String?   // "К западу: ..."
   nearbyNorth       String?   // "К северу: ..."
+  nearbyText        String?   // Свободный текст окружения (приоритет над 4 отдельными полями)
   openGroundPercent Int?      // Площадь поверхности открытого грунта (0-100%)
+
+  // 4.2 Пользовательский адрес объекта (для расчёта расстояния и маршрута)
+  customObjectAddress String?
+
+  // 4.2 Площадь радиометрии территории (га) — ручной ввод, приоритет над значением из поручения
+  radiometryAreaHa    Float?
 
   // 8.2 Обоснование границ изучаемой территории
   section82Text     String?   // Текст пункта 8.2 (редактируемый)
@@ -313,22 +321,37 @@ model ProgramIei {
   @@map("program_iei")
 }
 
-// Фотография объекта (фотоальбом)
+// Подальбом фотоматериалов
+model PhotoAlbum {
+  id        String   @id @default(cuid())
+  projectId String
+  name      String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  photos    Photo[]
+
+  @@map("photo_albums")
+}
+
+// Фотография объекта (фотоматериалы)
 model Photo {
   id           String   @id @default(cuid())
   projectId    String
+  albumId      String?
   
   // Файлы
-  filename     String   // UUID + расширение (photo-cuid.jpg)
-  originalName String   // Оригинальное имя файла
-  thumbnailName String? // Имя превью файла
+  filename     String
+  originalName String
+  thumbnailName String?
   
   // Данные
-  description  String?  // Описание (вводит пользователь)
+  description  String?
   
   // Координаты из EXIF или вручную (десятичный формат)
-  latitude     String?  // "55.64433"
-  longitude    String?  // "037.49028"
+  latitude     String?
+  longitude    String?
   
   // Дата фото (из EXIF DateTimeOriginal или дата загрузки)
   photoDate    DateTime?
@@ -341,8 +364,9 @@ model Photo {
   uploadedById String?
 
   // Отношения
-  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  uploadedBy   User?    @relation("UploadedPhotos", fields: [uploadedById], references: [id], onDelete: SetNull)
+  project      Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  album        PhotoAlbum? @relation(fields: [albumId], references: [id], onDelete: SetNull)
+  uploadedBy   User?      @relation("UploadedPhotos", fields: [uploadedById], references: [id], onDelete: SetNull)
 
   @@map("photos")
 }

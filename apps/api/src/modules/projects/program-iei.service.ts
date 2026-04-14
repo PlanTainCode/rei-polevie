@@ -9,11 +9,16 @@ import * as mammoth from 'mammoth';
 interface UpdateProgramIeiDto {
   cadastralNumber?: string;
   egrnDescription?: string;
+  coordinatesLat?: string;
+  coordinatesLon?: string;
   nearbySouth?: string;
   nearbyEast?: string;
   nearbyWest?: string;
   nearbyNorth?: string;
+  nearbyText?: string | null;
   openGroundPercent?: number | null;
+  customObjectAddress?: string;
+  radiometryAreaHa?: number | null;
   section82Text?: string;
 }
 
@@ -56,18 +61,33 @@ export class ProgramIeiService {
   async update(projectId: string, data: UpdateProgramIeiDto) {
     await this.getOrCreate(projectId);
 
+    const updateData: Record<string, unknown> = {
+      cadastralNumber: data.cadastralNumber,
+      egrnDescription: data.egrnDescription,
+      nearbySouth: data.nearbySouth || null,
+      nearbyEast: data.nearbyEast || null,
+      nearbyWest: data.nearbyWest || null,
+      nearbyNorth: data.nearbyNorth || null,
+      openGroundPercent: data.openGroundPercent,
+      customObjectAddress: data.customObjectAddress,
+      radiometryAreaHa: data.radiometryAreaHa,
+      section82Text: data.section82Text,
+    };
+
+    if (data.nearbyText !== undefined) {
+      updateData.nearbyText = data.nearbyText || null;
+    }
+
+    if (data.coordinatesLat !== undefined) {
+      updateData.coordinatesLat = data.coordinatesLat;
+    }
+    if (data.coordinatesLon !== undefined) {
+      updateData.coordinatesLon = data.coordinatesLon;
+    }
+
     return this.prisma.programIei.update({
       where: { projectId },
-      data: {
-        cadastralNumber: data.cadastralNumber,
-        egrnDescription: data.egrnDescription,
-        nearbySouth: data.nearbySouth,
-        nearbyEast: data.nearbyEast,
-        nearbyWest: data.nearbyWest,
-        nearbyNorth: data.nearbyNorth,
-        openGroundPercent: data.openGroundPercent,
-        section82Text: data.section82Text,
-      },
+      data: updateData,
     });
   }
 

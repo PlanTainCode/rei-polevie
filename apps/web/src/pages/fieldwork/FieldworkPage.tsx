@@ -817,7 +817,7 @@ function ProjectScreen({
           />
           <ActionButton
             icon={<Camera className="w-5 h-5" />}
-            label={`Фотоальбом (${photosCount})`}
+            label={`Фотоматериалы (${photosCount})`}
             onClick={onPhotos}
           />
         </div>
@@ -888,10 +888,16 @@ function PlatformScreen({
   const [toast, setToast] = useState<string | null>(null);
   const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
   const [describePhotoIds, setDescribePhotoIds] = useState<string[] | null>(null);
+  const [photoAlbumId, setPhotoAlbumId] = useState<string | undefined>(undefined);
 
   const { data: platforms } = useQuery({
     queryKey: ['project-platforms', projectId],
     queryFn: () => projectsApi.getPlatforms(projectId),
+  });
+
+  const { data: photoAlbums } = useQuery({
+    queryKey: ['photo-albums', projectId],
+    queryFn: () => projectsApi.getPhotoAlbums(projectId),
   });
   const platform = platforms?.find((p) => p.id === platformId);
 
@@ -1012,8 +1018,9 @@ function PlatformScreen({
     if (!files?.length) return;
     setIsUploadingPhotos(true);
     try {
-      const results = await projectsApi.uploadPhotos(projectId, Array.from(files));
+      const results = await projectsApi.uploadPhotos(projectId, Array.from(files), photoAlbumId);
       queryClient.invalidateQueries({ queryKey: ['project-photos', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['photo-albums', projectId] });
       const uploaded = results.filter((r) => r.success && r.photo);
       const ids = uploaded.map((r) => r.photo!.id);
       const withGps = uploaded.filter((r) => r.photo!.latitude && r.photo!.longitude).length;
@@ -1150,8 +1157,20 @@ function PlatformScreen({
 
         <div className="space-y-2">
           <div className="text-xs uppercase tracking-wider text-[var(--text-secondary)] font-semibold px-1">
-            Фотоальбом
+            Фотоматериалы
           </div>
+          {photoAlbums && photoAlbums.length > 0 && (
+            <select
+              value={photoAlbumId || ''}
+              onChange={(e) => setPhotoAlbumId(e.target.value || undefined)}
+              className="w-full px-3 py-2.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-primary)] text-[var(--text-primary)] text-sm"
+            >
+              <option value="">Общий альбом</option>
+              {photoAlbums.map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          )}
           <ActionButton
             icon={<Camera className="w-5 h-5" />}
             label="Загрузить фото"
@@ -1481,16 +1500,34 @@ function PhotosScreen({
   const [descValue, setDescValue] = useState('');
   const [toast, setToast] = useState<string | null>(null);
   const [describePhotoIds, setDescribePhotoIds] = useState<string[] | null>(null);
+  const [selectedAlbumId, setSelectedAlbumId] = useState<string | undefined>(undefined);
+  const [creatingAlbum, setCreatingAlbum] = useState(false);
+  const [newAlbumName, setNewAlbumName] = useState('');
+
+  const { data: albums } = useQuery({
+    queryKey: ['photo-albums', projectId],
+    queryFn: () => projectsApi.getPhotoAlbums(projectId),
+  });
 
   const { data: photos, isLoading } = useQuery({
-    queryKey: ['project-photos', projectId],
-    queryFn: () => projectsApi.getPhotos(projectId),
+    queryKey: ['project-photos', projectId, selectedAlbumId],
+    queryFn: () => projectsApi.getPhotos(projectId, selectedAlbumId),
+  });
+
+  const createAlbumMutation = useMutation({
+    mutationFn: (name: string) => projectsApi.createPhotoAlbum(projectId, name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['photo-albums', projectId] });
+      setCreatingAlbum(false);
+      setNewAlbumName('');
+    },
   });
 
   const uploadMutation = useMutation({
-    mutationFn: (files: File[]) => projectsApi.uploadPhotos(projectId, files),
+    mutationFn: (files: File[]) => projectsApi.uploadPhotos(projectId, files, selectedAlbumId),
     onSuccess: (results) => {
       queryClient.invalidateQueries({ queryKey: ['project-photos', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['photo-albums', projectId] });
       setIsUploading(false);
       const uploaded = results.filter((r) => r.success && r.photo);
       const ids = uploaded.map((r) => r.photo!.id);
@@ -1544,7 +1581,7 @@ function PhotosScreen({
   return (
     <>
       <Header
-        title={`Фотоальбом (${photos?.length ?? 0})`}
+        title={`Фотоматериалы (${photos?.length ?? 0})`}
         onBack={onBack}
         rightAction={
           <button
@@ -1562,6 +1599,57 @@ function PhotosScreen({
             {toast}
           </div>
         )}
+
+        {/* Плашки подальбомов */}
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setSelectedAlbumId(undefined)}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+              selectedAlbumId === undefined
+                ? 'bg-primary-500 text-white'
+                : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]'
+            }`}
+          >
+            Все
+          </button>
+          {albums?.map((a) => (
+            <button
+              key={a.id}
+              onClick={() => setSelectedAlbumId(a.id)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                selectedAlbumId === a.id
+                  ? 'bg-primary-500 text-white'
+                  : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]'
+              }`}
+            >
+              {a.name} <span className="opacity-70">{a._count.photos}</span>
+            </button>
+          ))}
+          {creatingAlbum ? (
+            <div className="flex items-center gap-1">
+              <input
+                value={newAlbumName}
+                onChange={(e) => setNewAlbumName(e.target.value)}
+                placeholder="Название..."
+                className="px-2 py-1 text-xs rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-primary)] text-[var(--text-primary)] w-28"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newAlbumName.trim()) createAlbumMutation.mutate(newAlbumName.trim());
+                  if (e.key === 'Escape') { setCreatingAlbum(false); setNewAlbumName(''); }
+                }}
+              />
+              <button onClick={() => { if (newAlbumName.trim()) createAlbumMutation.mutate(newAlbumName.trim()); }} className="text-emerald-400"><Check className="w-4 h-4" /></button>
+              <button onClick={() => { setCreatingAlbum(false); setNewAlbumName(''); }} className="text-[var(--text-secondary)]"><X className="w-4 h-4" /></button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setCreatingAlbum(true)}
+              className="px-2 py-1.5 rounded-full text-xs font-medium bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-dashed border-[var(--border-primary)]"
+            >
+              + Подальбом
+            </button>
+          )}
+        </div>
 
         <input
           ref={fileInputRef}

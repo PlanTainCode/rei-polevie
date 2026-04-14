@@ -29,6 +29,7 @@ export interface Project {
   createdAt: string;
   updatedAt: string;
   canEdit?: boolean;
+  canEditPhotos?: boolean;
   canDelete?: boolean;
   _count?: {
     samples: number;
@@ -145,7 +146,10 @@ export interface ProgramIei {
   nearbyEast: string | null;
   nearbyWest: string | null;
   nearbyNorth: string | null;
+  nearbyText: string | null;
   openGroundPercent: number | null;
+  customObjectAddress: string | null;
+  radiometryAreaHa: number | null;
   section82Text: string | null;
   generatedFileName: string | null;
   generatedFileUrl: string | null;
@@ -162,11 +166,16 @@ export type ProgramIgmi = ProgramIei;
 export interface UpdateProgramIeiData {
   cadastralNumber?: string;
   egrnDescription?: string;
+  coordinatesLat?: string;
+  coordinatesLon?: string;
   nearbySouth?: string;
   nearbyEast?: string;
   nearbyWest?: string;
   nearbyNorth?: string;
+  nearbyText?: string | null;
   openGroundPercent?: number | null;
+  customObjectAddress?: string;
+  radiometryAreaHa?: number | null;
   section82Text?: string;
 }
 
@@ -177,6 +186,7 @@ export interface DistanceResult {
   distanceKm: number | null;
   fromAddress: string;
   toAddress: string;
+  customObjectAddress: string | null;
   yandexMapsUrl: string | null;
   isManual?: boolean;
   error?: string;
@@ -271,10 +281,21 @@ export interface UpdateSampleData {
   longitude?: string;
 }
 
+// Типы для фотоальбомов
+export interface PhotoAlbum {
+  id: string;
+  projectId: string;
+  name: string;
+  sortOrder: number;
+  createdAt: string;
+  _count: { photos: number };
+}
+
 // Типы для фотографий
 export interface Photo {
   id: string;
   projectId: string;
+  albumId: string | null;
   filename: string;
   originalName: string;
   thumbnailName: string | null;
@@ -359,6 +380,10 @@ export const projectsApi = {
     return response.data;
   },
 
+  updateServiceQuantity: async (id: string, row: number, quantity: number | string): Promise<void> => {
+    await apiClient.patch(`/projects/${id}/service-quantity`, { row, quantity });
+  },
+
   reprocess: async (id: string): Promise<Project> => {
     const response = await apiClient.post<Project>(`/projects/${id}/reprocess`);
     return response.data;
@@ -375,6 +400,17 @@ export const projectsApi = {
           'Content-Type': 'multipart/form-data',
         },
       },
+    );
+    return response.data;
+  },
+
+  regenerateFromOrder: async (id: string, orderFile: File): Promise<Project> => {
+    const formData = new FormData();
+    formData.append('order', orderFile);
+    const response = await apiClient.post<Project>(
+      `/projects/${id}/regenerate-from-order`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
     );
     return response.data;
   },
@@ -412,6 +448,24 @@ export const projectsApi = {
 
   getFileUrl: (projectId: string, type: 'tz' | 'order'): string => {
     return `/api/projects/${projectId}/files/${type}`;
+  },
+
+  downloadFile: async (projectId: string, type: 'tz' | 'order', fileName?: string | null): Promise<void> => {
+    const response = await apiClient.get(`/projects/${projectId}/files/${type}`, {
+      responseType: 'blob',
+    });
+
+    const fallback = type === 'tz' ? 'tz.docx' : 'order.docx';
+    const name = projectsApi._extractFilename(response.headers['content-disposition'], fileName || fallback);
+
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
   },
 
   generateExcel: async (projectId: string, mode: ExcelGenerateMode = 'full'): Promise<GenerateExcelResult> => {
@@ -535,18 +589,42 @@ export const projectsApi = {
     window.URL.revokeObjectURL(url);
   },
 
-  // ========== РАБОТА С ФОТОГРАФИЯМИ ==========
+  // ========== ПОДАЛЬБОМЫ ==========
 
-  getPhotos: async (projectId: string): Promise<Photo[]> => {
-    const response = await apiClient.get<Photo[]>(`/projects/${projectId}/photos`);
+  getPhotoAlbums: async (projectId: string): Promise<PhotoAlbum[]> => {
+    const response = await apiClient.get<PhotoAlbum[]>(`/projects/${projectId}/photo-albums`);
     return response.data;
   },
 
-  uploadPhotos: async (projectId: string, files: File[]): Promise<PhotoUploadResult[]> => {
+  createPhotoAlbum: async (projectId: string, name: string): Promise<PhotoAlbum> => {
+    const response = await apiClient.post<PhotoAlbum>(`/projects/${projectId}/photo-albums`, { name });
+    return response.data;
+  },
+
+  renamePhotoAlbum: async (projectId: string, albumId: string, name: string): Promise<PhotoAlbum> => {
+    const response = await apiClient.patch<PhotoAlbum>(`/projects/${projectId}/photo-albums/${albumId}`, { name });
+    return response.data;
+  },
+
+  deletePhotoAlbum: async (projectId: string, albumId: string): Promise<void> => {
+    await apiClient.delete(`/projects/${projectId}/photo-albums/${albumId}`);
+  },
+
+  // ========== РАБОТА С ФОТОГРАФИЯМИ ==========
+
+  getPhotos: async (projectId: string, albumId?: string | null): Promise<Photo[]> => {
+    const params: Record<string, string> = {};
+    if (albumId !== undefined) params.albumId = albumId === null ? 'null' : albumId;
+    const response = await apiClient.get<Photo[]>(`/projects/${projectId}/photos`, { params });
+    return response.data;
+  },
+
+  uploadPhotos: async (projectId: string, files: File[], albumId?: string): Promise<PhotoUploadResult[]> => {
     const formData = new FormData();
     files.forEach((file) => {
       formData.append('photos', file, file.name || `photo_${Date.now()}.jpg`);
     });
+    if (albumId) formData.append('albumId', albumId);
     const response = await apiClient.post<PhotoUploadResult[]>(
       `/projects/${projectId}/photos`,
       formData,
@@ -635,8 +713,11 @@ export const projectsApi = {
   },
 
   // Скачать все фото как ZIP
-  downloadAllPhotos: async (projectId: string): Promise<void> => {
+  downloadAllPhotos: async (projectId: string, albumId?: string | null): Promise<void> => {
+    const params: Record<string, string> = {};
+    if (albumId !== undefined) params.albumId = albumId === null ? 'null' : albumId;
     const response = await apiClient.get(`/projects/${projectId}/photos-download`, {
+      params,
       responseType: 'blob',
       timeout: 120000, // 2 минуты на большие архивы
     });
@@ -653,10 +734,10 @@ export const projectsApi = {
     window.URL.revokeObjectURL(url);
   },
 
-  generatePhotoAlbum: async (projectId: string, crewMembers: string): Promise<void> => {
+  generatePhotoAlbum: async (projectId: string, crewMembers: string, albumId?: string): Promise<void> => {
     const response = await apiClient.post<{ fileName: string; downloadUrl: string }>(
       `/projects/${projectId}/generate-album`,
-      { crewMembers },
+      { crewMembers, albumId },
       { timeout: 180000 },
     );
     

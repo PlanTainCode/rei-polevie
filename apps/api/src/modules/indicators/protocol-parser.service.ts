@@ -210,7 +210,9 @@ export class ProtocolParserService {
     if (typeof value === 'number') {
       return value;
     }
-    const strValue = String(value || '').trim();
+    let strValue = String(value || '').trim();
+    // Убираем суффиксы вроде "(н)", "(n)", "(Н)", "(N)" из значений
+    strValue = strValue.replace(/\s*\([нnНN]\)\s*/g, '').trim();
     const numValue = parseFloat(strValue.replace(',', '.'));
     if (!isNaN(numValue) && isFinite(numValue)) {
       return numValue;

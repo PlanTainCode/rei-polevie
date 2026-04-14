@@ -31,6 +31,7 @@ import {
   ExternalLink,
   Send,
   FlaskConical,
+  Check,
 } from 'lucide-react';
 import { projectsApi, type GenerateExcelResult, type ExcelGenerateMode } from '@/api/projects';
 import { indicatorsApi } from '@/api/indicators';
@@ -164,6 +165,23 @@ export function ProjectDetailPage() {
     },
   });
 
+  // Перегенерация из нового поручения (с пересозданием проб)
+  const [regenerateOrderFile, setRegenerateOrderFile] = useState<File | null>(null);
+  const regenerateOrderInputRef = useRef<HTMLInputElement>(null);
+
+  const regenerateFromOrderMutation = useMutation({
+    mutationFn: async () => {
+      if (!regenerateOrderFile) throw new Error('Файл не выбран');
+      return projectsApi.regenerateFromOrder(id!, regenerateOrderFile);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', id] });
+      queryClient.invalidateQueries({ queryKey: ['project-samples', id] });
+      queryClient.invalidateQueries({ queryKey: ['project-platforms', id] });
+      setRegenerateOrderFile(null);
+    },
+  });
+
   // Создание допотбора
   const [showCreateChildModal, setShowCreateChildModal] = useState(false);
   const [childProjectName, setChildProjectName] = useState('');
@@ -184,6 +202,19 @@ export function ProjectDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['project', id] });
       setIndicatorFile(null);
       navigate(`/projects/${id}/indicators`);
+    },
+  });
+
+  // Инлайн-редактирование quantity услуги (радиометрия)
+  const [editingServiceRow, setEditingServiceRow] = useState<number | null>(null);
+  const [editingServiceValue, setEditingServiceValue] = useState('');
+
+  const updateServiceMutation = useMutation({
+    mutationFn: ({ row, quantity }: { row: number; quantity: number }) =>
+      projectsApi.updateServiceQuantity(id!, row, quantity),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', id] });
+      setEditingServiceRow(null);
     },
   });
 
@@ -369,7 +400,7 @@ export function ProjectDetailPage() {
               label="Техническое задание"
               fileName={project.tzFileName}
               onDownload={() =>
-                window.open(projectsApi.getFileUrl(project.id, 'tz'), '_blank')
+                projectsApi.downloadFile(project.id, 'tz', project.tzFileName)
               }
               isEditing={isEditing}
               newFile={newTzFile}
@@ -381,7 +412,7 @@ export function ProjectDetailPage() {
             label="Поручение"
             fileName={project.orderFileName}
             onDownload={() =>
-              window.open(projectsApi.getFileUrl(project.id, 'order'), '_blank')
+              projectsApi.downloadFile(project.id, 'order', project.orderFileName)
             }
             isEditing={isEditing}
             newFile={newOrderFile}
@@ -389,68 +420,138 @@ export function ProjectDetailPage() {
             onClearFile={() => setNewOrderFile(null)}
           />
 
-          {/* Перегенерация из обновленного ТЗ (только для корневых проектов, не для допотборов) */}
-          {!isChildProject && project.processedAt && project.canEdit && (
+          {/* Перезагрузка документов — скрыто под кнопкой */}
+          {project.processedAt && project.canEdit && (
             <div className="mt-4 pt-4 border-t border-[var(--border-primary)]">
-              <div className="flex items-start gap-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-                <RefreshCw className="w-5 h-5 text-amber-400 mt-0.5 flex-shrink-0" />
-                <div className="flex-1">
-                  <p className="font-medium text-amber-400">Обновить данные из ТЗ</p>
-                  <p className="text-sm text-[var(--text-secondary)] mt-1">
-                    Загрузите обновленное ТЗ для перегенерации данных объекта. Пробы останутся без изменений.
-                  </p>
-                  <div className="flex items-center gap-2 mt-3">
-                    <input
-                      ref={regenerateTzInputRef}
-                      type="file"
-                      accept=".doc,.docx"
-                      onChange={(e) => setRegenerateTzFile(e.target.files?.[0] || null)}
-                      className="hidden"
-                    />
-                    {regenerateTzFile ? (
-                      <>
-                        <span className="text-sm text-primary-400 flex-1 truncate">
-                          {regenerateTzFile.name}
-                        </span>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setRegenerateTzFile(null)}
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => regenerateFromTzMutation.mutate()}
-                          isLoading={regenerateFromTzMutation.isPending}
-                        >
-                          <RefreshCw className="w-4 h-4" />
-                          Применить
-                        </Button>
-                      </>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => regenerateTzInputRef.current?.click()}
-                      >
-                        <Upload className="w-4 h-4" />
-                        Выбрать файл ТЗ
-                      </Button>
-                    )}
+              <button
+                className="flex items-center gap-2 text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                onClick={() => toggleSection('regenerate')}
+              >
+                {expandedSections.regenerate ? (
+                  <ChevronDown className="w-4 h-4" />
+                ) : (
+                  <ChevronRight className="w-4 h-4" />
+                )}
+                <RefreshCw className="w-4 h-4" />
+                Перезагрузить документы
+              </button>
+
+              {expandedSections.regenerate && (
+                <div className="mt-3 space-y-3">
+                  {/* Обновить из ТЗ */}
+                  {!isChildProject && (
+                    <div className="flex items-start gap-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                      <RefreshCw className="w-5 h-5 text-amber-400 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1">
+                        <p className="font-medium text-amber-400">Обновить данные из ТЗ</p>
+                        <p className="text-sm text-[var(--text-secondary)] mt-1">
+                          Загрузите обновленное ТЗ для перегенерации данных объекта. Пробы останутся без изменений.
+                        </p>
+                        <div className="flex items-center gap-2 mt-3">
+                          <input
+                            ref={regenerateTzInputRef}
+                            type="file"
+                            accept=".doc,.docx"
+                            onChange={(e) => setRegenerateTzFile(e.target.files?.[0] || null)}
+                            className="hidden"
+                          />
+                          {regenerateTzFile ? (
+                            <>
+                              <span className="text-sm text-primary-400 flex-1 truncate">
+                                {regenerateTzFile.name}
+                              </span>
+                              <Button size="sm" variant="ghost" onClick={() => setRegenerateTzFile(null)}>
+                                <X className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => regenerateFromTzMutation.mutate()}
+                                isLoading={regenerateFromTzMutation.isPending}
+                              >
+                                <RefreshCw className="w-4 h-4" />
+                                Применить
+                              </Button>
+                            </>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => regenerateTzInputRef.current?.click()}
+                            >
+                              <Upload className="w-4 h-4" />
+                              Выбрать файл ТЗ
+                            </Button>
+                          )}
+                        </div>
+                        {regenerateFromTzMutation.isError && (
+                          <p className="text-sm text-red-400 mt-2">Ошибка при обновлении. Попробуйте снова.</p>
+                        )}
+                        {regenerateFromTzMutation.isSuccess && (
+                          <p className="text-sm text-primary-400 mt-2">Данные успешно обновлены!</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Обновить из поручения */}
+                  <div className="flex items-start gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
+                    <RefreshCw className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <p className="font-medium text-red-400">Обновить из поручения</p>
+                      <p className="text-sm text-[var(--text-secondary)] mt-1">
+                        Загрузите новое поручение — пробы, площадки и услуги будут пересозданы. Старые пробы будут удалены.
+                      </p>
+                      <div className="flex items-center gap-2 mt-3">
+                        <input
+                          ref={regenerateOrderInputRef}
+                          type="file"
+                          accept=".doc,.docx"
+                          onChange={(e) => setRegenerateOrderFile(e.target.files?.[0] || null)}
+                          className="hidden"
+                        />
+                        {regenerateOrderFile ? (
+                          <>
+                            <span className="text-sm text-primary-400 flex-1 truncate">
+                              {regenerateOrderFile.name}
+                            </span>
+                            <Button size="sm" variant="ghost" onClick={() => setRegenerateOrderFile(null)}>
+                              <X className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="danger"
+                              onClick={() => {
+                                if (confirm('Старые пробы и площадки будут удалены и пересозданы из нового поручения. Продолжить?')) {
+                                  regenerateFromOrderMutation.mutate();
+                                }
+                              }}
+                              isLoading={regenerateFromOrderMutation.isPending}
+                            >
+                              <RefreshCw className="w-4 h-4" />
+                              Применить
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => regenerateOrderInputRef.current?.click()}
+                          >
+                            <Upload className="w-4 h-4" />
+                            Выбрать поручение
+                          </Button>
+                        )}
+                      </div>
+                      {regenerateFromOrderMutation.isError && (
+                        <p className="text-sm text-red-400 mt-2">Ошибка при обновлении. Попробуйте снова.</p>
+                      )}
+                      {regenerateFromOrderMutation.isSuccess && (
+                        <p className="text-sm text-primary-400 mt-2">Поручение обновлено, пробы пересозданы!</p>
+                      )}
+                    </div>
                   </div>
-                  {regenerateFromTzMutation.isError && (
-                    <p className="text-sm text-red-400 mt-2">
-                      Ошибка при обновлении. Попробуйте снова.
-                    </p>
-                  )}
-                  {regenerateFromTzMutation.isSuccess && (
-                    <p className="text-sm text-primary-400 mt-2">
-                      Данные успешно обновлены!
-                    </p>
-                  )}
                 </div>
-              </div>
+              )}
             </div>
           )}
         </CardContent>
@@ -517,9 +618,56 @@ export function ProjectDetailPage() {
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="font-mono font-medium text-primary-400">
-                            {service.quantity}
-                          </p>
+                          {service.row === 16 && editingServiceRow === 16 ? (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={editingServiceValue}
+                                onChange={(e) => setEditingServiceValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    const val = parseFloat(editingServiceValue);
+                                    if (!isNaN(val) && val >= 0) updateServiceMutation.mutate({ row: 16, quantity: val });
+                                  }
+                                  if (e.key === 'Escape') setEditingServiceRow(null);
+                                }}
+                                autoFocus
+                                className="w-20 px-2 py-1 text-sm font-mono text-right rounded border border-primary-500/50 bg-[var(--bg-secondary)] text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-primary-500"
+                              />
+                              <button
+                                onClick={() => {
+                                  const val = parseFloat(editingServiceValue);
+                                  if (!isNaN(val) && val >= 0) updateServiceMutation.mutate({ row: 16, quantity: val });
+                                }}
+                                className="p-1 text-primary-400 hover:text-primary-300"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => setEditingServiceRow(null)}
+                                className="p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : service.row === 16 && project.canEdit ? (
+                            <button
+                              onClick={() => {
+                                setEditingServiceRow(16);
+                                setEditingServiceValue(String(service.quantity));
+                              }}
+                              className="font-mono font-medium text-primary-400 hover:text-primary-300 cursor-pointer hover:underline transition-colors"
+                              title="Нажмите для редактирования"
+                            >
+                              {service.quantity}
+                            </button>
+                          ) : (
+                            <p className="font-mono font-medium text-primary-400">
+                              {service.quantity}
+                            </p>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -581,7 +729,7 @@ export function ProjectDetailPage() {
         </Card>
       )}
 
-      {/* Фотоальбом — ссылка на отдельную страницу */}
+      {/* Фотоматериалы — ссылка на отдельную страницу */}
       <Card className="mb-6">
         <CardContent className="py-4">
           <Link
@@ -593,7 +741,7 @@ export function ProjectDetailPage() {
                 <Camera className="w-5 h-5 text-amber-400" />
               </div>
               <div>
-                <p className="font-medium">Фотоальбом</p>
+                <p className="font-medium">Фотоматериалы</p>
                 <p className="text-sm text-[var(--text-secondary)]">
                   Фотографии с выезда
                 </p>

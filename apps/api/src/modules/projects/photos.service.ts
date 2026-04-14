@@ -58,12 +58,51 @@ export class PhotosService {
     }
   }
 
-  /**
-   * Получает все фото проекта
-   */
-  async getPhotosByProject(projectId: string) {
-    return this.prisma.photo.findMany({
+  // ========== ПОДАЛЬБОМЫ ==========
+
+  async getAlbums(projectId: string) {
+    return this.prisma.photoAlbum.findMany({
       where: { projectId },
+      orderBy: { sortOrder: 'asc' },
+      include: { _count: { select: { photos: true } } },
+    });
+  }
+
+  async createAlbum(projectId: string, name: string) {
+    const maxOrder = await this.prisma.photoAlbum.aggregate({
+      where: { projectId },
+      _max: { sortOrder: true },
+    });
+    return this.prisma.photoAlbum.create({
+      data: { projectId, name, sortOrder: (maxOrder._max.sortOrder ?? -1) + 1 },
+    });
+  }
+
+  async renameAlbum(albumId: string, name: string) {
+    return this.prisma.photoAlbum.update({ where: { id: albumId }, data: { name } });
+  }
+
+  async deleteAlbum(albumId: string) {
+    await this.prisma.photo.updateMany({ where: { albumId }, data: { albumId: null } });
+    await this.prisma.photoAlbum.delete({ where: { id: albumId } });
+    return { success: true };
+  }
+
+  // ========== ФОТО ==========
+
+  /**
+   * Получает фото проекта с опциональной фильтрацией по альбому.
+   * albumId = undefined — все фото; albumId = null — только "Общий"; albumId = id — конкретный подальбом.
+   */
+  async getPhotosByProject(projectId: string, albumId?: string | null) {
+    const where: Record<string, unknown> = { projectId };
+    if (albumId === null) {
+      where.albumId = null;
+    } else if (albumId !== undefined) {
+      where.albumId = albumId;
+    }
+    return this.prisma.photo.findMany({
+      where,
       orderBy: { sortOrder: 'asc' },
       include: {
         uploadedBy: {
@@ -100,6 +139,7 @@ export class PhotosService {
     projectId: string,
     file: Express.Multer.File | { buffer: Buffer; originalname: string; mimetype: string },
     userId?: string,
+    albumId?: string | null,
   ) {
     // Проверяем размер
     const fileSize = 'size' in file ? file.size : file.buffer.length;
@@ -207,10 +247,10 @@ export class PhotosService {
       ? exifData.longitude.toFixed(5).padStart(9, '0')
       : null;
 
-    // Сохраняем в БД
     const photo = await this.prisma.photo.create({
       data: {
         projectId,
+        albumId: albumId || null,
         filename,
         originalName: file.originalname,
         thumbnailName: existsSync(thumbnailPath) ? thumbnailName : null,
@@ -232,12 +272,13 @@ export class PhotosService {
     projectId: string,
     files: (Express.Multer.File | { buffer: Buffer; originalname: string; mimetype: string })[],
     userId?: string,
+    albumId?: string | null,
   ) {
     const results = [];
     
     for (const file of files) {
       try {
-        const photo = await this.uploadPhoto(projectId, file, userId);
+        const photo = await this.uploadPhoto(projectId, file, userId, albumId);
         results.push({ success: true, photo });
       } catch (err) {
         results.push({ 
@@ -394,8 +435,8 @@ export class PhotosService {
   /**
    * Создаёт ZIP-архив всех фото проекта
    */
-  async createPhotosArchive(projectId: string, projectName: string): Promise<{ buffer: Buffer; filename: string }> {
-    const photos = await this.getPhotosByProject(projectId);
+  async createPhotosArchive(projectId: string, projectName: string, albumId?: string | null): Promise<{ buffer: Buffer; filename: string }> {
+    const photos = await this.getPhotosByProject(projectId, albumId);
     
     if (photos.length === 0) {
       throw new NotFoundException('Нет фотографий для скачивания');

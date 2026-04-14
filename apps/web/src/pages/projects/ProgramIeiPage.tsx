@@ -12,6 +12,7 @@ import {
   Image,
   Loader2,
   AlertTriangle,
+  Plus,
 } from 'lucide-react';
 import { projectsApi, type DistanceResult } from '@/api/projects';
 import { Button, Input, Card, CardContent } from '@/components/ui';
@@ -85,8 +86,24 @@ const formatCadastralNumber = (value: string, prevValue: string): string => {
 };
 
 const validateCadastralNumber = (value: string): boolean => {
-  if (!value) return true; // Пустое значение валидно
+  if (!value) return true;
   return CADASTRAL_REGEX.test(value);
+};
+
+const parseCadastralNumbers = (raw: string | null): string[] => {
+  if (!raw) return [''];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+  } catch {}
+  return raw ? [raw] : [''];
+};
+
+const serializeCadastralNumbers = (numbers: string[]): string => {
+  const filtered = numbers.filter((n) => n.trim());
+  if (filtered.length === 0) return '';
+  if (filtered.length === 1) return filtered[0];
+  return JSON.stringify(filtered);
 };
 
 export function ProgramIeiPage() {
@@ -95,11 +112,14 @@ export function ProgramIeiPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Форма
-  const [cadastralNumber, setCadastralNumber] = useState('');
-  const [cadastralError, setCadastralError] = useState('');
+  const [cadastralNumbers, setCadastralNumbers] = useState<string[]>(['']);
+  const [cadastralErrors, setCadastralErrors] = useState<string[]>(['']);
   const [egrnDescription, setEgrnDescription] = useState('');
+  const [coordLat, setCoordLat] = useState('');
+  const [coordLon, setCoordLon] = useState('');
   const [nearbyText, setNearbyText] = useState('');
   const [openGroundPercent, setOpenGroundPercent] = useState<number | null>(null);
+  const [radiometryHa, setRadiometryHa] = useState<number | null>(null);
   const [section82Text, setSection82Text] = useState('');
   const [hasChanges, setHasChanges] = useState(false);
   const [isHeaderScrolled, setIsHeaderScrolled] = useState(false);
@@ -138,16 +158,24 @@ export function ProgramIeiPage() {
   // Инициализация формы
   useEffect(() => {
     if (programIei) {
-      setCadastralNumber(programIei.cadastralNumber || '');
+      const nums = parseCadastralNumbers(programIei.cadastralNumber);
+      setCadastralNumbers(nums);
+      setCadastralErrors(nums.map(() => ''));
       setEgrnDescription(programIei.egrnDescription || '');
-      const parts = [
-        programIei.nearbySouth ? `К югу: ${programIei.nearbySouth}` : 'К югу: ',
-        programIei.nearbyEast ? `К востоку: ${programIei.nearbyEast}` : 'К востоку: ',
-        programIei.nearbyWest ? `К западу: ${programIei.nearbyWest}` : 'К западу: ',
-        programIei.nearbyNorth ? `К северу: ${programIei.nearbyNorth}` : 'К северу: ',
-      ];
-      setNearbyText(parts.join('\n'));
+      setCoordLat(programIei.coordinatesLat || '');
+      setCoordLon(programIei.coordinatesLon || '');
+      if (programIei.nearbyText) {
+        setNearbyText(programIei.nearbyText);
+      } else {
+        const parts: string[] = [];
+        if (programIei.nearbySouth) parts.push(`К югу: ${programIei.nearbySouth}`);
+        if (programIei.nearbyEast) parts.push(`К востоку: ${programIei.nearbyEast}`);
+        if (programIei.nearbyWest) parts.push(`К западу: ${programIei.nearbyWest}`);
+        if (programIei.nearbyNorth) parts.push(`К северу: ${programIei.nearbyNorth}`);
+        setNearbyText(parts.join('\n'));
+      }
       setOpenGroundPercent(programIei.openGroundPercent ?? null);
+      setRadiometryHa(programIei.radiometryAreaHa ?? null);
       setSection82Text(programIei.section82Text || SECTION_82_DEFAULT);
       setHasChanges(false);
     }
@@ -160,42 +188,17 @@ export function ProgramIeiPage() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Мутации
-  const parseNearbyText = (text: string) => {
-    const markers = [
-      { key: 'nearbySouth', prefix: /к\s*югу\s*:\s*/i },
-      { key: 'nearbyEast', prefix: /к\s*востоку\s*:\s*/i },
-      { key: 'nearbyWest', prefix: /к\s*западу\s*:\s*/i },
-      { key: 'nearbyNorth', prefix: /к\s*северу\s*:\s*/i },
-    ];
-    const result: Record<string, string> = {};
-    const positions: { key: string; start: number; prefixEnd: number }[] = [];
-
-    for (const m of markers) {
-      const match = text.match(m.prefix);
-      if (match && match.index !== undefined) {
-        positions.push({ key: m.key, start: match.index, prefixEnd: match.index + match[0].length });
-      }
-    }
-    positions.sort((a, b) => a.start - b.start);
-
-    for (let i = 0; i < positions.length; i++) {
-      const from = positions[i].prefixEnd;
-      const to = i + 1 < positions.length ? positions[i + 1].start : text.length;
-      result[positions[i].key] = text.slice(from, to).trim();
-    }
-    return result;
-  };
 
   const updateMutation = useMutation({
     mutationFn: (data: {
       cadastralNumber?: string;
       egrnDescription?: string;
-      nearbySouth?: string;
-      nearbyEast?: string;
-      nearbyWest?: string;
-      nearbyNorth?: string;
+      coordinatesLat?: string;
+      coordinatesLon?: string;
+      nearbyText?: string | null;
       openGroundPercent?: number | null;
+      customObjectAddress?: string;
+      radiometryAreaHa?: number | null;
       section82Text?: string;
     }) =>
       projectsApi.updateProgramIei(id!, data),
@@ -253,29 +256,33 @@ export function ProgramIeiPage() {
   };
 
   const handleSave = () => {
-    // Проверяем валидность кадастрового номера перед сохранением
-    if (cadastralNumber && !validateCadastralNumber(cadastralNumber)) {
-      setCadastralError('Исправьте кадастровый номер перед сохранением');
+    const errors = cadastralNumbers.map((n) =>
+      n.trim() && !validateCadastralNumber(n.trim()) ? 'Неверный формат' : '',
+    );
+    if (errors.some((e) => e)) {
+      setCadastralErrors(errors);
       return;
     }
-    
-    const parsed = parseNearbyText(nearbyText);
+
+    const serialized = serializeCadastralNumbers(cadastralNumbers);
     updateMutation.mutate({
-      cadastralNumber: cadastralNumber || undefined,
+      cadastralNumber: serialized || undefined,
       egrnDescription: egrnDescription || undefined,
-      nearbySouth: parsed.nearbySouth || undefined,
-      nearbyEast: parsed.nearbyEast || undefined,
-      nearbyWest: parsed.nearbyWest || undefined,
-      nearbyNorth: parsed.nearbyNorth || undefined,
+      coordinatesLat: coordLat || undefined,
+      coordinatesLon: coordLon || undefined,
+      nearbyText: nearbyText || null,
       openGroundPercent: openGroundPercent,
+      radiometryAreaHa: radiometryHa,
       section82Text: section82Text || undefined,
     });
   };
 
   const handleGenerate = () => {
-    // Проверяем валидность кадастрового номера перед генерацией
-    if (cadastralNumber && !validateCadastralNumber(cadastralNumber)) {
-      setCadastralError('Исправьте кадастровый номер перед генерацией');
+    const errors = cadastralNumbers.map((n) =>
+      n.trim() && !validateCadastralNumber(n.trim()) ? 'Неверный формат' : '',
+    );
+    if (errors.some((e) => e)) {
+      setCadastralErrors(errors);
       return;
     }
     
@@ -283,17 +290,35 @@ export function ProgramIeiPage() {
     generateMutation.mutate();
   };
 
-  const handleCadastralChange = (value: string) => {
-    const formatted = formatCadastralNumber(value, cadastralNumber);
-    setCadastralNumber(formatted);
+  const handleCadastralChange = (index: number, value: string) => {
+    const formatted = formatCadastralNumber(value, cadastralNumbers[index] || '');
+    setCadastralNumbers((prev) => {
+      const next = [...prev];
+      next[index] = formatted;
+      return next;
+    });
     setHasChanges(true);
-    
-    // Валидация (показываем ошибку только если что-то введено и формат неправильный)
-    if (formatted && !validateCadastralNumber(formatted)) {
-      setCadastralError('Неверный формат. Пример: 77:06:0009005:10');
-    } else {
-      setCadastralError('');
-    }
+
+    setCadastralErrors((prev) => {
+      const next = [...prev];
+      next[index] = formatted && !validateCadastralNumber(formatted)
+        ? 'Неверный формат. Пример: 77:06:0009005:10'
+        : '';
+      return next;
+    });
+  };
+
+  const addCadastralNumber = () => {
+    setCadastralNumbers((prev) => [...prev, '']);
+    setCadastralErrors((prev) => [...prev, '']);
+    setHasChanges(true);
+  };
+
+  const removeCadastralNumber = (index: number) => {
+    if (cadastralNumbers.length <= 1) return;
+    setCadastralNumbers((prev) => prev.filter((_, i) => i !== index));
+    setCadastralErrors((prev) => prev.filter((_, i) => i !== index));
+    setHasChanges(true);
   };
 
   const handleDescriptionChange = (value: string) => {
@@ -304,10 +329,9 @@ export function ProgramIeiPage() {
   const markChanged = () => setHasChanges(true);
 
   const yandexUrl = (() => {
-    const lat = Number(String(programIei?.coordinatesLat || '').replace(',', '.'));
-    const lon = Number(String(programIei?.coordinatesLon || '').replace(',', '.'));
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-    // ll и pt в формате lon,lat
+    const lat = Number(String(coordLat || '').replace(',', '.'));
+    const lon = Number(String(coordLon || '').replace(',', '.'));
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat === 0 || lon === 0) return null;
     const ll = `${lon},${lat}`;
     return `https://yandex.ru/maps/?ll=${encodeURIComponent(ll)}&z=18&pt=${encodeURIComponent(ll)},pm2rdm`;
   })();
@@ -468,21 +492,44 @@ export function ProgramIeiPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
-                  Кадастровый номер участка
+                  Кадастровые номера участков
                 </label>
-                <Input
-                  value={cadastralNumber}
-                  onChange={(e) => handleCadastralChange(e.target.value)}
-                  placeholder="77:06:0009005:10"
-                  className={cadastralError ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : ''}
-                />
-                {cadastralError ? (
-                  <p className="mt-1 text-xs text-red-400">{cadastralError}</p>
-                ) : (
-                  <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                    Формат: XX:XX:XXXXXXX:XXX (регион:район:квартал:участок)
-                  </p>
-                )}
+                <div className="space-y-2">
+                  {cadastralNumbers.map((num, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <Input
+                        value={num}
+                        onChange={(e) => handleCadastralChange(i, e.target.value)}
+                        placeholder="77:06:0009005:10"
+                        className={`flex-1 ${cadastralErrors[i] ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
+                      />
+                      {cadastralNumbers.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeCadastralNumber(i)}
+                          className="p-2 text-[var(--text-secondary)] hover:text-red-400 transition-colors"
+                          title="Удалить"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                      {cadastralErrors[i] && (
+                        <p className="text-xs text-red-400 shrink-0">{cadastralErrors[i]}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={addCadastralNumber}
+                  className="mt-2 flex items-center gap-1 text-sm text-primary-400 hover:text-primary-300 transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  Добавить участок
+                </button>
+                <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                  Формат: XX:XX:XXXXXXX:XXX (регион:район:квартал:участок)
+                </p>
               </div>
 
               <div>
@@ -509,6 +556,7 @@ export function ProgramIeiPage() {
         <DistanceSection
           projectId={id!}
           objectAddress={project?.objectAddress || null}
+          customObjectAddress={programIei?.customObjectAddress || null}
           distanceData={distanceData}
           distanceLoading={distanceLoading}
           queryClient={queryClient}
@@ -525,27 +573,42 @@ export function ProgramIeiPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
-                  Координаты (из ТЗ)
+                  Координаты
                 </label>
-                <div className="flex items-center justify-between gap-3 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg px-3 py-2">
-                  <div className="text-sm text-[var(--text-primary)]">
-                    {programIei?.coordinatesLat && programIei?.coordinatesLon
-                      ? `${programIei.coordinatesLat}, ${programIei.coordinatesLon}`
-                      : 'Не найдены в ТЗ'}
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 flex gap-2">
+                    <Input
+                      value={coordLat}
+                      onChange={(e) => {
+                        setCoordLat(e.target.value);
+                        markChanged();
+                      }}
+                      placeholder="55.64433 (широта)"
+                      className="flex-1"
+                    />
+                    <Input
+                      value={coordLon}
+                      onChange={(e) => {
+                        setCoordLon(e.target.value);
+                        markChanged();
+                      }}
+                      placeholder="37.49028 (долгота)"
+                      className="flex-1"
+                    />
                   </div>
                   <Button
                     type="button"
                     variant="secondary"
                     disabled={!yandexUrl}
                     onClick={() => yandexUrl && window.open(yandexUrl, '_blank', 'noopener,noreferrer')}
-                    className="flex items-center gap-2"
+                    className="flex items-center gap-2 shrink-0"
                   >
                     <MapPin className="w-4 h-4" />
                     Яндекс.Карты
                   </Button>
                 </div>
                 <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                  Координаты автоматически извлекаются из ТЗ и используются только для удобной проверки окружения участка.
+                  Координаты извлекаются из ТЗ автоматически. Если они неверные — впишите вручную. Используются для проверки окружения участка.
                 </p>
               </div>
 
@@ -621,8 +684,42 @@ export function ProgramIeiPage() {
                 </p>
               </div>
 
+              {/* Площадь радиометрии территории */}
+              <div className="mt-4 pt-4 border-t border-[var(--border-color)]">
+                <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
+                  Площадь радиометрии территории (га)
+                </label>
+                <div className="flex items-center gap-3">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={radiometryHa ?? ''}
+                    onChange={(e) => {
+                      const val = e.target.value ? Number(e.target.value) : null;
+                      setRadiometryHa(val);
+                      markChanged();
+                    }}
+                    placeholder="Авто из поручения"
+                    className="w-40"
+                  />
+                  {radiometryHa !== null && (
+                    <button
+                      type="button"
+                      onClick={() => { setRadiometryHa(null); markChanged(); }}
+                      className="text-xs text-[var(--text-secondary)] hover:text-red-400 transition-colors"
+                    >
+                      Сбросить
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-[var(--text-secondary)] mt-1">
+                  Если указано — используется вместо значения из поручения. Если пусто — берётся автоматически.
+                </p>
+              </div>
+
               <p className="text-xs text-[var(--text-secondary)] mt-4">
-                Данные используются для заполнения п.3.2 в программе ИЭИ.
+                Данные используются для заполнения п.3.2 и п.4.2 в программе ИЭИ.
               </p>
             </div>
           </CardContent>
@@ -726,31 +823,51 @@ export function ProgramIeiPage() {
 function DistanceSection({
   projectId,
   objectAddress,
+  customObjectAddress,
   distanceData,
   distanceLoading,
   queryClient,
 }: {
   projectId: string;
   objectAddress: string | null;
+  customObjectAddress: string | null;
   distanceData: DistanceResult | undefined;
   distanceLoading: boolean;
   queryClient: QueryClient;
 }) {
   const [editValue, setEditValue] = useState('');
   const [isEditing, setIsEditing] = useState(false);
+  const [addressValue, setAddressValue] = useState('');
+  const [addressSaved, setAddressSaved] = useState(false);
 
-  // Синхронизируем инпут при загрузке данных
   useEffect(() => {
     if (distanceData?.distanceKm != null) {
       setEditValue(String(distanceData.distanceKm));
     }
   }, [distanceData?.distanceKm]);
 
+  useEffect(() => {
+    setAddressValue(customObjectAddress || '');
+  }, [customObjectAddress]);
+
+  const effectiveAddress = addressValue.trim() || objectAddress;
+
   const saveMutation = useMutation({
     mutationFn: (km: number) => projectsApi.updateDistance(projectId, km),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['distance', projectId] });
       setIsEditing(false);
+    },
+  });
+
+  const saveAddressMutation = useMutation({
+    mutationFn: (addr: string) =>
+      projectsApi.updateProgramIei(projectId, { customObjectAddress: addr || undefined }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['program-iei', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['distance', projectId] });
+      setAddressSaved(true);
+      setTimeout(() => setAddressSaved(false), 2000);
     },
   });
 
@@ -768,6 +885,10 @@ function DistanceSection({
     }
   };
 
+  const handleSaveAddress = () => {
+    saveAddressMutation.mutate(addressValue.trim());
+  };
+
   return (
     <Card>
       <CardContent className="p-6">
@@ -777,6 +898,39 @@ function DistanceSection({
         </div>
 
         <div className="space-y-3">
+          {/* Адрес объекта */}
+          <div>
+            <label className="block text-sm font-medium text-[var(--text-primary)] mb-1">
+              Адрес объекта
+            </label>
+            <div className="flex gap-2">
+              <Input
+                value={addressValue}
+                onChange={(e) => setAddressValue(e.target.value)}
+                placeholder={objectAddress || 'Введите адрес объекта...'}
+                className="flex-1"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveAddress();
+                }}
+              />
+              <Button
+                type="button"
+                onClick={handleSaveAddress}
+                disabled={saveAddressMutation.isPending || addressValue.trim() === (customObjectAddress || '')}
+                isLoading={saveAddressMutation.isPending}
+                className="flex items-center gap-2 shrink-0"
+              >
+                <Save className="w-4 h-4" />
+                {addressSaved ? 'Сохранено' : 'Сохранить'}
+              </Button>
+            </div>
+            <p className="mt-1 text-xs text-[var(--text-secondary)]">
+              {objectAddress
+                ? `Адрес из ТЗ: ${objectAddress}. Впишите свой адрес, чтобы использовать его для расчёта расстояния и карты.`
+                : 'Впишите адрес объекта для расчёта расстояния и отображения маршрута на карте.'}
+            </p>
+          </div>
+
           {/* Маршрут + расстояние */}
           <div className="flex items-center justify-between gap-3 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg px-4 py-3">
             <div className="flex-1">
@@ -784,7 +938,7 @@ function DistanceSection({
                 От: <span className="text-[var(--text-primary)]">ул. Островитянова, д.6, Москва</span>
               </div>
               <div className="text-sm text-[var(--text-secondary)]">
-                До: <span className="text-[var(--text-primary)]">{objectAddress || 'Адрес не указан'}</span>
+                До: <span className="text-[var(--text-primary)]">{effectiveAddress || 'Адрес не указан'}</span>
               </div>
             </div>
             <div className="text-right">
@@ -827,10 +981,11 @@ function DistanceSection({
           </div>
 
           {/* Карта */}
-          {objectAddress && (
+          {effectiveAddress && (
             <div className="rounded-lg overflow-hidden border border-[var(--border-color)] aspect-[16/9]">
               <iframe
-                src={`https://yandex.ru/map-widget/v1/?rtext=55.6443432,37.4906093~${encodeURIComponent(objectAddress)}&rtt=auto&z=11`}
+                key={effectiveAddress}
+                src={`https://yandex.ru/map-widget/v1/?rtext=55.6443432,37.4906093~${encodeURIComponent(effectiveAddress)}&rtt=auto&z=11`}
                 width="100%"
                 height="100%"
                 frameBorder="0"
