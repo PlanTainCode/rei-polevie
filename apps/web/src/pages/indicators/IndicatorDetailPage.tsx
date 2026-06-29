@@ -486,9 +486,7 @@ export function IndicatorDetailPage() {
     // Для ртути - единый ПДК
     if (metal === 'Hg') {
       const pdk = METALS_PDK.Hg.universal;
-      // Ртуть в протоколе в мкг/кг, делим на 1000 для мг/кг
-      const valueInMg = numValue / 1000;
-      const excess = valueInMg / pdk;
+      const excess = numValue / pdk;
       return excess <= 1 ? 'нет' : excess;
     }
 
@@ -524,11 +522,6 @@ export function IndicatorDetailPage() {
       if (isNaN(numValue)) return 0;
     } else {
       numValue = value;
-    }
-
-    // Ртуть в мкг/кг -> мг/кг
-    if (metal === 'Hg') {
-      numValue = numValue / 1000;
     }
 
     // Выбираем фоновое значение
@@ -573,11 +566,6 @@ export function IndicatorDetailPage() {
         if (isNaN(numValue)) continue;
       } else {
         numValue = value;
-      }
-
-      // Ртуть в мкг/кг -> мг/кг
-      if (metal === 'Hg') {
-        numValue = numValue / 1000;
       }
 
       const Kc = numValue / background[metal];
@@ -971,14 +959,7 @@ export function IndicatorDetailPage() {
                       {formatValue(getChemValue(sample, 'Ni'))}
                     </td>
                     <td className="px-3 py-2 text-center">
-                      {formatValue(
-                        (() => {
-                          const hg = getChemValue(sample, 'Hg');
-                          if (hg === null) return null;
-                          const num = typeof hg === 'string' ? parseFloat(hg) : hg;
-                          return isNaN(num) ? hg : num / 1000;
-                        })()
-                      )}
+                      {formatValue(getChemValue(sample, 'Hg'))}
                     </td>
                     <td className="px-3 py-2 text-center">
                       {formatValue(getChemValue(sample, 'Pb'))}
