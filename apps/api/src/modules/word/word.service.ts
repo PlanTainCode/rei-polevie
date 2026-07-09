@@ -694,7 +694,7 @@ export class WordService {
   // ==================== ПРОГРАММА ИЭИ ====================
 
   private readonly templateDir = join(process.cwd(), 'templates');
-  private readonly programIeiTemplate = 'Программа ИЭИ [EKkcZq].docx';
+  private readonly programIeiTemplate = 'Программа ИЭИ актуальная.docx';
   private readonly programIgmiTemplate = 'Программа ИГМИ (1).docx';
 
   /**
@@ -1214,9 +1214,11 @@ export class WordService {
         try {
           // Сохраняем исходный текст строки (шаблон), но НЕ меняем docXml до фильтрации таблицы,
           // иначе сдвинутся индексы tableStart/tableEnd и документ может обрезаться.
-          const bioNeedle = 'Оценка биологического загрязнения';
+          // В актуальном шаблоне строка биозагрязнения разбита на три (бактериология/
+          // паразитология/энтомология). «Цисты» теперь в санитарно-паразитологической строке.
+          const bioNeedle = 'санитарно-паразитологических показателей';
           const bioTemplateLine =
-            extracted42.rows.find((r) => String(r.title || '').includes(bioNeedle))?.title || '';
+            extracted42.rows.find((r) => String(r.title || '').toLowerCase().includes(bioNeedle))?.title || '';
           // Для AI добавляем контекст подзаголовков групп, чтобы он не оставлял \"голые\" заголовки
           // и лучше сопоставлял пункты внутри групп.
           const contextByTrIndex = new Map<number, string>();
@@ -1254,9 +1256,11 @@ export class WordService {
               (t: string) => t.startsWith('рекогносцировочное (маршрутное) обследование'),
               (t: string) => t.startsWith('описание точек наблюдений'),
               (t: string) => t.startsWith('характеристика климатических условий'),
-              (t: string) => t.startsWith('характеристика фонового загрязнения компонентов окружающей среды'),
-              (t: string) => t.startsWith('характеристика современного состояния территории'),
-              (t: string) => t.startsWith('описание растительного и животного мира участка'),
+              (t: string) => t.startsWith('характеристика ландшафтных условий'),
+              (t: string) => t.startsWith('характеристика геоморфологических'),
+              (t: string) => t.startsWith('характеристика почвенного покрова'),
+              (t: string) => t.startsWith('характеристика социально-экономических условий'),
+              (t: string) => t.startsWith('характеристика фонового загрязнения'),
             ];
 
             extracted42.workRows.forEach((r, i) => {
@@ -1287,8 +1291,8 @@ export class WordService {
                 templateLineText: bioTemplateLine,
               });
               if (bio.finalText) {
-                // paraId этой строки в шаблоне стабилен: 70A710D2
-                docXml = replaceParagraphTextByParaIdPreserveRunProps(docXml, '70A710D2', bio.finalText);
+                // paraId ячейки-названия санитарно-паразитологической строки (актуальный шаблон)
+                docXml = replaceParagraphTextByParaIdPreserveRunProps(docXml, '6E200023', bio.finalText);
               }
             }
           } catch (error) {
@@ -2866,7 +2870,7 @@ export class WordService {
     // П.3 - Справка о фоновых концентрациях (п.22.5 ТЗ)
     if (section1Data.backgroundConcentrationsRef) {
       // Есть данные - заменяем номер/дату
-      xml = xml.split('>№ Э-312/15/05/ Э-574 от 28.02.2022</w:t>').join(
+      xml = xml.split('>№ 312/15/05/ Э-574 от 28.02.2022</w:t>').join(
         `>${section1Data.backgroundConcentrationsRef}</w:t>`
       );
     } else {

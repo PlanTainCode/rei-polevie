@@ -26,14 +26,16 @@ function parseReportCopies(text: string): {
   let electronic: number | null = null;
   let electronicFormats: string | null = null;
 
+  // ВАЖНО: в JS \w НЕ включает кириллицу, поэтому окончания слов (бумажн-ом, электронн-ом)
+  // не матчились и парсер всегда возвращал null. Используем явный диапазон [а-яё].
   // Бумажные экземпляры: "бумажном носителе – 3 экз" или "бумажном виде – 3"
-  const paperMatch = t.match(/бумажн\w*\s+(?:носител\w*|вид\w*)\s*[–\-—]\s*(\d+)/);
+  const paperMatch = t.match(/бумажн[а-яё]*\s+(?:носител[а-яё]*|вид[а-яё]*)\s*[–\-—]\s*(\d+)/);
   if (paperMatch) {
     paper = parseInt(paperMatch[1], 10);
   }
 
   // Электронные экземпляры: "электронном виде – 1 экз" или "электронном носителе – 2"
-  const elMatch = t.match(/электрон\w*\s+(?:вид\w*|носител\w*)\s*[–\-—]\s*(\d+)/);
+  const elMatch = t.match(/электрон[а-яё]*\s+(?:вид[а-яё]*|носител[а-яё]*)\s*[–\-—]\s*(\d+)/);
   if (elMatch) {
     electronic = parseInt(elMatch[1], 10);
   }

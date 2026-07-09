@@ -16,8 +16,10 @@ const PARA_IDS = {
   // Основной параграф про отбор проб с площадок и скважин
   soilSamplingMain: '308E5161',
 
-  // Слои грунта (10 параграфов с фиксированными слоями из шаблона)
+  // Слои грунта (фиксированные слои из шаблона)
   layers: [
+    '6E2000E1', // 0,2-0,5 м (добавлен в актуальном шаблоне)
+    '6E2000E2', // 0,5-1,0 м (добавлен в актуальном шаблоне)
     '18870DCF', // 0,2-1,0 м
     '126E6E3F', // 1,0-2,0 м
     '7F05BC7B', // 2,0-3,0 м
@@ -30,8 +32,10 @@ const PARA_IDS = {
     '53651C48', // 12,0-15,0 м
   ],
 
-  // Эпидемиологическое загрязнение (площадки ПП/СК)
-  epidemiologicalSampling: '74E1E0DB',
+  // Отбор проб для санитарно-микробиологических исследований — в актуальном шаблоне
+  // единый абзац разбит на два: бактериология (74E1E0DB) и паразитология (6E2000F1).
+  bacteriologicalSampling: '74E1E0DB',
+  parasitologicalSampling: '6E2000F1',
 
   // Бурение скважин + глубина
   boreholeDepth: '5C1C2505',
@@ -142,7 +146,7 @@ function updateSoilSamplingMainParagraph(xml: string, layersData: Section47Layer
 
   const newText =
     `Определение участков отбора проб осуществляется на обследуемой территории с учетом функциональных зон, рельефа местности и литолого-геологического строения. ` +
-    `Отбор проб ПГ для проведения лабораторных исследований и испытаний, указанных в п.4 настоящей Программы, осуществляется в поверхностном слое с ${platformCount} пробных площадок размером 5х5 м (площадью 25 кв.м) ` +
+    `Отбор проб ПГ для радиационных и санитарно-химических исследований, указанных в п.4 настоящей Программы, осуществляется в поверхностном слое с ${platformCount} пробных площадок размером 5х5 м (площадью 25 кв.м) ` +
     `и послойно из ${boreholeCount} геоэкологических скважин до глубины ведения земляных работ в количестве:`;
 
   return replaceParagraphTextByParaIdPreserveRunProps(xml, paraId, newText);
@@ -221,15 +225,23 @@ function escapeXmlForLayers(text: string): string {
 }
 
 /**
- * Обновляет количество площадок в параграфе про эпидемиологическое загрязнение
+ * Обновляет количество площадок в абзацах про санитарно-микробиологический отбор проб.
+ * В актуальном шаблоне это два раздельных абзаца:
+ *  - бактериология (слой 0,0-0,2 м, 10 объединённых проб с площадки);
+ *  - паразитология (слой 0,0-0,1 м, одна объединённая проба с площадки).
  */
 function updateEpidemiologicalPlatformCount(xml: string, count: number): string {
-  const paraId = PARA_IDS.epidemiologicalSampling;
+  const bacteriologicalText =
+    `Отбор проб ПГ для проведения бактериологических (микробиологических) исследований осуществляется в поверхностном слое 0,0-0,2 м с ${count} пробных площадок размером 5х5 м (площадью 25 кв.м). ` +
+    `С одной пробной площадки отбирается 10 объединенных проб, каждую объединенную пробу составляют из трех точечных проб массой от 200 до 250 г.`;
 
-  const newText =
-    `Отбор проб ПГ для проведения лабораторных исследований и испытаний для выявления эпидемиологического и паразитологического загрязнения окружающей среды осуществляется в поверхностном слое с ${count} пробных площадок размером 5х5 м (площадью 25 кв.м).`;
+  const parasitologicalText =
+    `Отбор проб ПГ для проведения паразитологических исследований осуществляется в поверхностном слое 0,0-0,1 м с ${count} пробных площадок размером 5х5 м (площадью 25 кв.м). ` +
+    `С каждой пробной площадки отбирается по одной объединенной пробе массой 200 г, составленной из десяти точечных проб массой 20 г каждая.`;
 
-  return replaceParagraphTextByParaIdPreserveRunProps(xml, paraId, newText);
+  xml = replaceParagraphTextByParaIdPreserveRunProps(xml, PARA_IDS.bacteriologicalSampling, bacteriologicalText);
+  xml = replaceParagraphTextByParaIdPreserveRunProps(xml, PARA_IDS.parasitologicalSampling, parasitologicalText);
+  return xml;
 }
 
 /**
@@ -261,7 +273,8 @@ function removeHighlightFromSection47(xml: string): string {
     PARA_IDS.buildingSurveyEROA,
     PARA_IDS.soilSamplingMain,
     ...PARA_IDS.layers,
-    PARA_IDS.epidemiologicalSampling,
+    PARA_IDS.bacteriologicalSampling,
+    PARA_IDS.parasitologicalSampling,
     PARA_IDS.boreholeDepth,
     PARA_IDS.surfaceWater,
     PARA_IDS.sediment,

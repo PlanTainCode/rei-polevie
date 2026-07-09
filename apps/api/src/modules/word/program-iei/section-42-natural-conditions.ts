@@ -2,9 +2,13 @@ import type { ProgramIeiOrderFlags, ProgramIeiSection1Data, ServiceMatch } from 
 
 import {
   removeTableRowByTrParaId,
+  replaceParagraphTextByParaIdPreserveRunProps,
   replaceParagraphTextByParaIdWithItalic,
-  replaceTableCellValueByRowText,
 } from './docx-xml';
+
+// В актуальном шаблоне «Расстояние от базы...» вынесено из таблицы 4.2 в отдельный
+// абзац перед таблицей (paraId ниже). Значение расстояния подставляется в него.
+const DISTANCE_PARA_ID = '6E2000D1';
 import { extractSiteAreaSentence } from './site-boundaries';
 
 export interface ProgramIeiSection42RowMeta {
@@ -149,30 +153,35 @@ export function applyProgramIeiSection42NaturalConditionsTop10(params: {
     siteDescription: String(params.section1Data?.siteDescription || ''),
   });
 
-  // Заполняем значение в строке "Расстояние от базы" (строка уже есть в шаблоне)
+  // Заполняем значение расстояния в отдельном абзаце перед таблицей 4.2
+  // (в актуальном шаблоне «Расстояние от базы...» — не строка таблицы, а абзац).
   {
     console.log('[Section42] distanceFromOfficeKm:', params.distanceFromOfficeKm);
-    
-    // Форматируем расстояние: если есть - показываем с одним знаком после запятой, иначе пусто
-    const distanceValue = params.distanceFromOfficeKm != null 
-      ? String(params.distanceFromOfficeKm).replace('.', ',')
-      : '';
-    
+
+    const distanceValue =
+      params.distanceFromOfficeKm != null
+        ? String(params.distanceFromOfficeKm).replace('.', ',')
+        : '';
+
+    const distanceText = distanceValue
+      ? `Расстояние от базы изыскательской организации до участка изысканий: ${distanceValue} км.`
+      : 'Расстояние от базы изыскательской организации до участка изысканий: уточняется.';
+
     console.log('[Section42] Подставляем расстояние:', distanceValue);
-    
-    xml = replaceTableCellValueByRowText(
-      xml,
-      'расстояние от базы',  // Ищем строку с этим текстом
-      distanceValue,
-    );
+
+    if (xml.includes(`w14:paraId="${DISTANCE_PARA_ID}"`)) {
+      xml = replaceParagraphTextByParaIdPreserveRunProps(xml, DISTANCE_PARA_ID, distanceText);
+    }
   }
 
-  // 2/3/6/10 — удаляем строки
+  // Строки, отсутствующие/переименованные в актуальном шаблоне таблицы 4.2.
+  // Предикаты оставлены как защита для старых шаблонов; на новом они no-op.
+  // ВАЖНО: строку «Характеристика социально-экономических условий...» в актуальном
+  // шаблоне НЕ удаляем — она сохранена (перенесена выше).
   const toRemovePredicates: Array<(t: string) => boolean> = [
     (t) => t.startsWith('обследование объектов неблагоприятного техногенного воздействия'),
     (t) => t.startsWith('наблюдения при передвижении по маршруту'),
     (t) => t.startsWith('описание современного состояния растительного покрова'),
-    (t) => t.startsWith('характеристика социально-экономических условий'),
   ];
 
   for (const pred of toRemovePredicates) {
@@ -211,12 +220,16 @@ export function applyProgramIeiSection42NaturalConditionsTop10(params: {
     }
   }
 
-  // 5/7/8/9 — оставляем, количество = 1
+  // Прочие строки «Краткой характеристики природных условий» — количество = 1.
+  // Формулировки приведены к актуальному шаблону (ландшафтные/геоморфологические/
+  // почвенного покрова/социально-экономические/фоновое загрязнение).
   for (const pred of [
     (t: string) => t.startsWith('характеристика климатических условий'),
-    (t: string) => t.startsWith('характеристика фонового загрязнения компонентов окружающей среды'),
-    (t: string) => t.startsWith('характеристика современного состояния территории'),
-    (t: string) => t.startsWith('описание растительного и животного мира участка'),
+    (t: string) => t.startsWith('характеристика ландшафтных условий'),
+    (t: string) => t.startsWith('характеристика геоморфологических'),
+    (t: string) => t.startsWith('характеристика почвенного покрова'),
+    (t: string) => t.startsWith('характеристика социально-экономических условий'),
+    (t: string) => t.startsWith('характеристика фонового загрязнения'),
   ]) {
     const row = findRow(params.rows, pred);
     if (row?.qtyParaId) {
@@ -333,10 +346,14 @@ export function applyProgramIeiSection42QuantitiesFromServices(params: {
       continue;
     }
 
-    // Подгруппы почвы
+    // Санитарно-энтомологические показатели (личинки/куколки мух).
+    // В актуальном шаблоне это часть санитарно-микробиологического комплекса
+    // (те же пробы, что бактериология/паразитология), поэтому при отсутствии
+    // отдельной услуги «мухи» (row 23) берём количество микробиологии (row 22).
     if (t.includes('мух') || t.includes('личинок') || t.includes('куколок')) {
-      if (flyCount) {
-        xml = replaceParagraphTextByParaIdWithItalic(xml, row.qtyParaId, flyCount);
+      const entomCount = flyCount ?? soilMicroCount;
+      if (entomCount) {
+        xml = replaceParagraphTextByParaIdWithItalic(xml, row.qtyParaId, entomCount);
       }
       continue;
     }
