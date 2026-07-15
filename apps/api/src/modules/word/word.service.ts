@@ -45,6 +45,9 @@ import {
 import { 
   replaceParagraphTextByParaIdPreserveRunProps,
   normalizeDocumentStyles,
+  fixMissingSpacesInDocxXml,
+  extractProgramIeiEndSignaturesBlock,
+  restoreProgramIeiEndSignaturesBlock,
 } from './program-iei/docx-xml';
 import { mergeSiteDescriptionWithArea } from './program-iei/site-boundaries';
 import { replaceProgramIeiSection43Block } from './program-iei/section-43';
@@ -59,7 +62,15 @@ import { replaceProgramIeiSection81Block } from './program-iei/section-81';
 import { extractSection81FromTz } from '../ai/program-iei/section-81';
 import { replaceProgramIeiSection82Block } from './program-iei/section-82';
 import { replaceProgramIeiSection83And84Block } from './program-iei/section-83-84';
-import { replaceTitleSignatories } from './program-iei/title-signatories';
+import {
+  applyProgramIeiApprovalHeaders,
+  replaceTitleSignatories,
+} from './program-iei/title-signatories';
+import { resolveProgramIeiLocation12 } from './program-iei/precise-location';
+import {
+  extractUrbanPlanningActivityFromTz,
+  URBAN_PLANNING_ACTIVITY_OPTIONS,
+} from './program-iei/urban-planning';
 
 interface GenerateOptions {
   projectId: string;
@@ -732,6 +743,10 @@ export class WordService {
     
     // Массив текстов всех поручений (основное + допотборы)
     const allOrderTexts: string[] = [];
+    // Кол-во точек опробования почвы из п.4.2 (для фразы про запечатанность)
+    let soilSamplingPointsCount: number | null = null;
+    // Наличие ДО по количествам поручения (row 29) — для п.4.4
+    let hasSedimentFromQuantities: boolean | null = null;
     
     console.log('[WordService] tzFileUrl:', project.tzFileUrl);
     console.log('[WordService] Project data:', {
@@ -780,6 +795,12 @@ export class WordService {
           // если siteArea пустой — попробуем заполнить хотя бы из предложения
           if (!section1Data.siteArea && merged.siteAreaSentence) {
             section1Data.siteArea = merged.siteAreaSentence;
+          }
+
+          // п.1.7: если AI не вытащил / вытащил криво — берём 1:1 из ТЗ (п.4 или п.1.7)
+          const urbanFromTz = extractUrbanPlanningActivityFromTz(tzTextValue);
+          if (urbanFromTz) {
+            section1Data.urbanPlanningActivity = urbanFromTz;
           }
         }
         
@@ -991,23 +1012,15 @@ export class WordService {
 
     // Заменяем плейсхолдеры в document.xml
     let docXml = zip.file('word/document.xml')?.asText() || '';
+
+    // Подписи в конце файла — снимок из шаблона, восстановим после всех правок
+    const endSignaturesBlock = extractProgramIeiEndSignaturesBlock(docXml);
     
     // Логируем данные для п.1.9.1 (technicalCharacteristics -> XrObject)
     console.log('[WordService] XrObject (technicalCharacteristics) для замены:', data.XrObject);
     
     // Подписанты на титульной странице: генерируем из массива titleSignatories
     if (section1Data?.titleSignatories && section1Data.titleSignatories.length > 0) {
-      // Валидация: если в ТЗ есть «УТВЕРЖДАЮ», но AI не назначил его ни одному подписанту —
-      // назначаем первому (в стандартных ТЗ УТВЕРЖДАЮ всегда у первого подписанта)
-      if (tzText && /УТВЕРЖДА/i.test(tzText)) {
-        const hasApproval = section1Data.titleSignatories.some(
-          s => /УТВЕРЖДА/i.test(s.header),
-        );
-        if (!hasApproval && section1Data.titleSignatories.length > 0) {
-          console.log('[WordService] AI не распознал УТВЕРЖДАЮ — назначаем первому подписанту');
-          section1Data.titleSignatories[0].header = 'УТВЕРЖДАЮ';
-        }
-      }
       // Фолбэк: если у подписанта нет ФИО — ищем его ТОЛЬКО в тексте ТЗ
       // рядом с организацией этого конкретного подписанта (не подставляем чужие данные)
       for (const sig of section1Data.titleSignatories) {
@@ -1040,6 +1053,9 @@ export class WordService {
           console.warn(`[WordService] Подписант "${sig.label}" / "${sig.organization}" — ФИО не найдено в ТЗ`);
         }
       }
+
+      // В программе «УТВЕРЖДАЮ» у РЭИ (низ слева), у остальных «СОГЛАСОВАНО» — не как в ТЗ
+      section1Data.titleSignatories = applyProgramIeiApprovalHeaders(section1Data.titleSignatories);
 
       console.log('[WordService] titleSignatories:', JSON.stringify(section1Data.titleSignatories, null, 2));
       docXml = replaceTitleSignatories({
@@ -1087,7 +1103,9 @@ export class WordService {
     
     // Заполняем пункт 2.1 "Перечень исходных материалов и данных"
     if (section1Data) {
-      docXml = this.replaceSourceMaterialsBlock(docXml, section1Data);
+      const customerProvidesBackground =
+        programIei?.customerProvidesBackgroundConcentrations === true;
+      docXml = this.replaceSourceMaterialsBlock(docXml, section1Data, customerProvidesBackground);
       // Заполняем пункт 2.2 "Изученность территории" (оставляем только нужные абзацы)
       docXml = this.replaceStudyDegreeBlock(docXml, section1Data);
     }
@@ -1364,12 +1382,36 @@ export class WordService {
               return Number.isFinite(n) ? n : 0;
             };
 
+            // Точки опробования почвы: СанПиН (20) / бактериология (22) / токсичность (21)
+            {
+              let maxPoints = 0;
+              let foundPoints = false;
+              for (const row of [20, 22, 21]) {
+                const fromQty = toNum(quantitiesByRow[row]);
+                const fromSvc = toNum(
+                  servicesForQuantities.find((s) => s.row === row)?.quantity as number | string | undefined,
+                );
+                const n = Math.max(fromQty, fromSvc);
+                if (n > 0) {
+                  foundPoints = true;
+                  maxPoints = Math.max(maxPoints, n);
+                }
+              }
+              if (foundPoints) {
+                soilSamplingPointsCount = maxPoints;
+                console.log(`[WordService] Точки опробования почвы (п.4.2): ${soilSamplingPointsCount}`);
+              }
+            }
+
             // ВАЖНО: воду/донки считаем ТОЛЬКО по количествам из табличной части поручения (консервативно).
             // Если AI не извлёк количества — считаем что воды/донок НЕТ (чтобы не подмешивать лишнее).
             const hasQuantities = Object.keys(quantitiesByRow).length > 0;
             const hasSediment = hasQuantities ? toNum(quantitiesByRow[29]) > 0 : false;
             const hasSurfaceWater = hasQuantities ? toNum(quantitiesByRow[28]) > 0 : false;
             const hasGroundWater = hasQuantities ? toNum(quantitiesByRow[30]) > 0 : false;
+            if (hasQuantities) {
+              hasSedimentFromQuantities = hasSediment;
+            }
 
             docXml = pruneProgramIeiSection42WaterBlocks({
               xml: docXml,
@@ -1399,8 +1441,13 @@ export class WordService {
       orderFlags,
     });
 
-    // --- П.4.4: Мероприятия по соблюдению требований к точности (удаляем "Зяблик", убираем цвет)
-    docXml = replaceProgramIeiSection44Block({ xml: docXml });
+    // --- П.4.4: Мероприятия по соблюдению требований к точности
+    // (Зяблик, цвет, условные фразы про ДО)
+    docXml = replaceProgramIeiSection44Block({
+      xml: docXml,
+      orderFlags,
+      hasSedimentFromQuantities,
+    });
 
     // --- П.4.5: Обоснование выбора методик прогноза (подставляем текст из ТЗ)
     docXml = replaceProgramIeiSection45Block({
@@ -1426,9 +1473,38 @@ export class WordService {
       
       console.log('[WordService п.4.7] Platforms:', platforms.map(p => p.label), 'Уникальных:', uniquePlatformCount);
 
-      // П.4.2 текст: «В связи с запечатанностью...» — только если ≥3 уникальных площадок
-      if (uniquePlatformCount < 3) {
-        docXml = this.removeParagraphByParaId(docXml, '053B59A9');
+      // Фраза «В связи с запечатанностью... сокращено до двух точек» —
+      // оставляем только если точек опробования ≤ 2; если больше — убираем.
+      {
+        let points = soilSamplingPointsCount;
+        if (points == null) {
+          const merged = Array.isArray((projectWithMergedServices as any)?.services)
+            ? ((projectWithMergedServices as any).services as ServiceMatch[])
+            : [];
+          const toNum = (v: unknown): number => {
+            if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+            const s = String(v ?? '').trim();
+            if (!s || s === '-' || s === '–') return 0;
+            const n = Number(s.replace(',', '.'));
+            return Number.isFinite(n) ? n : 0;
+          };
+          let maxPoints = 0;
+          let found = false;
+          for (const row of [20, 22, 21]) {
+            const n = toNum(merged.find((s) => s.row === row)?.quantity);
+            if (n > 0) {
+              found = true;
+              maxPoints = Math.max(maxPoints, n);
+            }
+          }
+          if (found) points = maxPoints;
+          else if (uniquePlatformCount > 0) points = uniquePlatformCount;
+        }
+
+        console.log(`[WordService] Фраза про запечатанность/2 точки: points=${points}`);
+        if (points != null && points > 2) {
+          docXml = this.removeParagraphByParaId(docXml, '053B59A9');
+        }
       }
 
       docXml = replaceProgramIeiSection47Block({
@@ -1516,6 +1592,11 @@ export class WordService {
     docXml = normalizeDocumentStyles(docXml);
     // 2. Дополнительная нормализация для старого кода
     docXml = this.normalizeGeneratedTextFormatting(docXml);
+    // 3. Пробелы между runs, где в шаблоне слова слиплись
+    docXml = fixMissingSpacesInDocxXml(docXml);
+
+    // 4. Блок подписей в конце — строго как в шаблоне (не трогаем пробелы/разметку)
+    docXml = restoreProgramIeiEndSignaturesBlock(docXml, endSignaturesBlock);
 
     // п.1.3 Наименование заказчика — подчёркивание всех ранов (HYPERLINK-раны теряют
     // подчёркивание после удаления rStyle "24", но они должны быть underlined)
@@ -1728,12 +1809,6 @@ export class WordService {
 
     // Подписанты — фолбэк ФИО из ТЗ (как в ИЭИ)
     if (section1Data.titleSignatories && section1Data.titleSignatories.length > 0) {
-      if (tzText && /УТВЕРЖДА/i.test(tzText)) {
-        const hasApproval = section1Data.titleSignatories.some(s => /УТВЕРЖДА/i.test(s.header));
-        if (!hasApproval && section1Data.titleSignatories.length > 0) {
-          section1Data.titleSignatories[0].header = 'УТВЕРЖДАЮ';
-        }
-      }
       for (const sig of section1Data.titleSignatories) {
         if (sig.name || !tzText || !sig.organization) continue;
         const orgShort = sig.organization
@@ -1751,6 +1826,7 @@ export class WordService {
           searchFrom = orgIdx + orgShort.length;
         }
       }
+      section1Data.titleSignatories = applyProgramIeiApprovalHeaders(section1Data.titleSignatories);
     }
 
     // ─── ЕГРН из БД ───
@@ -1789,8 +1865,12 @@ export class WordService {
     // РАЗДЕЛ 1 — paraId-замены (для полей которые не HYPERLINK)
     // ═══════════════════════════════════════════════════════
 
-    // 1.1 Местоположение объекта
-    const objectLocation = String(section1Data.objectLocation || project.objectAddress || '').trim();
+    // 1.2 Местоположение объекта — точный адрес из наименования, если есть
+    const objectLocation = resolveProgramIeiLocation12({
+      objectName: project.objectName || section1Data.objectName || project.name,
+      objectLocation: section1Data.objectLocation,
+      projectAddress: project.objectAddress,
+    });
     if (objectLocation) {
       docXml = replaceParagraphTextByParaIdPreserveRunProps(docXml, '5FD52690', objectLocation);
     }
@@ -1979,6 +2059,7 @@ export class WordService {
     // ═══════════════════════════════════════════════════════
     docXml = normalizeDocumentStyles(docXml);
     docXml = this.normalizeGeneratedTextFormatting(docXml);
+    docXml = fixMissingSpacesInDocxXml(docXml);
     zip.file('word/document.xml', docXml);
 
     // Колонтитулы — номер документа
@@ -2090,10 +2171,17 @@ export class WordService {
     // objectName: БЕРЁМ ИЗ БАЗЫ (project.objectName), как было раньше. AI только запасной вариант.
     const objectName = String(project.objectName || aiData?.objectName || project.name || '').trim();
 
+    // п.1.2: точный адрес из наименования; в БД по-прежнему краткое Москва/не Москва
+    const addressFor12 = resolveProgramIeiLocation12({
+      objectName,
+      objectLocation: aiData?.objectLocation,
+      projectAddress: project.objectAddress,
+    });
+
     return {
       // Титульная страница
       Объект: objectName || project.name || '—',
-      Адрес: aiData?.objectLocation || project.objectAddress || '',
+      Адрес: addressFor12,
       // Технический заказчик (из ТЗ) - отдельная организация от заказчика!
       ДиректорДолжность: aiData?.technicalCustomerDirectorPosition || 'Генеральный директор',
       ДиректорФИО: aiData?.technicalCustomerDirectorName || '',
@@ -2698,36 +2786,44 @@ export class WordService {
 
   /**
    * Удаляет лишние варианты в поле "Вид градостроительной деятельности" (п.1.7)
-   * Оставляет только выбранное значение
+   * Оставляет только выбранное значение (как в ТЗ, 1:1)
    */
   private replaceUrbanPlanningActivityOptions(xml: string, selectedValue: string): string {
     if (!selectedValue || selectedValue.trim() === '') {
       return xml;
     }
 
-    // Все возможные варианты из шаблона
-    const allOptions = [
-      'Архитектурно-строительное проектирование',
-      'Капитальный ремонт',
-      'Реконструкция',
-      'Строительство',
-      'Территориальное планирование',
-      'Градостроительное зонирование',
-      'Планировка территории',
-      'Снос объектов капитального строительства',
-      'Эксплуатация зданий, сооружений',
-      'Комплексное развитие территории и их благоустройство',
-    ];
+    const allOptions = [...URBAN_PLANNING_ACTIVITY_OPTIONS];
+    const normalizedSelected = selectedValue.trim();
+    const normalizedLower = normalizedSelected.toLowerCase();
 
-    const normalizedSelected = selectedValue.trim().toLowerCase();
+    // Находим совпадение со списком шаблона (или оставляем текст из ТЗ как есть)
+    let matchedOption =
+      allOptions.find((o) => o.toLowerCase() === normalizedLower) ||
+      allOptions.find((o) => normalizedLower.includes(o.toLowerCase().substring(0, 15))) ||
+      normalizedSelected;
 
-    // Удаляем все варианты кроме выбранного
+    let keptOne = false;
     for (const option of allOptions) {
-      if (!normalizedSelected.includes(option.toLowerCase().substring(0, 15))) {
-        // Удаляем этот вариант из XML
+      const escapedOption = option.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`(<w:t[^>]*>)\\s*${escapedOption}[^<]*(<\\/w:t>)`, 'gi');
+      if (option.toLowerCase() === matchedOption.toLowerCase() && !keptOne) {
+        xml = xml.replace(regex, `$1${this.escapeXml(matchedOption)}$2`);
+        keptOne = true;
+      } else {
+        xml = xml.replace(regex, '$1$2');
+      }
+    }
+
+    // Если в шаблоне не нашли ни одного варианта — подставляем текст в первый непустой слот списка
+    if (!keptOne) {
+      for (const option of allOptions) {
         const escapedOption = option.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`<w:t[^>]*>\\s*${escapedOption}[^<]*<\\/w:t>`, 'gi');
-        xml = xml.replace(regex, '<w:t></w:t>');
+        const regex = new RegExp(`(<w:t[^>]*>)\\s*${escapedOption}[^<]*(<\\/w:t>)`, 'i');
+        if (regex.test(xml)) {
+          xml = xml.replace(regex, `$1${this.escapeXml(matchedOption)}$2`);
+          break;
+        }
       }
     }
 
@@ -2863,22 +2959,29 @@ export class WordService {
 
   /**
    * Заполняет пункт 2.1 "Перечень исходных материалов и данных"
-   * - Если нет данных в ТЗ - УДАЛЯЕМ весь параграф
-   * - Если есть - заменяем данные
+   * - Справка о фонах: в 2.1 только если заказчик предоставляет (галочка), иначе удаляем
+   * - Техотчёт: если нет данных в ТЗ — удаляем параграф
    */
-  private replaceSourceMaterialsBlock(xml: string, section1Data: ProgramIeiSection1Data): string {
-    // П.3 - Справка о фоновых концентрациях (п.22.5 ТЗ)
-    if (section1Data.backgroundConcentrationsRef) {
-      // Есть данные - заменяем номер/дату
-      xml = xml.split('>№ 312/15/05/ Э-574 от 28.02.2022</w:t>').join(
-        `>${section1Data.backgroundConcentrationsRef}</w:t>`
-      );
+  private replaceSourceMaterialsBlock(
+    xml: string,
+    section1Data: ProgramIeiSection1Data,
+    customerProvidesBackgroundConcentrations: boolean,
+  ): string {
+    // П.3 - Справка о фоновых концентрациях
+    if (customerProvidesBackgroundConcentrations) {
+      // Заказчик предоставляет — оставляем в 2.1, подставляем номер/дату из ТЗ если есть
+      if (section1Data.backgroundConcentrationsRef) {
+        xml = xml.split('>№ 312/15/05/ Э-574 от 28.02.2022</w:t>').join(
+          `>${section1Data.backgroundConcentrationsRef}</w:t>`,
+        );
+      } else {
+        xml = xml.split('>№ 312/15/05/ Э-574 от 28.02.2022</w:t>').join('></w:t>');
+      }
     } else {
-      // Нет данных - удаляем весь параграф (paraId="76A91CB9")
-      // Параграф: <w:p w14:paraId="76A91CB9">...</w:p>
+      // Мы заказываем сами — убираем из 2.1 (останется в 2.3)
       xml = xml.replace(
         /<w:p w14:paraId="76A91CB9"[^>]*>[\s\S]*?<\/w:p>/g,
-        ''
+        '',
       );
     }
     
@@ -3284,8 +3387,8 @@ export class WordService {
   ): string {
     const normalizeNearby = (value: string): string => {
       let v = String(value || '').trim();
-      v = v.replace(/^[Кк]\\s*(югу|востоку|западу|северу)\\s*:\\s*/i, '');
-      v = v.replace(/[;.]\\s*$/, '');
+      v = v.replace(/^[Кк]\s*(югу|востоку|западу|северу)\s*:\s*/i, '');
+      v = v.replace(/[;.]\s*$/, '');
       return v.trim();
     };
 
@@ -3296,12 +3399,19 @@ export class WordService {
       return ai || '';
     };
 
-    // --- Границы (paraId из шаблона)
-    // Приоритет: nearbyText (свободный ввод) → 4 отдельных поля → AI-данные
+    const PARA_NEARBY_HEADER = '504302FF';
+    const PARA_SOUTH = '3DE2F9B1';
+    const PARA_EAST = '5CD070FB';
+    const PARA_WEST = '76F32DCE';
+    const PARA_NORTH = '7A0BBC43';
+
+    // --- Границы / окружение
+    // nearbyText: любой текст из UI вставляем как есть (направления — опционально)
     let south = '';
     let east = '';
     let west = '';
     let north = '';
+    let freeTextAsIs = '';
 
     const freeText = String(programIei?.nearbyText ?? '').trim();
     if (freeText) {
@@ -3310,6 +3420,10 @@ export class WordService {
       east = normalizeNearby(parsed.east);
       west = normalizeNearby(parsed.west);
       north = normalizeNearby(parsed.north);
+      // Нет маркеров направлений — весь текст поля целиком
+      if (!south && !east && !west && !north) {
+        freeTextAsIs = freeText;
+      }
     } else {
       south = normalizeNearby(getPrefer(programIei?.nearbySouth, section32Data?.nearbySouth));
       east = normalizeNearby(getPrefer(programIei?.nearbyEast, section32Data?.nearbyEast));
@@ -3317,68 +3431,87 @@ export class WordService {
       north = normalizeNearby(getPrefer(programIei?.nearbyNorth, section32Data?.nearbyNorth));
     }
 
-    const hasAnyNearby = Boolean(south || east || west || north);
+    const hasAnyNearby = Boolean(freeTextAsIs || south || east || west || north);
 
-    if (south) {
-      xml = this.replaceParagraphTextWithBreaks(xml, '3DE2F9B1', `К югу: ${south};`);
+    if (freeTextAsIs) {
+      // Свободный текст — в первый абзац направлений, остальные убираем
+      xml = this.replaceParagraphTextWithBreaks(xml, PARA_SOUTH, freeTextAsIs);
+      xml = this.removeParagraphByParaId(xml, PARA_EAST);
+      xml = this.removeParagraphByParaId(xml, PARA_WEST);
+      xml = this.removeParagraphByParaId(xml, PARA_NORTH);
     } else {
-      xml = this.removeParagraphByParaId(xml, '3DE2F9B1');
-    }
+      if (south) {
+        xml = this.replaceParagraphTextWithBreaks(xml, PARA_SOUTH, `К югу: ${south};`);
+      } else {
+        xml = this.removeParagraphByParaId(xml, PARA_SOUTH);
+      }
 
-    if (east) {
-      xml = this.replaceParagraphTextWithBreaks(xml, '5CD070FB', `К востоку: ${east};`);
-    } else {
-      xml = this.removeParagraphByParaId(xml, '5CD070FB');
-    }
+      if (east) {
+        xml = this.replaceParagraphTextWithBreaks(xml, PARA_EAST, `К востоку: ${east};`);
+      } else {
+        xml = this.removeParagraphByParaId(xml, PARA_EAST);
+      }
 
-    if (west) {
-      xml = this.replaceParagraphTextWithBreaks(xml, '76F32DCE', `К западу: ${west};`);
-    } else {
-      xml = this.removeParagraphByParaId(xml, '76F32DCE');
-    }
+      if (west) {
+        xml = this.replaceParagraphTextWithBreaks(xml, PARA_WEST, `К западу: ${west};`);
+      } else {
+        xml = this.removeParagraphByParaId(xml, PARA_WEST);
+      }
 
-    if (north) {
-      xml = this.replaceParagraphTextWithBreaks(xml, '7A0BBC43', `К северу: ${north}.`);
-    } else {
-      xml = this.removeParagraphByParaId(xml, '7A0BBC43');
+      if (north) {
+        xml = this.replaceParagraphTextWithBreaks(xml, PARA_NORTH, `К северу: ${north}.`);
+      } else {
+        xml = this.removeParagraphByParaId(xml, PARA_NORTH);
+      }
     }
 
     // --- Степень запечатанности (площадь открытого грунта)
     const openGroundPercent = programIei?.openGroundPercent;
     if (openGroundPercent !== null && openGroundPercent !== undefined) {
       const sealingText = `Степень запечатанности и захламленности территории – площадь поверхности открытого грунта на участке составляет около ${openGroundPercent} %.`;
-      // Вставляем после "К северу" — ищем абзац и добавляем после него
-      xml = this.insertParagraphAfterParaId(xml, '7A0BBC43', sealingText);
+      // Вставляем после последнего существующего абзаца окружения
+      const afterId = freeTextAsIs
+        ? PARA_SOUTH
+        : north
+          ? PARA_NORTH
+          : west
+            ? PARA_WEST
+            : east
+              ? PARA_EAST
+              : south
+                ? PARA_SOUTH
+                : PARA_NEARBY_HEADER;
+      xml = this.insertParagraphAfterParaId(xml, afterId, sealingText);
     }
 
     // Если окружение не заполнено вообще — убираем строку "Вблизи участка изысканий расположены:"
-    // чтобы не оставлять пустой блок.
     if (!hasAnyNearby) {
-      xml = this.removeParagraphByParaId(xml, '504302FF');
+      xml = this.removeParagraphByParaId(xml, PARA_NEARBY_HEADER);
     }
 
     // --- Современное использование территории –
     if (section32Data?.currentLandUse?.trim()) {
-      const lu = section32Data.currentLandUse.trim().replace(/[.;]\\s*$/, '');
+      const lu = section32Data.currentLandUse.trim().replace(/[.;]\s*$/, '');
       xml = this.replaceParagraphTextByParaId(xml, '1B840970', `Современное использование территории – ${lu}.`);
     } else {
-      // Если данных нет — удаляем строку с тире, чтобы не было "Современное использование территории –"
       xml = this.removeParagraphByParaId(xml, '1B840970');
     }
 
-    // --- Условия/ограничения (выбираем один из шаблонных вариантов)
+    // --- Условия/ограничения (только шаблонные фразы, без AI-отсебятины)
+    const isRestricted = programIei?.isRestrictedObject === true;
+
     const inferConditionFromInputs = (): ProgramIeiSection32Data['territoryCondition'] => {
+      // Режимный объект — только по галочке оператора
+      if (isRestricted) return 'RESTRICTED';
+
       const aiCondition = section32Data?.territoryCondition || 'UNKNOWN';
-      if (aiCondition !== 'UNKNOWN') return aiCondition;
+      // AI-RESTRICTED игнорируем — только галочка
+      if (aiCondition !== 'UNKNOWN' && aiCondition !== 'RESTRICTED') return aiCondition;
 
       const openGround = programIei?.openGroundPercent;
       const currentLandUse = String(section32Data?.currentLandUse || '').toLowerCase();
-      const nearbyBlob = [south, east, west, north].join(' ').toLowerCase();
+      const nearbyBlob = [freeTextAsIs, south, east, west, north].join(' ').toLowerCase();
       const context = `${currentLandUse} ${nearbyBlob}`;
-
-      if (/(режим|пропуск|допуск|охраняем|закрыт|территория ограниченного доступа)/i.test(context)) {
-        return 'RESTRICTED';
-      }
 
       if (typeof openGround === 'number') {
         if (openGround >= 80) return 'OPEN_SOIL';
@@ -3402,23 +3535,17 @@ export class WordService {
     };
 
     const condition = inferConditionFromInputs();
-    const textFromAi = String(section32Data?.territoryConditionText || '').trim();
 
     const cleanParen = (t: string) =>
-      t.replace(/\s*\\(если[^)]*\\)\\.?\\s*$/i, '').trim();
+      t.replace(/\s*\(если[^)]*\)\.?\s*$/i, '').trim();
 
     const setCondition = (keepParaId: string, fallbackText: string) => {
-      // Удаляем остальные варианты
       for (const id of ['125D6552', '3D0D51B4', '5B90CB03', '5E5BD3BA']) {
         if (id !== keepParaId) {
           xml = this.removeParagraphByParaId(xml, id);
         }
       }
-      if (textFromAi) {
-        xml = this.replaceParagraphTextByParaId(xml, keepParaId, textFromAi);
-      } else {
-        xml = this.replaceParagraphTextByParaId(xml, keepParaId, cleanParen(fallbackText));
-      }
+      xml = this.replaceParagraphTextByParaId(xml, keepParaId, cleanParen(fallbackText));
     };
 
     if (condition === 'OPEN_SOIL') {
@@ -3437,7 +3564,6 @@ export class WordService {
         'Режимный объект, требуется содействие Заказчика в получении допуска на территорию.',
       );
     } else {
-      // PARTIALLY_SEALED + UNKNOWN → используем наиболее универсальный вариант
       setCondition(
         '3D0D51B4',
         'Ограничений для проведения радиационного обследования территории не имеется, геоэкологическое опробование почв и грунтов будет выполнено в местах открытого грунта.',

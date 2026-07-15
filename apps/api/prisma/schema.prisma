@@ -302,6 +302,12 @@ model ProgramIei {
   // 8.2 Обоснование границ изучаемой территории
   section82Text     String?   // Текст пункта 8.2 (редактируемый)
 
+  // Справка о фоновых концентрациях: true = предоставляет заказчик (п.2.1), false = заказываем мы (п.2.3)
+  customerProvidesBackgroundConcentrations Boolean @default(false)
+
+  // 3.2 Режимный объект — фраза про допуск заказчика (галочка оператора)
+  isRestrictedObject Boolean @default(false)
+
   // Сгенерированный файл ИЭИ
   generatedFileName String?
   generatedFileUrl  String?

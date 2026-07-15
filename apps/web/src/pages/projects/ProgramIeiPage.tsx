@@ -121,6 +121,8 @@ export function ProgramIeiPage() {
   const [openGroundPercent, setOpenGroundPercent] = useState<number | null>(null);
   const [radiometryHa, setRadiometryHa] = useState<number | null>(null);
   const [section82Text, setSection82Text] = useState('');
+  const [customerProvidesBackground, setCustomerProvidesBackground] = useState(false);
+  const [isRestrictedObject, setIsRestrictedObject] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [isHeaderScrolled, setIsHeaderScrolled] = useState(false);
 
@@ -177,6 +179,8 @@ export function ProgramIeiPage() {
       setOpenGroundPercent(programIei.openGroundPercent ?? null);
       setRadiometryHa(programIei.radiometryAreaHa ?? null);
       setSection82Text(programIei.section82Text || SECTION_82_DEFAULT);
+      setCustomerProvidesBackground(programIei.customerProvidesBackgroundConcentrations === true);
+      setIsRestrictedObject(programIei.isRestrictedObject === true);
       setHasChanges(false);
     }
   }, [programIei]);
@@ -200,6 +204,8 @@ export function ProgramIeiPage() {
       customObjectAddress?: string;
       radiometryAreaHa?: number | null;
       section82Text?: string;
+      customerProvidesBackgroundConcentrations?: boolean;
+      isRestrictedObject?: boolean;
     }) =>
       projectsApi.updateProgramIei(id!, data),
     onSuccess: () => {
@@ -274,10 +280,12 @@ export function ProgramIeiPage() {
       openGroundPercent: openGroundPercent,
       radiometryAreaHa: radiometryHa,
       section82Text: section82Text || undefined,
+      customerProvidesBackgroundConcentrations: customerProvidesBackground,
+      isRestrictedObject,
     });
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     const errors = cadastralNumbers.map((n) =>
       n.trim() && !validateCadastralNumber(n.trim()) ? 'Неверный формат' : '',
     );
@@ -285,8 +293,29 @@ export function ProgramIeiPage() {
       setCadastralErrors(errors);
       return;
     }
-    
+
     setIsGenerating(true);
+    try {
+      // Сохраняем форму перед генерацией (галочка справки и прочие поля)
+      const serialized = serializeCadastralNumbers(cadastralNumbers);
+      await projectsApi.updateProgramIei(id!, {
+        cadastralNumber: serialized || undefined,
+        egrnDescription: egrnDescription || undefined,
+        coordinatesLat: coordLat || undefined,
+        coordinatesLon: coordLon || undefined,
+        nearbyText: nearbyText || null,
+        openGroundPercent: openGroundPercent,
+        radiometryAreaHa: radiometryHa,
+        section82Text: section82Text || undefined,
+        customerProvidesBackgroundConcentrations: customerProvidesBackground,
+        isRestrictedObject,
+      });
+      setHasChanges(false);
+      queryClient.invalidateQueries({ queryKey: ['program-iei', id] });
+    } catch {
+      // продолжаем генерацию даже если автосохранение не удалось —
+      // данные могли быть сохранены ранее
+    }
     generateMutation.mutate();
   };
 
@@ -627,9 +656,27 @@ export function ProgramIeiPage() {
                   className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 resize-y transition-colors font-mono text-sm leading-relaxed"
                 />
                 <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                  Каждое направление начинайте с «К югу:», «К востоку:», «К западу:», «К северу:». Переносы строк сохраняются при генерации документа.
+                  Текст подставляется в п.3.2 как есть. Можно писать свободно или с направлениями «К югу:», «К востоку:», «К западу:», «К северу:».
                 </p>
               </div>
+
+              <label className="flex items-start gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={isRestrictedObject}
+                  onChange={(e) => {
+                    setIsRestrictedObject(e.target.checked);
+                    markChanged();
+                  }}
+                  className="mt-1 h-4 w-4 rounded border-[var(--border-color)] accent-primary-500"
+                />
+                <span className="text-sm text-[var(--text-primary)]">
+                  Режимный объект (нужен допуск)
+                  <span className="block text-xs text-[var(--text-secondary)] mt-1">
+                    Добавит в п.3.2: «Режимный объект, требуется содействие Заказчика в получении допуска на территорию.»
+                  </span>
+                </span>
+              </label>
 
               {/* Площадь открытого грунта */}
               <div className="mt-4 pt-4 border-t border-[var(--border-color)]">
@@ -722,6 +769,35 @@ export function ProgramIeiPage() {
                 Данные используются для заполнения п.3.2 и п.4.2 в программе ИЭИ.
               </p>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Справка о фоновых концентрациях — п.2.1 / 2.3 */}
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <FileText className="w-5 h-5 text-amber-400" />
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+                Справка о фоновых концентрациях
+              </h2>
+            </div>
+            <label className="flex items-start gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={customerProvidesBackground}
+                onChange={(e) => {
+                  setCustomerProvidesBackground(e.target.checked);
+                  markChanged();
+                }}
+                className="mt-1 h-4 w-4 rounded border-[var(--border-color)] accent-primary-500"
+              />
+              <span className="text-sm text-[var(--text-primary)]">
+                Справку о фоновых концентрациях предоставляет заказчик
+                <span className="block text-xs text-[var(--text-secondary)] mt-1">
+                  Включено — текст попадает в п.2.1. Выключено — мы заказываем сами, текст в п.2.3.
+                </span>
+              </span>
+            </label>
           </CardContent>
         </Card>
 

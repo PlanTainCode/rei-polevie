@@ -20,6 +20,8 @@ interface UpdateProgramIeiDto {
   customObjectAddress?: string;
   radiometryAreaHa?: number | null;
   section82Text?: string;
+  customerProvidesBackgroundConcentrations?: boolean;
+  isRestrictedObject?: boolean;
 }
 
 @Injectable()
@@ -73,6 +75,15 @@ export class ProgramIeiService {
       radiometryAreaHa: data.radiometryAreaHa,
       section82Text: data.section82Text,
     };
+
+    if (data.customerProvidesBackgroundConcentrations !== undefined) {
+      updateData.customerProvidesBackgroundConcentrations =
+        data.customerProvidesBackgroundConcentrations;
+    }
+
+    if (data.isRestrictedObject !== undefined) {
+      updateData.isRestrictedObject = data.isRestrictedObject;
+    }
 
     if (data.nearbyText !== undefined) {
       updateData.nearbyText = data.nearbyText || null;

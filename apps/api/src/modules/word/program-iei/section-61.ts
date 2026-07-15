@@ -40,12 +40,10 @@ export function replaceProgramIeiSection61Block(params: {
 
   // 3. Московские документы — только если адрес в Москве
   if (isMoscow) {
-    // Убираем маркер "(Москва)" — он в отдельном <w:r>
-    // Для moscowInstruction маркер без пробела: "(Москва)"
-    // Для 1386 и 1387 маркер с пробелом: "(Москва) "
+    // Убираем маркер "(Москва)" — в шаблоне без пробела после скобки
     xml = removeMarkerRunFromParagraph(xml, PARA_IDS.moscowInstruction, '(Москва)');
-    xml = removeMarkerRunFromParagraph(xml, PARA_IDS.moscow1386, '(Москва) ');
-    xml = removeMarkerRunFromParagraph(xml, PARA_IDS.moscow1387, '(Москва) ');
+    xml = removeMarkerRunFromParagraph(xml, PARA_IDS.moscow1386, '(Москва)');
+    xml = removeMarkerRunFromParagraph(xml, PARA_IDS.moscow1387, '(Москва)');
   } else {
     // Удаляем московские документы для не-Москвы
     xml = removeParagraphByParaId(xml, PARA_IDS.moscowInstruction);

@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsArray, ValidateNested, IsNumber } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray, ValidateNested, IsNumber, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateProjectDto {
@@ -141,5 +141,15 @@ export class UpdateProgramIeiDto {
   @IsString()
   @IsOptional()
   section82Text?: string;
+
+  // Справка о фоновых концентрациях: заказчик предоставляет (2.1) / мы заказываем (2.3)
+  @IsBoolean()
+  @IsOptional()
+  customerProvidesBackgroundConcentrations?: boolean;
+
+  // 3.2 Режимный объект (фраза про допуск)
+  @IsBoolean()
+  @IsOptional()
+  isRestrictedObject?: boolean;
 }
 

@@ -1,58 +1,54 @@
 import type { ProgramIeiSection1Data } from '../../ai/ai.service';
 import { removeParagraphByParaId, replaceParagraphTextByParaIdWithItalic } from './docx-xml';
 
-// ParaIds для пункта 7.2 "Количество экземпляров технических отчетов"
+/** ParaIds пункта 7.2 «Количество экземпляров технических отчетов» */
 const PARA_IDS = {
-  paperCopies: '2CC7373A',    // "на бумажном носителе – 3 экз.;"
-  electronicCopies: '5DAB0CC0', // "на электронном носителе – 2 экз."
+  /** «Количество экземпляров в электронном виде – N экз.» */
+  electronicVide: '6E2000C5',
+  /** «на бумажном носителе – N экз.;» */
+  paperCopies: '2CC7373A',
+  /** «на электронном носителе – N экз.» */
+  electronicNositel: '5DAB0CC0',
 };
 
 /**
- * Парсит текст п.21 ТЗ и извлекает количество бумажных и электронных экземпляров.
- * 
- * Примеры текстов из ТЗ:
- * - "Количество экземпляров в электронном виде – 1 экз. (в не редактируемом формате .pdf...)"
- * - "Количество экземпляров на бумажном носителе – 3 экз."
- * - "на бумажном носителе – 4 экз., на электронном носителе – 2 экз."
+ * Парсит текст п.21 ТЗ: количество бумажных/электронных экземпляров
+ * и предпочитаемую формулировку для электронных («виде» / «носителе»).
  */
 function parseReportCopies(text: string): {
   paper: number | null;
   electronic: number | null;
-  electronicFormats: string | null;
+  electronicPhrase: 'vide' | 'nositel' | null;
 } {
   const t = text.toLowerCase().replace(/\s+/g, ' ');
 
   let paper: number | null = null;
   let electronic: number | null = null;
-  let electronicFormats: string | null = null;
+  let electronicPhrase: 'vide' | 'nositel' | null = null;
 
-  // ВАЖНО: в JS \w НЕ включает кириллицу, поэтому окончания слов (бумажн-ом, электронн-ом)
-  // не матчились и парсер всегда возвращал null. Используем явный диапазон [а-яё].
-  // Бумажные экземпляры: "бумажном носителе – 3 экз" или "бумажном виде – 3"
+  // ВАЖНО: в JS \w НЕ включает кириллицу — используем [а-яё]
   const paperMatch = t.match(/бумажн[а-яё]*\s+(?:носител[а-яё]*|вид[а-яё]*)\s*[–\-—]\s*(\d+)/);
   if (paperMatch) {
     paper = parseInt(paperMatch[1], 10);
   }
 
-  // Электронные экземпляры: "электронном виде – 1 экз" или "электронном носителе – 2"
-  const elMatch = t.match(/электрон[а-яё]*\s+(?:вид[а-яё]*|носител[а-яё]*)\s*[–\-—]\s*(\d+)/);
-  if (elMatch) {
-    electronic = parseInt(elMatch[1], 10);
+  const elVideMatch = t.match(/электрон[а-яё]*\s+вид[а-яё]*\s*[–\-—]\s*(\d+)/);
+  const elNositelMatch = t.match(/электрон[а-яё]*\s+носител[а-яё]*\s*[–\-—]\s*(\d+)/);
+
+  if (elVideMatch) {
+    electronic = parseInt(elVideMatch[1], 10);
+    electronicPhrase = 'vide';
+  } else if (elNositelMatch) {
+    electronic = parseInt(elNositelMatch[1], 10);
+    electronicPhrase = 'nositel';
   }
 
-  // Форматы электронных экземпляров: "(в не редактируемом формате .pdf, ...)"
-  const fmtMatch = text.match(/\(в\s+не\s+редактируемом[^)]+\)/i);
-  if (fmtMatch) {
-    electronicFormats = fmtMatch[0];
-  }
-
-  return { paper, electronic, electronicFormats };
+  return { paper, electronic, electronicPhrase };
 }
 
 /**
- * Раздел 7.2: Количество экземпляров технических отчетов на бумажных и электронных носителях
- * 
- * Берёт текст из п.21 ТЗ (reportCopiesText) и подставляет количество экземпляров в шаблон.
+ * Раздел 7.2: только количество экземпляров (один раз), без уточнений про форматы.
+ * Форматы остаются в п.7.3.
  */
 export function replaceProgramIeiSection72Block(params: {
   xml: string;
@@ -61,15 +57,23 @@ export function replaceProgramIeiSection72Block(params: {
   let xml = params.xml;
 
   const reportText = params.section1Data?.reportCopiesText || '';
-  if (!reportText) {
-    console.log('[Section72] reportCopiesText пуст, оставляем шаблонные значения');
-    return xml;
+  const copies = reportText
+    ? parseReportCopies(reportText)
+    : { paper: null, electronic: null, electronicPhrase: null as 'vide' | 'nositel' | null };
+
+  if (reportText) {
+    console.log('[Section72] Текст из ТЗ п.21:', reportText.substring(0, 200));
+    console.log(
+      '[Section72] Извлечено: бумажных =',
+      copies.paper,
+      ', электронных =',
+      copies.electronic,
+      ', фраза =',
+      copies.electronicPhrase,
+    );
+  } else {
+    console.log('[Section72] reportCopiesText пуст — оставляем одно электронное количество из шаблона');
   }
-
-  console.log('[Section72] Текст из ТЗ п.21:', reportText.substring(0, 200));
-
-  const copies = parseReportCopies(reportText);
-  console.log('[Section72] Извлечено: бумажных =', copies.paper, ', электронных =', copies.electronic, ', форматы =', copies.electronicFormats);
 
   // Бумажные экземпляры
   if (xml.includes(`w14:paraId="${PARA_IDS.paperCopies}"`)) {
@@ -79,24 +83,43 @@ export function replaceProgramIeiSection72Block(params: {
         PARA_IDS.paperCopies,
         `на бумажном носителе – ${copies.paper} экз.;`,
       );
-    } else if (copies.electronic != null && copies.paper == null) {
-      // Если в ТЗ нет бумажных экземпляров — убираем строку
+    } else if (reportText && copies.electronic != null && copies.paper == null) {
+      // В ТЗ только электронные — бумажную строку убираем
+      xml = removeParagraphByParaId(xml, PARA_IDS.paperCopies);
+    } else if (!reportText) {
+      // Без ТЗ оставляем шаблонную бумажную строку как есть
+    } else if (copies.paper == null) {
       xml = removeParagraphByParaId(xml, PARA_IDS.paperCopies);
     }
   }
 
-  // Электронные экземпляры
-  if (copies.electronic != null && xml.includes(`w14:paraId="${PARA_IDS.electronicCopies}"`)) {
-    // Формируем текст с указанием форматов если есть
-    let elText = `на электронном носителе – ${copies.electronic} экз.`;
-    if (copies.electronicFormats) {
-      elText += ` ${copies.electronicFormats}`;
+  // Электронные: ровно одна строка, без форматов (форматы — в п.7.3)
+  const phrase = copies.electronicPhrase || 'vide';
+  const elCount = copies.electronic;
+
+  if (phrase === 'nositel') {
+    if (elCount != null && xml.includes(`w14:paraId="${PARA_IDS.electronicNositel}"`)) {
+      xml = replaceParagraphTextByParaIdWithItalic(
+        xml,
+        PARA_IDS.electronicNositel,
+        `на электронном носителе – ${elCount} экз.`,
+      );
     }
-    xml = replaceParagraphTextByParaIdWithItalic(
-      xml,
-      PARA_IDS.electronicCopies,
-      elText,
-    );
+    xml = removeParagraphByParaId(xml, PARA_IDS.electronicVide);
+  } else {
+    // «в электронном виде» (по умолчанию)
+    if (xml.includes(`w14:paraId="${PARA_IDS.electronicVide}"`)) {
+      if (elCount != null) {
+        xml = replaceParagraphTextByParaIdWithItalic(
+          xml,
+          PARA_IDS.electronicVide,
+          `Количество экземпляров в электронном виде – ${elCount} экз.`,
+        );
+      }
+      // если elCount null и нет ТЗ — оставляем шаблонный текст vide
+    }
+    // Вторую электронную строку всегда убираем, чтобы количество не дублировалось
+    xml = removeParagraphByParaId(xml, PARA_IDS.electronicNositel);
   }
 
   return xml;

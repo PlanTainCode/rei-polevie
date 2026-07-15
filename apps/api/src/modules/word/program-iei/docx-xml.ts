@@ -536,9 +536,8 @@ function escapeRegexPattern(str: string): string {
 
 /**
  * Удаляет run (w:r) содержащий указанный маркер из параграфа.
- * Также удаляет следующий run если он содержит только пробел,
- * или убирает ведущий пробел из следующего текста.
- * Сохраняет все остальные стили и runs.
+ * Также удаляет следующий run если он содержит только пробел.
+ * Сохраняет все остальные стили и runs (ведущие пробелы не трогаем — иначе слипание).
  */
 export function removeMarkerRunFromParagraph(xml: string, paraId: string, marker: string): string {
   const paraPattern = new RegExp(
@@ -547,29 +546,137 @@ export function removeMarkerRunFromParagraph(xml: string, paraId: string, marker
 
   return xml.replace(paraPattern, (_match, open, body, close) => {
     let newBody = body;
-    
-    // Удаляем run содержащий маркер
+
     const markerEscaped = escapeRegexPattern(marker);
     const markerRunPattern = new RegExp(
-      `<w:r>[^]*?<w:t[^>]*>${markerEscaped}</w:t>[^]*?</w:r>`,
+      `<w:r(?:\\s[^>]*)?>[^]*?<w:t[^>]*>${markerEscaped}</w:t>[^]*?</w:r>`,
       'g',
     );
     newBody = newBody.replace(markerRunPattern, '');
-    
-    // Удаляем run содержащий только пробел (обычно следует за маркером)
+
     newBody = newBody.replace(
-      /<w:r>[^]*?<w:t[^>]*>\s<\/w:t>[^]*?<\/w:r>/g,
+      /<w:r(?:\s[^>]*)?>[^]*?<w:t[^>]*>\s<\/w:t>[^]*?<\/w:r>/g,
       '',
     );
-    
-    // Убираем ведущий пробел из текста следующего run (если пробел в начале текста)
-    // Паттерн: <w:t xml:space="preserve"> Текст</w:t> -> <w:t xml:space="preserve">Текст</w:t>
-    newBody = newBody.replace(
-      /(<w:t[^>]*>)\s+/g,
-      '$1',
-    );
-    
+
     return open + newBody + close;
+  });
+}
+
+/** Нужен ли пробел между двумя соседними текстовыми фрагментами (run'ами). */
+function needsSpaceBetweenTextParts(left: string, right: string): boolean {
+  if (!left || !right) return false;
+  const a = left[left.length - 1];
+  const b = right[0];
+  if (!a || !b) return false;
+  if (/\s/.test(a) || /\s/.test(b)) return false;
+
+  // буква/цифра + буква → пробел
+  if (/[0-9А-Яа-яЁёA-Za-z]/.test(a) && /[А-Яа-яЁёA-Za-z]/.test(b)) {
+    return true;
+  }
+
+  // после . : ; , ) » " перед буквой обычно нужен пробел
+  if (/[.:;,)»"]/.test(a) && /[А-Яа-яЁёA-Za-z]/.test(b)) {
+    // г.Москва / р.Москвы / п.10 — без пробела
+    if (/[гГрРпПдДсСвВ]\.$/.test(left.slice(-2))) return false;
+    // инициалы Т.С.
+    if (/[А-ЯA-Z]\.$/.test(left.slice(-2)) && /^[А-ЯA-Z]\./.test(right)) return false;
+    // десятичные 1.2
+    if (/\d\.$/.test(left.slice(-2)) && /^\d/.test(right)) return false;
+    return true;
+  }
+
+  return false;
+}
+
+function decodeXmlTextEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#xa0;/gi, '\u00a0')
+    .replace(/&nbsp;/gi, '\u00a0');
+}
+
+function ensureWtPreserveSpace(openTag: string): string {
+  if (/xml:space\s*=/.test(openTag)) return openTag;
+  return openTag.replace(/^<w:t\b/, '<w:t xml:space="preserve"');
+}
+
+/**
+ * Блок подписей в конце программы ИЭИ — всё после последней таблицы до sectPr
+ * (Матвеева / Штефанова / Бурнацкая + пустые абзацы + сноска НРС).
+ */
+export function extractProgramIeiEndSignaturesBlock(xml: string): string | null {
+  const lastTbl = xml.lastIndexOf('</w:tbl>');
+  const sectPr = xml.lastIndexOf('<w:sectPr');
+  if (lastTbl < 0 || sectPr < 0 || lastTbl >= sectPr) return null;
+  return xml.slice(lastTbl + '</w:tbl>'.length, sectPr);
+}
+
+/** Возвращает блок подписей в конец документа как в шаблоне (после всех правок). */
+export function restoreProgramIeiEndSignaturesBlock(
+  xml: string,
+  endBlock: string | null,
+): string {
+  if (!endBlock) return xml;
+  const lastTbl = xml.lastIndexOf('</w:tbl>');
+  const sectPr = xml.lastIndexOf('<w:sectPr');
+  if (lastTbl < 0 || sectPr < 0 || lastTbl >= sectPr) return xml;
+  return xml.slice(0, lastTbl + '</w:tbl>'.length) + endBlock + xml.slice(sectPr);
+}
+
+/**
+ * Вставляет пропущенные пробелы между соседними <w:t> в параграфах,
+ * где в шаблоне Word текст разбит на runs без пробела (слипание слов).
+ */
+export function fixMissingSpacesInDocxXml(xml: string): string {
+  return xml.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, (para) => {
+    const re = /(<w:t(?:\s[^>]*)?>)([\s\S]*?)(<\/w:t>)/g;
+    const parts: { open: string; text: string; close: string; start: number; end: number }[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(para)) !== null) {
+      parts.push({
+        open: m[1],
+        text: m[2],
+        close: m[3],
+        start: m.index,
+        end: m.index + m[0].length,
+      });
+    }
+    if (parts.length < 2) return para;
+
+    const meaningful = parts
+      .map((p, idx) => ({ ...p, idx }))
+      .filter((p) => decodeXmlTextEntities(p.text).length > 0);
+
+    const updates = new Map<number, { open: string; text: string }>();
+    for (let i = 0; i < meaningful.length - 1; i++) {
+      const left = meaningful[i];
+      const right = meaningful[i + 1];
+      const leftDecoded = decodeXmlTextEntities(left.text);
+      const rightDecoded = decodeXmlTextEntities(right.text);
+      if (!needsSpaceBetweenTextParts(leftDecoded, rightDecoded)) continue;
+      updates.set(right.idx, {
+        open: ensureWtPreserveSpace(right.open),
+        text: escapeXml(' ' + rightDecoded),
+      });
+    }
+
+    if (updates.size === 0) return para;
+
+    let result = para;
+    const idxs = [...updates.keys()].sort((a, b) => b - a);
+    for (const idx of idxs) {
+      const part = parts[idx];
+      const upd = updates.get(idx)!;
+      const replacement = `${upd.open}${upd.text}${part.close}`;
+      result = result.slice(0, part.start) + replacement + result.slice(part.end);
+    }
+    return result;
   });
 }
 

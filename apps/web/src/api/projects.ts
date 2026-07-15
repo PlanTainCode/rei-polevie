@@ -151,6 +151,8 @@ export interface ProgramIei {
   customObjectAddress: string | null;
   radiometryAreaHa: number | null;
   section82Text: string | null;
+  customerProvidesBackgroundConcentrations: boolean;
+  isRestrictedObject: boolean;
   generatedFileName: string | null;
   generatedFileUrl: string | null;
   generatedAt: string | null;
@@ -177,6 +179,8 @@ export interface UpdateProgramIeiData {
   customObjectAddress?: string;
   radiometryAreaHa?: number | null;
   section82Text?: string;
+  customerProvidesBackgroundConcentrations?: boolean;
+  isRestrictedObject?: boolean;
 }
 
 export type UpdateProgramIgmiData = UpdateProgramIeiData;

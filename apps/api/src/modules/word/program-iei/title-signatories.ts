@@ -65,6 +65,31 @@ function isApprovalHeader(header: string): boolean {
   return header.toUpperCase().replace(/[«»"\s]/g, '').includes('УТВЕРЖДА');
 }
 
+/** В программе ИЭИ «УТВЕРЖДАЮ» всегда у АО «РЭИ-ЭКОАУДИТ», у остальных — «СОГЛАСОВАНО». */
+export function applyProgramIeiApprovalHeaders(signatories: TitleSignatory[]): TitleSignatory[] {
+  if (!signatories?.length) return signatories;
+
+  const isRei = (sig: TitleSignatory) => {
+    const org = sig.organization || '';
+    if (/РЭИ/i.test(org)) return true;
+    const label = (sig.label || '').toLowerCase();
+    return label.includes('подрядчик') || label.includes('исполнитель');
+  };
+
+  let reiIdx = signatories.findIndex(isRei);
+  // Нижний левый слот макета (2-я строка, 1-я колонка), если AI не нашёл РЭИ
+  if (reiIdx < 0) {
+    if (signatories.length >= 4) reiIdx = 2;
+    else if (signatories.length === 3) reiIdx = 1;
+    else if (signatories.length === 2) reiIdx = 0;
+  }
+
+  return signatories.map((sig, i) => ({
+    ...sig,
+    header: i === reiIdx ? 'УТВЕРЖДАЮ' : 'СОГЛАСОВАНО',
+  }));
+}
+
 function signatoryCell(sig: TitleSignatory): string {
   const header = isApprovalHeader(sig.header) ? '«УТВЕРЖДАЮ»' : '«СОГЛАСОВАНО»';
   return (
