@@ -607,6 +607,99 @@ function ensureWtPreserveSpace(openTag: string): string {
 }
 
 /**
+ * Заменяет видимый текст, даже если Word разбил его на несколько runs.
+ * Текст вне совпадения (включая значения полей PAGE/NUMPAGES) не затрагивается.
+ */
+export function replaceTextAcrossWordRuns(
+  xml: string,
+  pattern: RegExp,
+  replacement: string,
+): string {
+  const flags = pattern.flags.replace(/[gy]/g, '');
+  const localPattern = new RegExp(pattern.source, flags);
+
+  return String(xml).replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, (paragraph) => {
+    const textPattern = /(<w:t(?:\s[^>]*)?>)([\s\S]*?)(<\/w:t>)/g;
+    const parts: Array<{
+      open: string;
+      text: string;
+      close: string;
+      start: number;
+      end: number;
+      visibleStart: number;
+      visibleEnd: number;
+    }> = [];
+
+    let visible = '';
+    let match: RegExpExecArray | null;
+    while ((match = textPattern.exec(paragraph)) !== null) {
+      const decoded = decodeXmlTextEntities(match[2]);
+      parts.push({
+        open: match[1],
+        text: decoded,
+        close: match[3],
+        start: match.index,
+        end: match.index + match[0].length,
+        visibleStart: visible.length,
+        visibleEnd: visible.length + decoded.length,
+      });
+      visible += decoded;
+    }
+
+    const visibleMatch = localPattern.exec(visible);
+    if (!visibleMatch || visibleMatch.index === undefined || visibleMatch[0].length === 0) {
+      return paragraph;
+    }
+
+    const matchStart = visibleMatch.index;
+    const matchEnd = matchStart + visibleMatch[0].length;
+    const firstIndex = parts.findIndex(
+      (part) => part.visibleEnd > matchStart && part.visibleStart < matchEnd,
+    );
+    let lastIndex = -1;
+    for (let index = parts.length - 1; index >= 0; index--) {
+      const part = parts[index];
+      if (part.visibleStart < matchEnd && part.visibleEnd > matchStart) {
+        lastIndex = index;
+        break;
+      }
+    }
+
+    if (firstIndex < 0 || lastIndex < firstIndex) return paragraph;
+
+    const first = parts[firstIndex];
+    const last = parts[lastIndex];
+    const firstOffset = Math.max(0, matchStart - first.visibleStart);
+    const lastOffset = Math.max(0, matchEnd - last.visibleStart);
+    const updates = new Map<number, string>();
+
+    if (firstIndex === lastIndex) {
+      updates.set(
+        firstIndex,
+        first.text.slice(0, firstOffset) + replacement + first.text.slice(lastOffset),
+      );
+    } else {
+      updates.set(firstIndex, first.text.slice(0, firstOffset) + replacement);
+      for (let index = firstIndex + 1; index < lastIndex; index++) {
+        updates.set(index, '');
+      }
+      updates.set(lastIndex, last.text.slice(lastOffset));
+    }
+
+    let result = paragraph;
+    for (const index of [...updates.keys()].sort((a, b) => b - a)) {
+      const part = parts[index];
+      const value = updates.get(index) ?? '';
+      const open = value.includes(' ') ? ensureWtPreserveSpace(part.open) : part.open;
+      const updated = `${open}${escapeXml(value)}${part.close}`;
+      result = result.slice(0, part.start) + updated + result.slice(part.end);
+    }
+
+    return result;
+  });
+}
+
+/**
  * Блок подписей в конце программы ИЭИ — всё после последней таблицы до sectPr
  * (Матвеева / Штефанова / Бурнацкая + пустые абзацы + сноска НРС).
  */

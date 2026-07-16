@@ -17,7 +17,7 @@ import {
 import { join } from 'path';
 import { mkdir, writeFile, readFile } from 'fs/promises';
 import { PrismaService } from '../../prisma/prisma.service';
-import * as PizZip from 'pizzip';
+import PizZip = require('pizzip');
 import * as mammoth from 'mammoth';
 import { DistanceService } from '../distance/distance.service';
 import {
@@ -46,6 +46,7 @@ import {
   replaceParagraphTextByParaIdPreserveRunProps,
   normalizeDocumentStyles,
   fixMissingSpacesInDocxXml,
+  replaceTextAcrossWordRuns,
   extractProgramIeiEndSignaturesBlock,
   restoreProgramIeiEndSignaturesBlock,
 } from './program-iei/docx-xml';
@@ -1834,11 +1835,49 @@ export class WordService {
       where: { projectId },
     });
 
+    const normalizeNearbyValue = (value: unknown, direction: string): string =>
+      String(value ?? '')
+        .trim()
+        .replace(new RegExp(`^[Кк]\\s*${direction}\\s*:\\s*`, 'i'), '')
+        .replace(/[;.]\s*$/, '')
+        .trim();
+    const nearbyFreeText = String(programIei?.nearbyText ?? '').trim();
+    const nearbyLines = nearbyFreeText
+      ? [nearbyFreeText]
+      : [
+          ['югу', 'К югу', programIei?.nearbySouth],
+          ['востоку', 'К востоку', programIei?.nearbyEast],
+          ['западу', 'К западу', programIei?.nearbyWest],
+          ['северу', 'К северу', programIei?.nearbyNorth],
+        ]
+          .map(([direction, label, value]) => {
+            const normalized = normalizeNearbyValue(value, String(direction));
+            return normalized ? `${label}: ${normalized}` : '';
+          })
+          .filter(Boolean);
+
+    let distanceFromOfficeKm: number | null = project.distanceKm ?? null;
+    if (distanceFromOfficeKm == null) {
+      const effectiveAddress =
+        String(programIei?.customObjectAddress ?? '').trim() || project.objectAddress;
+      if (effectiveAddress) {
+        try {
+          distanceFromOfficeKm = await this.distanceService.getDistanceToAddress(
+            effectiveAddress,
+            project.objectName || undefined,
+          );
+        } catch (error) {
+          console.error('[IGMI] Ошибка расчёта расстояния до объекта:', error);
+        }
+      }
+    }
+
     // ─── Загрузка ИГМИ-шаблона ───
     const templatePath = join(this.templateDir, 'игми', this.programIgmiTemplate);
     const templateContent = await readFile(templatePath, 'binary');
     const zip = new PizZip(templateContent);
     let docXml = zip.file('word/document.xml')?.asText() || '';
+    const igmiEndBlock = extractProgramIeiEndSignaturesBlock(docXml);
 
     // ═══════════════════════════════════════════════════════
     // ТИТУЛ — paraId-замены (в ИГМИ нет HYPERLINK-плейсхолдеров)
@@ -1859,6 +1898,12 @@ export class WordService {
         contractorRole: section1Data.contractorRole || 'Подрядчик',
         programmaParaId: '45F9CC84',
       });
+    } else {
+      docXml = this.replaceCustomerTitleBlock(docXml, section1Data);
+      docXml = this.replaceContractorRole(
+        docXml,
+        section1Data.contractorRole || 'Подрядчик',
+      );
     }
 
     // ═══════════════════════════════════════════════════════
@@ -1977,6 +2022,31 @@ export class WordService {
       }
     }
 
+    // 3.2 Окружение участка — ручные данные из интерфейса имеют приоритет.
+    if (nearbyLines.length > 0) {
+      docXml = this.replaceParagraphTextWithBreaks(
+        docXml,
+        '332D0BAC',
+        nearbyLines.join('\n'),
+      );
+    } else {
+      docXml = this.removeParagraphByParaId(docXml, '332D0BAC');
+    }
+
+    // 4.1 Расстояние от базы до участка.
+    if (distanceFromOfficeKm != null && Number.isFinite(distanceFromOfficeKm)) {
+      const distanceText = new Intl.NumberFormat('ru-RU', {
+        maximumFractionDigits: 1,
+      }).format(distanceFromOfficeKm);
+      docXml = replaceParagraphTextByParaIdPreserveRunProps(
+        docXml,
+        '6A4D9E21',
+        `Расстояние от базы изыскательской организации до участка изысканий: ${distanceText} км.`,
+      );
+    } else {
+      docXml = this.removeParagraphByParaId(docXml, '6A4D9E21');
+    }
+
     // ═══════════════════════════════════════════════════════
     // ОБЗОРНАЯ СХЕМА (п.1.9.3) — вставка нового изображения в ячейку
     // ═══════════════════════════════════════════════════════
@@ -1986,20 +2056,21 @@ export class WordService {
         const imageBuffer = await readFile(imagePath);
         const ext = programIei.overviewImageName.split('.').pop()?.toLowerCase() || 'png';
 
-        const mediaName = `image2.${ext}`;
+        const mediaName = `igmi-overview.${ext}`;
         zip.file(`word/media/${mediaName}`, imageBuffer);
 
         const relsFile = zip.file('word/_rels/document.xml.rels');
         if (relsFile) {
           let relsXml = relsFile.asText();
-          const newRid = 'rId100';
-          if (!relsXml.includes(`Id="${newRid}"`)) {
-            relsXml = relsXml.replace(
-              '</Relationships>',
-              `<Relationship Id="${newRid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${mediaName}"/></Relationships>`,
-            );
-            zip.file('word/_rels/document.xml.rels', relsXml);
-          }
+          const usedRelationshipIds = [...relsXml.matchAll(/Id="rId(\d+)"/g)].map(
+            (match) => Number(match[1]),
+          );
+          const newRid = `rId${Math.max(0, ...usedRelationshipIds) + 1}`;
+          relsXml = relsXml.replace(
+            '</Relationships>',
+            `<Relationship Id="${newRid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${mediaName}"/></Relationships>`,
+          );
+          zip.file('word/_rels/document.xml.rels', relsXml);
 
           if (ext === 'jpg' || ext === 'jpeg') {
             const ctFile = zip.file('[Content_Types].xml');
@@ -2026,10 +2097,14 @@ export class WordService {
             }
           }
 
+          const usedDocPrIds = [...docXml.matchAll(/<wp:docPr[^>]*\bid="(\d+)"/g)].map(
+            (match) => Number(match[1]),
+          );
+          const docPrId = Math.max(0, ...usedDocPrIds) + 1;
           const drawingXml =
             `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">` +
             `<wp:extent cx="${imgWidthEmu}" cy="${imgHeightEmu}"/>` +
-            `<wp:docPr id="100" name="OverviewImage"/>` +
+            `<wp:docPr id="${docPrId}" name="OverviewImage"/>` +
             `<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">` +
             `<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
             `<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
@@ -2043,11 +2118,14 @@ export class WordService {
           const paraRe = new RegExp(
             `(<w:p[^>]*w14:paraId="${targetParaId}"[^>]*>)([\\s\\S]*?)(</w:p>)`,
           );
-          docXml = docXml.replace(paraRe, (_m, open, body, close) => {
-            const pPrMatch = body.match(/<w:pPr[\s\S]*?<\/w:pPr>/);
-            const pPr = pPrMatch ? pPrMatch[0] : '';
-            return `${open}${pPr}${drawingXml}${close}`;
-          });
+          docXml = docXml.replace(
+            paraRe,
+            (_m: string, open: string, body: string, close: string) => {
+              const pPrMatch = body.match(/<w:pPr[\s\S]*?<\/w:pPr>/);
+              const pPr = pPrMatch ? pPrMatch[0] : '';
+              return `${open}${pPr}${drawingXml}${close}`;
+            },
+          );
         }
       } catch (error) {
         console.error('[IGMI] Ошибка вставки обзорной схемы:', error);
@@ -2060,31 +2138,37 @@ export class WordService {
     docXml = normalizeDocumentStyles(docXml);
     docXml = this.normalizeGeneratedTextFormatting(docXml);
     docXml = fixMissingSpacesInDocxXml(docXml);
+    docXml = restoreProgramIeiEndSignaturesBlock(docXml, igmiEndBlock);
     zip.file('word/document.xml', docXml);
 
     // Колонтитулы — номер документа
     const docNumber = project.documentNumber || '801-000-25';
     const docParts = docNumber.split('-');
-    const middle = docParts.length >= 2 ? docParts[1] : '000';
     const year = docParts.length >= 3 ? docParts[2] : '25';
+    const fullYear = year.length === 2 ? `20${year}` : year;
 
-    for (const footerFile of ['word/footer1.xml', 'word/footer2.xml']) {
+    const footerFiles = Object.keys(zip.files).filter((name) =>
+      /^word\/footer\d+\.xml$/.test(name),
+    );
+    for (const footerFile of footerFiles) {
       const footer = zip.file(footerFile);
       if (footer) {
         let footerXml = footer.asText();
-        // \u2026 = … (многоточие)
-        footerXml = footerXml.replace(/(<w:t[^>]*>)\u2026(<\/w:t>)/g, `$1${middle}$2`);
-        // Год в "-25-ПГМ"
-        footerXml = footerXml.replace(
-          /(<w:t[^>]*>)-\d{2}(-\u041F\u0413\u041C)/g,
-          `$1-${year}$2`,
+        footerXml = replaceTextAcrossWordRuns(
+          footerXml,
+          /№\s*801-[^-]*-\d{2}-ПГМ(?:-1)?/,
+          `№ ${docNumber}-ПГМ-1`,
         );
+        footerXml = replaceTextAcrossWordRuns(footerXml, /\b20\d{2}\b/, fullYear);
         footerXml = normalizeDocumentStyles(footerXml);
         zip.file(footerFile, footerXml);
       }
     }
 
-    for (const headerFile of ['word/header1.xml', 'word/header2.xml']) {
+    const headerFiles = Object.keys(zip.files).filter((name) =>
+      /^word\/header\d+\.xml$/.test(name),
+    );
+    for (const headerFile of headerFiles) {
       const header = zip.file(headerFile);
       if (header) {
         let headerXml = header.asText();
@@ -2755,6 +2839,11 @@ export class WordService {
     
     // Заменяем ФИО заказчика (paraId 2D94512F)
     xml = this.replaceHyperlinkTextByParaId(xml, '2D94512F', 'ДиректорФИО', customerDirectorName);
+
+    // В ИГМИ плейсхолдеры заказчика присутствуют также в нижнем блоке титула.
+    xml = replaceTextAcrossWordRuns(xml, /ДиректорДолжность/, customerPosition);
+    xml = replaceTextAcrossWordRuns(xml, /НазваниеОрганизации/, customerName);
+    xml = replaceTextAcrossWordRuns(xml, /ДиректорФИО/, customerDirectorName);
 
     return xml;
   }
