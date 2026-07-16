@@ -40,6 +40,7 @@ import {
   applyProgramIeiSection42NaturalConditionsTop10,
   applyProgramIeiSection42QuantitiesFromServices,
   parseHaFromText,
+  pruneProgramIeiSection42PprRows,
   pruneProgramIeiSection42WaterBlocks,
 } from './program-iei/section-42-natural-conditions';
 import { 
@@ -1288,9 +1289,30 @@ export class WordService {
             });
           }
 
-          const mergedKeep = Array.from(
+          let mergedKeep = Array.from(
             new Set([...(match.keepWorkRowIndexes || []), ...forceKeepWorkIdxs]),
           );
+
+          // Жёстко убираем ППР из keep, если в поручении нет услуги row=17.
+          // Иначе AI иногда оставляет строку из‑за «в соответствии с ППР» (проект производства работ).
+          const hasPprService = servicesFromOrder.some((s) => s.row === 17);
+          if (!hasPprService) {
+            const pprWorkIdxs = new Set(
+              extracted42.workRows
+                .map((r, i) => ({ r, i }))
+                .filter(({ r }) => {
+                  const t = String(r.title || '').toLowerCase();
+                  return (
+                    t.includes('ппр') &&
+                    (t.includes('измерен') || t.includes('радон') || t.includes('контуре'))
+                  );
+                })
+                .map(({ i }) => i),
+            );
+            if (pprWorkIdxs.size > 0) {
+              mergedKeep = mergedKeep.filter((i) => !pprWorkIdxs.has(i));
+            }
+          }
 
           if (match.ok && mergedKeep.length > 0) {
             docXml = applyProgramIeiSection42TableFiltering({
@@ -1430,6 +1452,27 @@ export class WordService {
               hasGroundWater,
             });
           }
+
+          // ППР: всегда вычищаем строку, если в поручении нет услуги/количества row=17
+          // (даже если AI-фильтрация таблицы не сработала).
+          {
+            const toNum = (v: number | string | undefined): number => {
+              if (v === undefined) return 0;
+              if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+              const s = String(v).trim();
+              if (!s || s === '-' || s === '–') return 0;
+              const n = Number(s.replace(',', '.'));
+              return Number.isFinite(n) ? n : 0;
+            };
+            const hasPPR =
+              toNum(quantitiesByRow[17]) > 0 ||
+              servicesFromOrder.some((s) => s.row === 17);
+            docXml = pruneProgramIeiSection42PprRows({
+              xml: docXml,
+              rows: extracted42.rows,
+              hasPPR,
+            });
+          }
         } catch (error) {
           console.error('[WordService] Ошибка обработки п.4.2:', error);
         }
@@ -1476,9 +1519,17 @@ export class WordService {
 
       // Фраза «В связи с запечатанностью... сокращено до двух точек» —
       // оставляем только если точек опробования ≤ 2; если больше — убираем.
+      // Приоритет: площадки (ПП/СК / surfacePlatformCount) — это точки, не суммарные пробы по слоям.
       {
-        let points = soilSamplingPointsCount;
-        if (points == null) {
+        const layersPlatformCount = section47LayersData?.surfacePlatformCount || 0;
+        let points: number | null = null;
+        if (uniquePlatformCount > 0) {
+          points = uniquePlatformCount;
+        } else if (layersPlatformCount > 0) {
+          points = layersPlatformCount;
+        } else if (soilSamplingPointsCount != null) {
+          points = soilSamplingPointsCount;
+        } else {
           const merged = Array.isArray((projectWithMergedServices as any)?.services)
             ? ((projectWithMergedServices as any).services as ServiceMatch[])
             : [];
@@ -1499,10 +1550,11 @@ export class WordService {
             }
           }
           if (found) points = maxPoints;
-          else if (uniquePlatformCount > 0) points = uniquePlatformCount;
         }
 
-        console.log(`[WordService] Фраза про запечатанность/2 точки: points=${points}`);
+        console.log(
+          `[WordService] Фраза про запечатанность/2 точки: points=${points}, platforms=${uniquePlatformCount}, layersPlatforms=${layersPlatformCount}, soilQty=${soilSamplingPointsCount}`,
+        );
         if (points != null && points > 2) {
           docXml = this.removeParagraphByParaId(docXml, '053B59A9');
         }

@@ -419,3 +419,27 @@ export function pruneProgramIeiSection42WaterBlocks(params: {
 
   return xml;
 }
+
+/**
+ * Убирает строку ППР из таблицы 4.2, если в поручении нет услуги/количества ППР (радон).
+ * Защита от ложных совпадений с «проектом производства работ».
+ */
+export function pruneProgramIeiSection42PprRows(params: {
+  xml: string;
+  rows: ProgramIeiSection42RowMeta[];
+  hasPPR: boolean;
+}): string {
+  if (params.hasPPR) return params.xml;
+
+  let xml = params.xml;
+  for (const row of params.rows) {
+    const t = lower(row.title);
+    const isPprRow =
+      t.includes('ппр') &&
+      (t.includes('измерен') || t.includes('радон') || t.includes('контуре проектируемых'));
+    if (isPprRow && row.trParaId) {
+      xml = removeTableRowByTrParaId(xml, row.trParaId);
+    }
+  }
+  return xml;
+}
