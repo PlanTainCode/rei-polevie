@@ -75,6 +75,8 @@ const isAlwaysKeepRow = (title: string): boolean => {
   const t = title.toLowerCase();
   if (t.includes('подготовка технического отчета')) return true;
   if (t.includes('расстояние от базы')) return true;
+  // Атмосферный воздух по справке УГМС — всегда в объёмах (не зависит от отбора проб)
+  if (t.startsWith('оценка содержания загрязняющих веществ')) return true;
   return false;
 };
 

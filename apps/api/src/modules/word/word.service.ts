@@ -1279,8 +1279,9 @@ export class WordService {
               (t: string) => t.startsWith('характеристика ландшафтных условий'),
               (t: string) => t.startsWith('характеристика геоморфологических'),
               (t: string) => t.startsWith('характеристика почвенного покрова'),
-              (t: string) => t.startsWith('характеристика социально-экономических условий'),
               (t: string) => t.startsWith('характеристика фонового загрязнения'),
+              // По справке УГМС — всегда, даже без отбора проб воздуха в поручении
+              (t: string) => t.startsWith('оценка содержания загрязняющих веществ'),
             ];
 
             extracted42.workRows.forEach((r, i) => {
@@ -3110,13 +3111,14 @@ export class WordService {
   ): string {
     // П.3 - Справка о фоновых концентрациях
     if (customerProvidesBackgroundConcentrations) {
-      // Заказчик предоставляет — оставляем в 2.1, подставляем номер/дату из ТЗ если есть
-      if (section1Data.backgroundConcentrationsRef) {
+      // Заказчик предоставляет — оставляем в 2.1 с номером из шаблона;
+      // если AI извлёк номер/дату из ТЗ — подставляем его (иначе шаблонный № не трогаем).
+      // Красный → чёрный делает normalizeGeneratedTextFormatting.
+      const ref = (section1Data.backgroundConcentrationsRef || '').trim();
+      if (ref) {
         xml = xml.split('>№ 312/15/05/ Э-574 от 28.02.2022</w:t>').join(
-          `>${section1Data.backgroundConcentrationsRef}</w:t>`,
+          `>${this.escapeXml(ref)}</w:t>`,
         );
-      } else {
-        xml = xml.split('>№ 312/15/05/ Э-574 от 28.02.2022</w:t>').join('></w:t>');
       }
     } else {
       // Мы заказываем сами — убираем из 2.1 (останется в 2.3)
