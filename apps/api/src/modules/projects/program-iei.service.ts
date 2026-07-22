@@ -297,4 +297,72 @@ export class ProgramIeiService {
       },
     });
   }
+
+  private readonly igiUploadsDir = join(process.cwd(), 'uploads', 'program-igi');
+
+  /**
+   * Загрузить исходный Word подрядчика для программы ИГИ
+   */
+  async uploadIgiSource(projectId: string, file: Express.Multer.File) {
+    if (!file || !file.buffer) {
+      throw new Error('Файл не получен');
+    }
+
+    const ext = (file.originalname.split('.').pop() || 'docx').toLowerCase();
+    if (ext !== 'docx') {
+      throw new Error('Разрешены только файлы .docx');
+    }
+
+    await this.getOrCreate(projectId);
+    await mkdir(this.igiUploadsDir, { recursive: true });
+
+    const fileName = `igi-source-${projectId}-${randomUUID()}.docx`;
+    const filePath = join(this.igiUploadsDir, fileName);
+    await writeFile(filePath, file.buffer);
+
+    const current = await this.prisma.programIei.findUnique({ where: { projectId } });
+    if (current?.igiSourceFileName) {
+      const oldPath = join(this.igiUploadsDir, current.igiSourceFileName);
+      if (existsSync(oldPath)) {
+        await unlink(oldPath).catch(() => {});
+      }
+    }
+
+    return this.prisma.programIei.update({
+      where: { projectId },
+      data: {
+        igiSourceFileName: fileName,
+        igiSourceFileUrl: `/uploads/program-igi/${fileName}`,
+      },
+    });
+  }
+
+  async deleteIgiSource(projectId: string) {
+    const programIei = await this.prisma.programIei.findUnique({
+      where: { projectId },
+    });
+
+    if (!programIei) {
+      throw new NotFoundException('Программа ИЭИ не найдена');
+    }
+
+    if (programIei.igiSourceFileName) {
+      const filePath = join(this.igiUploadsDir, programIei.igiSourceFileName);
+      if (existsSync(filePath)) {
+        await unlink(filePath).catch(() => {});
+      }
+    }
+
+    return this.prisma.programIei.update({
+      where: { projectId },
+      data: {
+        igiSourceFileName: null,
+        igiSourceFileUrl: null,
+      },
+    });
+  }
+
+  getIgiSourcePath(projectId: string, fileName: string): string {
+    return join(this.igiUploadsDir, fileName);
+  }
 }

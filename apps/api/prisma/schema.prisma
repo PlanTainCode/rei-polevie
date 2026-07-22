@@ -318,6 +318,13 @@ model ProgramIei {
   igmiGeneratedFileUrl  String?
   igmiGeneratedAt       DateTime?
 
+  // Исходный файл подрядчика и результат ИГИ
+  igiSourceFileName     String?
+  igiSourceFileUrl      String?
+  igiGeneratedFileName  String?
+  igiGeneratedFileUrl   String?
+  igiGeneratedAt        DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

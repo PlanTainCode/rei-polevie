@@ -937,6 +937,73 @@ export class ProjectsController {
     return this.programIeiService.deleteOverviewImage(id);
   }
 
+  // ============ ПРОГРАММА ИГИ ============
+  // Тот же storage полей ProgramIei + исходный Word подрядчика (igiSource*).
+
+  @Get(':id/program-igi')
+  async getProgramIgi(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    await this.projectsService.findById(id, req.user.userId);
+    return this.programIeiService.get(id);
+  }
+
+  @Patch(':id/program-igi')
+  async updateProgramIgi(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @Body() dto: UpdateProgramIeiDto,
+  ) {
+    await this.projectsService.findById(id, req.user.userId);
+    return this.programIeiService.update(id, dto);
+  }
+
+  @Post(':id/program-igi/source')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadProgramIgiSource(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    await this.projectsService.findById(id, req.user.userId);
+    return this.programIeiService.uploadIgiSource(id, file);
+  }
+
+  @Delete(':id/program-igi/source')
+  async deleteProgramIgiSource(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    await this.projectsService.findById(id, req.user.userId);
+    return this.programIeiService.deleteIgiSource(id);
+  }
+
+  @Post(':id/generate-program-igi')
+  async generateProgramIgi(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    const project = await this.projectsService.findById(id, req.user.userId);
+
+    if (project.parentProjectId) {
+      throw new BadRequestException(
+        'Программа ИГИ генерируется только для основного проекта. Для допотбора используйте программу родительского проекта.',
+      );
+    }
+
+    const result = await this.wordService.generateProgramIgi({
+      projectId: id,
+      userId: req.user.userId,
+    });
+
+    return {
+      success: true,
+      fileName: result.fileName,
+      downloadUrl: `/generated/${result.fileName}`,
+    };
+  }
+
   // Получить расстояние от офиса до объекта
   @Get(':id/distance')
   async getDistanceToObject(

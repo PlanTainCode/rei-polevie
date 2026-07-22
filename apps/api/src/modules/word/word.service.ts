@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   Document,
   Packer,
@@ -66,6 +66,7 @@ import { replaceProgramIeiSection82Block } from './program-iei/section-82';
 import { replaceProgramIeiSection83And84Block } from './program-iei/section-83-84';
 import {
   applyProgramIeiApprovalHeaders,
+  replaceProgramIgiTitleSignatories,
   replaceTitleSignatories,
 } from './program-iei/title-signatories';
 import { resolveProgramIeiLocation12 } from './program-iei/precise-location';
@@ -73,6 +74,14 @@ import {
   extractUrbanPlanningActivityFromTz,
   URBAN_PLANNING_ACTIVITY_OPTIONS,
 } from './program-iei/urban-planning';
+import {
+  extractGoalsTextFromSection1,
+  fillProgramIgiSection1,
+  findOverviewImageTargetParaId,
+  findSection1Bounds,
+  hasGeologicalGoals,
+  replaceTitleObjectName,
+} from './program-igi/section-1';
 
 interface GenerateOptions {
   projectId: string;
@@ -2270,8 +2279,275 @@ export class WordService {
     return { filePath, fileName };
   }
 
+  /**
+   * Адаптирует программу ИГИ подрядчика: каноничный титул + §1, остальное без изменений.
+   */
+  async generateProgramIgi(options: GenerateOptions): Promise<GeneratedWordResult> {
+    const { projectId } = options;
 
-      /**
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+    });
+
+    if (!project) {
+      throw new NotFoundException('Проект не найден');
+    }
+
+    const programIei = await this.prisma.programIei.findUnique({
+      where: { projectId },
+    });
+
+    if (!programIei?.igiSourceFileName) {
+      throw new BadRequestException(
+        'Загрузите Word-файл программы ИГИ от подрядчика перед генерацией',
+      );
+    }
+
+    const sourcePath = join(
+      this.uploadsDir,
+      'program-igi',
+      programIei.igiSourceFileName,
+    );
+
+    let tzText: string | null = null;
+    let section1Data: ProgramIeiSection1Data | null = null;
+
+    if (project.tzFileUrl) {
+      try {
+        const tzPath = join(this.uploadsDir, project.tzFileUrl);
+        const tzBuffer = await readFile(tzPath);
+        const tzResult = await mammoth.extractRawText({ buffer: tzBuffer });
+        tzText = tzResult.value;
+        const templateSection1Text = await this.extractSection1FromTemplate();
+        section1Data = await this.aiService.extractProgramIeiSection1(
+          tzText,
+          templateSection1Text,
+        );
+
+        if (section1Data) {
+          const merged = mergeSiteDescriptionWithArea({
+            siteDescription: section1Data.siteDescription,
+            siteArea: section1Data.siteArea,
+            tzText,
+          });
+          section1Data.siteDescription = merged.siteDescription;
+          if (!section1Data.siteArea && merged.siteAreaSentence) {
+            section1Data.siteArea = merged.siteAreaSentence;
+          }
+          if (tzText) {
+            const urbanFromTz = extractUrbanPlanningActivityFromTz(tzText);
+            if (urbanFromTz) {
+              section1Data.urbanPlanningActivity = urbanFromTz;
+            }
+          }
+        }
+        console.log('[IGI] AI извлёк данные раздела 1');
+      } catch (error) {
+        console.error('[IGI] Ошибка чтения ТЗ или AI:', error);
+      }
+    }
+
+    if (!section1Data) {
+      section1Data = {
+        objectName: project.objectName || project.name || '',
+        objectLocation: project.objectAddress || '',
+        clientName: project.clientName || '',
+        clientOgrn: '',
+        clientAddress: project.clientAddress || '',
+        clientContactName: '',
+        clientContactPhone: '',
+        clientContactEmail: '',
+        goalsAndTasks: '',
+        objectPurpose: project.objectPurpose || '',
+        transportInfrastructure: 'Нет',
+        hazardousProduction: 'Нет',
+        fireHazard: 'Нет данных',
+        responsibilityLevel: 'Нормальный',
+        permanentOccupancy: 'Отсутствуют',
+        urbanPlanningActivity: '',
+        surveyStage: 'Инженерные изыскания для подготовки проектной документации',
+        technicalCharacteristics: '',
+        excavationDepth: '',
+        siteDescription: '',
+        siteArea: '',
+        technicalCustomerName: '',
+        technicalCustomerDirectorPosition: 'Генеральный директор',
+        technicalCustomerDirectorName: '',
+        clientDirectorPosition: 'Директор',
+        clientDirectorName: '',
+        clientShortName: '',
+        coordinates: null,
+        cadastralNumber: '',
+        backgroundConcentrationsRef: '',
+        previousSurveyReport: '',
+        reportCopiesText: '',
+        contractorRole: 'Подрядчик',
+        titleSignatories: [],
+      };
+    }
+
+    if (section1Data.titleSignatories && section1Data.titleSignatories.length > 0) {
+      for (const sig of section1Data.titleSignatories) {
+        if (sig.name || !tzText || !sig.organization) continue;
+        const orgShort = sig.organization
+          .replace(/^(ООО|АО|ЗАО|ПАО|ГУП|МУП|ФГУП|ФГБУ)\s*[«"]/i, '')
+          .replace(/[»"]\s*$/, '')
+          .trim();
+        if (orgShort.length < 3) continue;
+        let searchFrom = 0;
+        while (searchFrom < tzText.length) {
+          const orgIdx = tzText.indexOf(orgShort, searchFrom);
+          if (orgIdx === -1) break;
+          const afterOrg = tzText.substring(orgIdx, orgIdx + orgShort.length + 150);
+          const nameMatch = afterOrg.match(/([А-ЯЁ]\.[А-ЯЁ]\.[\s]?[А-ЯЁ][а-яё]{2,})/);
+          if (nameMatch) {
+            sig.name = nameMatch[1].trim();
+            break;
+          }
+          searchFrom = orgIdx + orgShort.length;
+        }
+      }
+      section1Data.titleSignatories = applyProgramIeiApprovalHeaders(
+        section1Data.titleSignatories,
+      );
+    }
+
+    const sourceContent = await readFile(sourcePath, 'binary');
+    const zip = new PizZip(sourceContent);
+    let docXml = zip.file('word/document.xml')?.asText() || '';
+
+    if (!findSection1Bounds(docXml)) {
+      throw new BadRequestException(
+        'В файле подрядчика не найдены границы §1 («Общие сведения» → «Изученность территории»)',
+      );
+    }
+
+    const objectName = String(
+      project.objectName || section1Data.objectName || project.name || '',
+    ).trim();
+
+    // Титул: шапку подрядчика (логотип + СРО) сохраняем, подписантов пересобираем из ТЗ как в ИЭИ/ИГМИ.
+    if (section1Data.titleSignatories && section1Data.titleSignatories.length > 0) {
+      docXml = replaceProgramIgiTitleSignatories({
+        xml: docXml,
+        signatories: section1Data.titleSignatories,
+        contractorRole: section1Data.contractorRole || 'Подрядчик',
+      });
+    }
+    if (objectName) {
+      docXml = replaceTitleObjectName(docXml, objectName);
+    }
+
+    const objectLocation = resolveProgramIeiLocation12({
+      objectName: project.objectName || section1Data.objectName || project.name,
+      objectLocation: section1Data.objectLocation,
+      projectAddress: project.objectAddress,
+    });
+
+    const contractorGoals = extractGoalsTextFromSection1(docXml);
+    const keepContractorGoals = hasGeologicalGoals(contractorGoals);
+    const goalsAndTasks = keepContractorGoals
+      ? null
+      : section1Data.goalsAndTasks || null;
+
+    const clientName = section1Data.clientName || project.clientName || '';
+    const clientOgrn = section1Data.clientOgrn || '';
+    const clientNameLine = [clientName, clientOgrn ? `ОГРН ${clientOgrn}` : '']
+      .filter(Boolean)
+      .join(', ');
+    const clientAddressLine = section1Data.clientAddress || project.clientAddress || '';
+    const clientContactLines = [
+      section1Data.clientContactName,
+      section1Data.clientContactPhone,
+      section1Data.clientContactEmail,
+    ]
+      .map((v) => String(v || '').trim())
+      .filter(Boolean);
+
+    let siteDescription = section1Data.siteDescription || '';
+    if (section1Data.siteArea && siteDescription && !siteDescription.includes(section1Data.siteArea)) {
+      siteDescription = `${siteDescription}\n${section1Data.siteArea}`;
+    } else if (!siteDescription && section1Data.siteArea) {
+      siteDescription = section1Data.siteArea;
+    }
+
+    const egrnLines: string[] = [];
+    if (programIei?.cadastralNumber || programIei?.egrnDescription) {
+      const cadastralNumbers = this.parseCadastralNumbers(programIei?.cadastralNumber || '');
+      if (cadastralNumbers.length === 1) {
+        egrnLines.push(
+          `Территория изысканий расположена в кадастровом квартале ${cadastralNumbers[0]}`,
+        );
+      } else if (cadastralNumbers.length > 1) {
+        egrnLines.push(
+          `Территория изысканий расположена в кадастровых кварталах ${cadastralNumbers.join(', ')}`,
+        );
+      }
+      if (programIei?.egrnDescription) {
+        egrnLines.push(...String(programIei.egrnDescription).split('\n').map((l) => l.trim()).filter(Boolean));
+      }
+    }
+
+    docXml = fillProgramIgiSection1(docXml, {
+      objectName,
+      objectLocation: objectLocation || section1Data.objectLocation || project.objectAddress || '',
+      clientNameLine,
+      clientAddressLine,
+      clientContactLines,
+      executorNameLine: 'АО «РЭИ-ЭКОАУДИТ», ОГРН 1037789070153',
+      executorAddressLine:
+        '117513, Город Москва, вн.тер. г. Муниципальный Округ Теплый Стан, ул Островитянова, дом 6, помещение З/П',
+      goalsAndTasks,
+      objectPurpose: section1Data.objectPurpose || project.objectPurpose || '',
+      transportInfrastructure: section1Data.transportInfrastructure || 'Нет',
+      hazardousProduction: section1Data.hazardousProduction || 'Нет',
+      fireHazard: section1Data.fireHazard || 'Нет данных',
+      responsibilityLevel: section1Data.responsibilityLevel || 'Нормальный',
+      permanentOccupancy: section1Data.permanentOccupancy || 'Отсутствуют',
+      urbanPlanningActivity: section1Data.urbanPlanningActivity || '',
+      surveyStage:
+        section1Data.surveyStage ||
+        'Инженерные изыскания для подготовки проектной документации',
+      technicalCharacteristics: section1Data.technicalCharacteristics || '',
+      excavationDepth: section1Data.excavationDepth || '',
+      siteDescription,
+      egrnLines,
+    });
+
+    // Обзорную схему для ИГИ не подставляем — оставляем как в файле подрядчика
+
+    // Не гоняем fixMissingSpacesInDocxXml по всему чужому DOCX — ломает §2+ (rei. ru, *. dwg и т.п.)
+    zip.file('word/document.xml', docXml);
+
+    const buffer = zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+    await mkdir(this.outputDir, { recursive: true });
+    const safeDocumentNumber = String(project.documentNumber || '801-000-25')
+      .replace(/[^0-9A-Za-zА-Яа-яЁё-]/g, '')
+      .substring(0, 40)
+      .trim() || '801-000-25';
+    const fileName = `${safeDocumentNumber}_ПГИ_${Date.now()}.docx`;
+    const filePath = join(this.outputDir, fileName);
+    await writeFile(filePath, buffer);
+
+    await this.prisma.programIei.upsert({
+      where: { projectId },
+      create: {
+        projectId,
+        igiGeneratedFileName: fileName,
+        igiGeneratedFileUrl: `/generated/${fileName}`,
+        igiGeneratedAt: new Date(),
+      },
+      update: {
+        igiGeneratedFileName: fileName,
+        igiGeneratedFileUrl: `/generated/${fileName}`,
+        igiGeneratedAt: new Date(),
+      },
+    });
+
+    return { filePath, fileName };
+  }
+
+  /**
    * Извлекает текст раздела 1 из шаблона программы ИЭИ для контекста AI
    */
   private async extractSection1FromTemplate(): Promise<string> {
