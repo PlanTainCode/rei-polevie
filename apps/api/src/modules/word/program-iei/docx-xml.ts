@@ -564,12 +564,18 @@ export function removeMarkerRunFromParagraph(xml: string, paraId: string, marker
 }
 
 /** Нужен ли пробел между двумя соседними текстовыми фрагментами (run'ами). */
-function needsSpaceBetweenTextParts(left: string, right: string): boolean {
+export function needsSpaceBetweenTextParts(left: string, right: string): boolean {
   if (!left || !right) return false;
   const a = left[left.length - 1];
   const b = right[0];
   if (!a || !b) return false;
   if (/\s/.test(a) || /\s/.test(b)) return false;
+
+  // Морфологические хвосты шаблона: сотруднико|м(-ами), исполнителе|м(-ями)
+  if (/^[а-яё]{1,3}\(/i.test(right)) return false;
+
+  // Обрыв слова на короткий слог с продолжением: ви|де в …
+  if (/[а-яё]$/i.test(left) && /^[а-яё]{1,2}\s/i.test(right)) return false;
 
   // буква/цифра + буква → пробел
   if (/[0-9А-Яа-яЁёA-Za-z]/.test(a) && /[А-Яа-яЁёA-Za-z]/.test(b)) {
@@ -582,8 +588,10 @@ function needsSpaceBetweenTextParts(left: string, right: string): boolean {
     if (/[гГрРпПдДсСвВ]\.$/.test(left.slice(-2))) return false;
     // инициалы Т.С.
     if (/[А-ЯA-Z]\.$/.test(left.slice(-2)) && /^[А-ЯA-Z]\./.test(right)) return false;
-    // десятичные 1.2
+    // десятичные 1.2 / ГОСТ 21.101
     if (/\d\.$/.test(left.slice(-2)) && /^\d/.test(right)) return false;
+    // расширения .pdf .dwg
+    if (/\.$/.test(a) && /^[a-zA-Z]{2,5}\b/.test(right)) return false;
     return true;
   }
 

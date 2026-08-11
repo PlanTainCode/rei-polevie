@@ -60,6 +60,10 @@ import { replaceProgramIeiSection61Block } from './program-iei/section-61';
 import { replaceProgramIeiSection62Block } from './program-iei/section-62';
 import { replaceProgramIeiSection71Block } from './program-iei/section-71';
 import { replaceProgramIeiSection72Block } from './program-iei/section-72';
+import {
+  extractProgramIeiSection73Paragraphs,
+  restoreProgramIeiSection73Paragraphs,
+} from './program-iei/section-73';
 import { replaceProgramIeiSection81Block } from './program-iei/section-81';
 import { extractSection81FromTz } from '../ai/program-iei/section-81';
 import { replaceProgramIeiSection82Block } from './program-iei/section-82';
@@ -1026,6 +1030,8 @@ export class WordService {
 
     // Подписи в конце файла — снимок из шаблона, восстановим после всех правок
     const endSignaturesBlock = extractProgramIeiEndSignaturesBlock(docXml);
+    // П.7.3 форматы — всегда как в шаблоне (AI/fixMissingSpaces не трогают)
+    const section73Paragraphs = extractProgramIeiSection73Paragraphs(docXml);
     
     // Логируем данные для п.1.9.1 (technicalCharacteristics -> XrObject)
     console.log('[WordService] XrObject (technicalCharacteristics) для замены:', data.XrObject);
@@ -1658,7 +1664,10 @@ export class WordService {
     // 3. Пробелы между runs, где в шаблоне слова слиплись
     docXml = fixMissingSpacesInDocxXml(docXml);
 
-    // 4. Блок подписей в конце — строго как в шаблоне (не трогаем пробелы/разметку)
+    // 4. П.7.3 — вернуть дословно из шаблона
+    docXml = restoreProgramIeiSection73Paragraphs(docXml, section73Paragraphs);
+
+    // 5. Блок подписей в конце — строго как в шаблоне (не трогаем пробелы/разметку)
     docXml = restoreProgramIeiEndSignaturesBlock(docXml, endSignaturesBlock);
 
     // п.1.3 Наименование заказчика — подчёркивание всех ранов (HYPERLINK-раны теряют

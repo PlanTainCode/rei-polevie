@@ -84,46 +84,77 @@ export function replaceProgramIeiSection81Block(params: {
 }
 
 /**
- * Генерирует XML-параграфы из текста ТЗ
+ * Генерирует XML-параграфы из текста ТЗ.
+ * Строки содержимого — с маркером списка как в шаблоне (w:numPr / numId=17).
  */
 function generateSection81Paragraphs(text: string): string {
   const paragraphs: string[] = [];
 
   // Разбиваем текст на блоки по заголовкам
-  // Паттерн: "Существующие источники воздействия:" и "Проектируемые источники воздействия:"
-  const blocks = text.split(/(?=Существующие источники воздействия:|Проектируемые источники воздействия:)/);
+  const blocks = text.split(
+    /(?=Существующие источники воздействия:|Проектируемые источники воздействия:)/,
+  );
 
   for (const block of blocks) {
     const trimmed = block.trim();
     if (!trimmed) continue;
 
-    // Проверяем, начинается ли блок с заголовка
-    const headerMatch = trimmed.match(/^(Существующие источники воздействия:|Проектируемые источники воздействия:)\s*/);
+    const headerMatch = trimmed.match(
+      /^(Существующие источники воздействия:|Проектируемые источники воздействия:)\s*/,
+    );
 
     if (headerMatch) {
-      // Добавляем заголовок курсивом
       paragraphs.push(createItalicParagraph(headerMatch[1]));
-
-      // Остальной текст блока - обычным шрифтом
       const content = trimmed.substring(headerMatch[0].length).trim();
-      if (content) {
-        paragraphs.push(createNormalParagraph(content));
+      for (const line of splitSection81ContentLines(content)) {
+        paragraphs.push(createBulletParagraph(line));
       }
     } else {
-      // Просто текст без заголовка
-      paragraphs.push(createNormalParagraph(trimmed));
+      for (const line of splitSection81ContentLines(trimmed)) {
+        paragraphs.push(createBulletParagraph(line));
+      }
     }
   }
 
   return paragraphs.join('');
 }
 
+/** Разбивает тело блока на отдельные пункты списка. */
+function splitSection81ContentLines(content: string): string[] {
+  if (!content) return [];
+
+  // Сначала по переводам строк, затем по «период строительства/эксплуатации:»
+  const rawParts = content
+    .split(/\n+/)
+    .flatMap((part) =>
+      part.split(/(?=период\s+(?:строительства|эксплуатации)\s*:)/i),
+    )
+    .map((part) => part.replace(/^[\s]*[-–—•]+\s*/, '').trim())
+    .filter(Boolean);
+
+  return rawParts;
+}
+
 /**
- * Создаёт обычный параграф с корректными стилями
+ * Параграф с маркером списка (тире) — как в шаблоне п.8.1
  */
-function createNormalParagraph(text: string): string {
+function createBulletParagraph(text: string): string {
   const escapedText = escapeXml(text);
-  return `<w:p><w:pPr><w:jc w:val="both"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:i/><w:iCs/><w:sz w:val="24"/><w:szCs w:val="24"/><w:color w:val="000000"/></w:rPr><w:t xml:space="preserve">${escapedText}</w:t></w:r></w:p>`;
+  return (
+    `<w:p>` +
+    `<w:pPr>` +
+    `<w:pStyle w:val="28"/>` +
+    `<w:numPr><w:ilvl w:val="0"/><w:numId w:val="17"/></w:numPr>` +
+    `<w:spacing w:after="0" w:line="240" w:lineRule="auto"/>` +
+    `<w:ind w:left="278" w:hanging="284"/>` +
+    `<w:jc w:val="both"/>` +
+    `<w:rPr><w:i/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr>` +
+    `</w:pPr>` +
+    `<w:r><w:rPr>` +
+    `<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>` +
+    `<w:i/><w:iCs/><w:sz w:val="24"/><w:szCs w:val="24"/><w:color w:val="000000"/>` +
+    `</w:rPr><w:t xml:space="preserve">${escapedText}</w:t></w:r></w:p>`
+  );
 }
 
 /**
@@ -131,7 +162,17 @@ function createNormalParagraph(text: string): string {
  */
 function createItalicParagraph(text: string): string {
   const escapedText = escapeXml(text);
-  return `<w:p><w:pPr><w:jc w:val="both"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:color w:val="000000"/><w:i/><w:iCs/></w:rPr><w:t xml:space="preserve">${escapedText}</w:t></w:r></w:p>`;
+  return (
+    `<w:p><w:pPr>` +
+    `<w:spacing w:after="0" w:line="240" w:lineRule="auto"/>` +
+    `<w:jc w:val="both"/>` +
+    `<w:rPr><w:i/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr>` +
+    `</w:pPr>` +
+    `<w:r><w:rPr>` +
+    `<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>` +
+    `<w:sz w:val="24"/><w:szCs w:val="24"/><w:color w:val="000000"/><w:i/><w:iCs/>` +
+    `</w:rPr><w:t xml:space="preserve">${escapedText}</w:t></w:r></w:p>`
+  );
 }
 
 /**
