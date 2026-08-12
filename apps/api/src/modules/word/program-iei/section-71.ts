@@ -1,13 +1,29 @@
 import type { ProgramIeiOrderFlags } from '../../ai/ai.service';
 import { removeParagraphByParaId, replaceParagraphTextByParaIdPreserveRunProps } from './docx-xml';
 
-// ParaId для пункта 7.1
+// ParaId для пункта 7.1 (актуальный шаблон)
 const PARA_IDS = {
   // 1. "Результатом ИЭИ является..." - убрать "для подготовки проектной документации"
   resultHeader: '0CFFD41E',
 
-  // 2. "радиационное, химическое, биологическое..." - условно убираем части
-  pollutionTypes: '08623773',
+  // 2. «результаты инженерно-экологических работ…» — условно вода / акустика / физ. воздействия
+  resultsWithPollution: '1C63D642',
+
+  // Пункты нового списка (для снятия highlight)
+  listItems: [
+    '57A9FAF2', // введение
+    '62C8DDD0', // инженерно-экологическая изученность территории
+    '3C3E2CF1', // краткая характеристика природных и антропогенных условий
+    '32694C80', // методика и технология выполнения работ
+    '1C63D642', // результаты … (с загрязнениями)
+    '2C3E1215', // санитарно-эпидемиологическое состояние
+    '3EB30315', // зоны с особыми условиями
+    '0599613F', // контроль качества и приемка
+    '29FE6F9E', // заключение
+    '684743EE', // использованные документы и материалы
+    '5B6F3C28', // текстовые приложения
+    '6EEA3DA8', // графическая часть
+  ],
 
   // 3. Блок для полного удаления (второй «Технический отчет...» + все подпункты)
   blockToDelete: [
@@ -56,10 +72,10 @@ export function replaceProgramIeiSection71Block(params: {
     'Результатом ИЭИ является «Технический отчет по результатам инженерно-экологических изысканий» в составе:';
   xml = replaceParagraphTextByParaIdPreserveRunProps(xml, PARA_IDS.resultHeader, resultHeaderText);
 
-  // 2. Условно формируем текст про загрязнения
-  xml = updatePollutionTypesParagraph(xml, PARA_IDS.pollutionTypes, flags);
+  // 2. Условно формируем текст про загрязнения внутри пункта «результаты…»
+  xml = updateResultsWithPollutionParagraph(xml, PARA_IDS.resultsWithPollution, flags);
 
-  // 3. Удаляем весь блок
+  // 3. Удаляем устаревший второй блок «Технический отчет…»
   for (const paraId of PARA_IDS.blockToDelete) {
     xml = removeParagraphByParaId(xml, paraId);
   }
@@ -75,41 +91,56 @@ export function replaceProgramIeiSection71Block(params: {
 }
 
 /**
- * Формирует и заменяет параграф с типами загрязнений в зависимости от флагов
+ * Пункт списка «результаты инженерно-экологических работ и исследований (…)».
+ * Правила условных вставок — те же, что были у старого пункта про загрязнения:
+ * - поверхностные/подземные воды — только при воде;
+ * - атмосферный воздух — всегда;
+ * - акустика — только при отборе воздуха;
+ * - вибрация/ЭМП — только при физ. воздействиях.
  */
-function updatePollutionTypesParagraph(
-  xml: string,
-  paraId: string,
-  flags: ProgramIeiOrderFlags,
-): string {
-  // Базовые части текста
+export function buildResultsWithPollutionText(flags: ProgramIeiOrderFlags): string {
   const parts: string[] = [];
 
-  // Всегда есть: почвы + атмосферный воздух (воздух из справки, не зависит от отбора проб)
-  parts.push('радиационное, химическое, биологическое и другие виды загрязнений почв (грунтов)');
+  parts.push(
+    'результаты инженерно-экологических работ и исследований (в т.ч. радиационное, химическое, биологическое и другие виды загрязнений почв (грунтов)',
+  );
 
-  // Добавляем ", поверхностных и подземных вод" только если есть вода
   if (flags.hasWaterSampling || flags.hasSurfaceWater || flags.hasGroundwater) {
     parts.push(', поверхностных и подземных вод');
   }
 
   // Атмосферный воздух — всегда (данные из справки о фоновых концентрациях)
-  parts.push(',  атмосферного воздуха');
+  parts.push(', атмосферного воздуха');
 
-  // Акустическое загрязнение — только если есть отбор проб воздуха
   if (flags.hasAirSampling) {
     parts.push('; акустическое загрязнение ОС');
   }
 
-  // Добавляем ", оценка вибрации, измерение параметров электромагнитного поля" только если есть физ. воздействия
   if (flags.hasPhysicalImpacts) {
     parts.push(', оценка вибрации, измерение параметров электромагнитного поля');
   }
 
-  // Собираем текст и добавляем точку с запятой в конце
-  const fullText = parts.join('') + ';';
+  parts.push(
+    '; определение класса опасности грунта с применением Критерия (2) (биотестирование водной вытяжки с возможностью присвоения V класса опасности));',
+  );
 
-  return replaceParagraphTextByParaIdPreserveRunProps(xml, paraId, fullText);
+  return parts.join('');
+}
+
+function updateResultsWithPollutionParagraph(
+  xml: string,
+  paraId: string,
+  flags: ProgramIeiOrderFlags,
+): string {
+  if (!xml.includes(`w14:paraId="${paraId}"`)) {
+    console.warn(`[Section71] Не найден абзац результатов п.7.1 (${paraId})`);
+    return xml;
+  }
+  return replaceParagraphTextByParaIdPreserveRunProps(
+    xml,
+    paraId,
+    buildResultsWithPollutionText(flags),
+  );
 }
 
 /**
@@ -118,8 +149,8 @@ function updatePollutionTypesParagraph(
 function removeHighlightFromSection71(xml: string): string {
   const allParaIds = [
     PARA_IDS.resultHeader,
-    PARA_IDS.pollutionTypes,
     PARA_IDS.deadline,
+    ...PARA_IDS.listItems,
     ...PARA_IDS.blockToDelete,
   ];
 
