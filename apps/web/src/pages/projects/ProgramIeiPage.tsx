@@ -236,7 +236,7 @@ export function ProgramIeiPage() {
     mutationFn: () => projectsApi.generateProgramIei(id!),
     onSuccess: async (result) => {
       setIsGenerating(false);
-      queryClient.invalidateQueries({ queryKey: ['program-iei', id] });
+      await queryClient.invalidateQueries({ queryKey: ['program-iei', id] });
       // Звук уведомления
       try {
         const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleQIvkvPnpFULLHzs7axhFSZo4fO0cCEdVNLxwoMxGUS97MuLPh87q+jXmkkgLZnl4qFZGyWG4u6sZhkld9/ztnAbI2va8sFzHSJd0vHKhTIZS8Dsy4w7HT2v6NmZTyAtmeTioVobJYbi7qxmGSV33/O2cBsja9rywXMdIl3S8cqFMhlLwOzLjDsdPa/o2ZlPIC2Z5OKhWhslhuLurGYZJXff87ZwGyNr2vLBcx0iXdLxykU1GUvA7MuMOx09sOjZmE8gLZnk4qFaGyWG4u6sZhkld9/ztnAbI2va8sFzHiJd0vHKhTIZS8Dsy4w7HT2v6NmZTyAtmeTioVobJYbi7qxmGCV33/O2cBsja9rywXMeIl3S8cqFMhlLwOzLjDsdPa/o2ZlPIC2Z5OKhWhslhuLurGYYJXff87ZwGyNr2vLBcx4iXdLxyoUyGUvA7MuMOx09r+jZmU8gLZnk4qFaGyWG4u6sZhgld9/ztnAbI2va8sFzHiJd0vHKhTIZS8Dsy4w7HT2v6NmZUA==');
@@ -244,10 +244,22 @@ export function ProgramIeiPage() {
         audio.play();
       } catch {}
       // Скачиваем файл
-      await projectsApi.downloadWord(id!, result.fileName);
+      if (result.fileName) {
+        try {
+          await projectsApi.downloadWord(id!, result.fileName);
+        } catch {
+          alert('Программа сгенерирована, но скачивание не удалось — скачайте из блока «Последняя генерация»');
+        }
+      }
     },
-    onError: () => {
+    onError: (error: unknown) => {
       setIsGenerating(false);
+      const message =
+        (error as { response?: { data?: { message?: string | string[] } }; message?: string })
+          ?.response?.data?.message ||
+        (error as { message?: string })?.message ||
+        'Ошибка генерации программы ИЭИ';
+      alert(Array.isArray(message) ? message.join('\n') : message);
     },
   });
 

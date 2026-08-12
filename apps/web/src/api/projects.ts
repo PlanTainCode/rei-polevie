@@ -576,6 +576,8 @@ export const projectsApi = {
   generateProgramIei: async (projectId: string): Promise<GenerateProgramIeiResult> => {
     const response = await apiClient.post<GenerateProgramIeiResult>(
       `/projects/${projectId}/generate-program-iei`,
+      undefined,
+      { timeout: 300000 },
     );
     return response.data;
   },
@@ -583,6 +585,8 @@ export const projectsApi = {
   generateProgramIgmi: async (projectId: string): Promise<GenerateProgramIgmiResult> => {
     const response = await apiClient.post<GenerateProgramIgmiResult>(
       `/projects/${projectId}/generate-program-igmi`,
+      undefined,
+      { timeout: 300000 },
     );
     return response.data;
   },
@@ -590,6 +594,8 @@ export const projectsApi = {
   generateProgramIgi: async (projectId: string): Promise<GenerateProgramIgiResult> => {
     const response = await apiClient.post<GenerateProgramIgiResult>(
       `/projects/${projectId}/generate-program-igi`,
+      undefined,
+      { timeout: 300000 },
     );
     return response.data;
   },
