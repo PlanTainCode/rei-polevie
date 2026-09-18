@@ -15,7 +15,9 @@ import {
   CheckBox,
 } from 'docx';
 import { join } from 'path';
+import { existsSync } from 'fs';
 import { mkdir, writeFile, readFile } from 'fs/promises';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import PizZip = require('pizzip');
 import * as mammoth from 'mammoth';
@@ -86,6 +88,19 @@ import {
   hasGeologicalGoals,
   replaceTitleObjectName,
 } from './program-igi/section-1';
+import { generateReportIeiDocx } from './report-iei/generate';
+import {
+  buildReportIeiFillData,
+  mergeReportIeiOperatorFromFill,
+} from './report-iei/build-fill-data';
+import { reportIeiSection1AiHint } from './report-iei/template-text';
+import {
+  extractLandUseZoneFromTz,
+  hasAgrochemistryInOrder,
+  mapProgramIeiLandscapeToReport,
+} from './report-iei/text';
+import type { ReportIeiOperatorData } from './report-iei/types';
+import type { ReportIeiSection1AiData } from '../ai/report-iei/section-1';
 
 interface GenerateOptions {
   projectId: string;
@@ -1794,6 +1809,213 @@ export class WordService {
   }
 
   /**
+   * Генерирует технический отчёт ИЭИ. Сейчас заполняются титул и §1 (все подпункты).
+   */
+  async generateReportIei(options: GenerateOptions): Promise<GeneratedWordResult> {
+    const { projectId } = options;
+
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      include: {
+        samples: { select: { analysisCode: true, type: true } },
+      },
+    });
+    if (!project) {
+      throw new NotFoundException('Проект не найден');
+    }
+
+    const programIei = await this.prisma.programIei.findUnique({
+      where: { projectId },
+    });
+
+    const templatePath = join(this.templateDir, 'отчет-иэи', 'Шаблон отчета по ИЭИ.docx');
+    const objectName = String(project.objectName || project.name || '').trim();
+    const nearbyForAi = [
+      programIei?.nearbyText,
+      programIei?.nearbyNorth && `К северу: ${programIei.nearbyNorth}`,
+      programIei?.nearbyEast && `К востоку: ${programIei.nearbyEast}`,
+      programIei?.nearbySouth && `К югу: ${programIei.nearbySouth}`,
+      programIei?.nearbyWest && `К западу: ${programIei.nearbyWest}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    let section1Data: ProgramIeiSection1Data | null = null;
+    let extras: ReportIeiSection1AiData | null = null;
+    let orderFlags: ProgramIeiOrderFlags | null = null;
+    let tzText: string | null = null;
+    let orderText: string | null = null;
+
+    if (project.tzFileUrl) {
+      try {
+        const tzPath = join(this.uploadsDir, project.tzFileUrl);
+        const tzBuffer = await readFile(tzPath);
+        const tzResult = await mammoth.extractRawText({ buffer: tzBuffer });
+        tzText = tzResult.value;
+      } catch (error) {
+        console.error('[WordService] Отчёт ИЭИ: ошибка чтения ТЗ', error);
+      }
+    }
+
+    if (tzText) {
+      try {
+        const programSection1Text = await this.extractSection1FromTemplate();
+        section1Data = await this.aiService.extractProgramIeiSection1(
+          tzText,
+          programSection1Text,
+        );
+        if (section1Data) {
+          const urbanFromTz = extractUrbanPlanningActivityFromTz(tzText);
+          if (urbanFromTz) {
+            section1Data.urbanPlanningActivity = urbanFromTz;
+          }
+          const merged = mergeSiteDescriptionWithArea({
+            siteDescription: section1Data.siteDescription,
+            siteArea: section1Data.siteArea,
+            tzText,
+          });
+          section1Data.siteDescription = merged.siteDescription;
+          if (!section1Data.siteArea && merged.siteAreaSentence) {
+            section1Data.siteArea = merged.siteAreaSentence;
+          }
+        }
+      } catch (error) {
+        console.error('[WordService] Отчёт ИЭИ: ошибка AI §1 программы', error);
+      }
+
+      try {
+        extras = await this.aiService.extractReportIeiSection1({
+          tzText,
+          reportTemplateSection1: reportIeiSection1AiHint(),
+          nearbyText: nearbyForAi,
+          objectName,
+        });
+      } catch (error) {
+        console.error('[WordService] Отчёт ИЭИ: ошибка AI extras', error);
+      }
+    }
+
+    if (project.orderFileUrl) {
+      try {
+        const orderPath = join(this.uploadsDir, project.orderFileUrl);
+        const orderBuffer = await readFile(orderPath);
+        orderText = (await mammoth.extractRawText({ buffer: orderBuffer })).value;
+        orderFlags = await this.aiService.extractProgramIeiOrderFlags(orderText, objectName);
+      } catch (error) {
+        console.error('[WordService] Отчёт ИЭИ: ошибка поручения/AI', error);
+      }
+    }
+
+    const operator = (programIei?.reportIeiData || {}) as ReportIeiOperatorData;
+    const tzLandUseZone = extractLandUseZoneFromTz(tzText, programIei?.egrnDescription);
+    const facadePhoto = await this.loadReportIeiFacadePhoto(projectId);
+
+    let landscapeFromProgram = '';
+    try {
+      const textFor31 = [objectName, project.objectAddress, section1Data?.objectLocation]
+        .filter(Boolean)
+        .join('\n');
+      if (textFor31.trim()) {
+        const section31 = await this.aiService.extractProgramIeiSection31(textFor31);
+        landscapeFromProgram = mapProgramIeiLandscapeToReport(section31.landscape);
+      }
+    } catch (error) {
+      console.error('[WordService] Отчёт ИЭИ: ошибка ландшафта §3.1 программы', error);
+    }
+
+    const fillData = buildReportIeiFillData({
+      objectName,
+      documentNumber: project.documentNumber,
+      objectAddress: project.objectAddress,
+      clientName: project.clientName,
+      clientAddress: project.clientAddress,
+      samplingDate: project.samplingDate,
+      nearby: {
+        nearbyText: programIei?.nearbyText,
+        nearbyNorth: programIei?.nearbyNorth,
+        nearbyEast: programIei?.nearbyEast,
+        nearbySouth: programIei?.nearbySouth,
+        nearbyWest: programIei?.nearbyWest,
+      },
+      openGroundPercent: programIei?.openGroundPercent ?? null,
+      section1: section1Data,
+      extras,
+      operator: {
+        ...operator,
+        hasFertilityAssessment:
+          operator.hasFertilityAssessment === true || hasAgrochemistryInOrder(orderText),
+      },
+      orderFlags,
+      hasWaterSamples: project.samples.some(
+        (s) => s.analysisCode === 'ВХ' || s.type === 'WATER',
+      ),
+      tzLandUseZone,
+      orderText,
+      hasFacadePhoto: Boolean(facadePhoto),
+      landscape: landscapeFromProgram,
+      hasIgiReport: Boolean(programIei?.igiSourceFileName || programIei?.igiGeneratedFileName),
+      pollutionSourcesText: tzText ? extractSection81FromTz(tzText).pollutionSourcesText : '',
+    });
+
+    const templateBuffer = await readFile(templatePath);
+    const buffer = generateReportIeiDocx(templateBuffer, fillData, {
+      facadePhoto: fillData.hasFacadePhoto ? facadePhoto : undefined,
+    });
+
+    await mkdir(this.outputDir, { recursive: true });
+    const safeDocumentNumber = String(project.documentNumber || '801-000-25')
+      .replace(/[^0-9A-Za-zА-Яа-яЁё-]/g, '')
+      .substring(0, 40)
+      .trim() || '801-000-25';
+    const fileName = `${safeDocumentNumber}_ОЭ_${Date.now()}.docx`;
+    const filePath = join(this.outputDir, fileName);
+    await writeFile(filePath, buffer);
+
+    const reportIeiData = JSON.parse(
+      JSON.stringify(mergeReportIeiOperatorFromFill(operator, fillData)),
+    ) as Prisma.InputJsonValue;
+
+    await this.prisma.programIei.upsert({
+      where: { projectId },
+      create: {
+        projectId,
+        reportIeiData,
+        reportGeneratedFileName: fileName,
+        reportGeneratedFileUrl: `/generated/${fileName}`,
+        reportGeneratedAt: new Date(),
+      },
+      update: {
+        reportIeiData,
+        reportGeneratedFileName: fileName,
+        reportGeneratedFileUrl: `/generated/${fileName}`,
+        reportGeneratedAt: new Date(),
+      },
+    });
+
+    return { filePath, fileName };
+  }
+
+  private async loadReportIeiFacadePhoto(
+    projectId: string,
+  ): Promise<{ buffer: Buffer; ext: string } | undefined> {
+    const photo = await this.prisma.photo.findFirst({
+      where: { projectId },
+      orderBy: [{ sortOrder: 'asc' }, { uploadedAt: 'asc' }],
+    });
+    if (!photo?.filename) return undefined;
+    const photoPath = join(this.uploadsDir, 'photos', projectId, photo.filename);
+    if (!existsSync(photoPath)) return undefined;
+    try {
+      const buffer = await readFile(photoPath);
+      const ext = photo.filename.split('.').pop()?.toLowerCase() || 'jpg';
+      return { buffer, ext };
+    } catch (error) {
+      console.error('[WordService] Отчёт ИЭИ: не удалось прочитать фото фасада', error);
+      return undefined;
+    }
+  }
+
+  /**
    * Генерирует программу инженерно-гидрометеорологических изысканий (ИГМИ).
    * Заполняет разделы до п.4 включительно, остальное оставляет как в шаблоне.
    * Использует paraId-замены (в ИГМИ-шаблоне нет HYPERLINK-плейсхолдеров).
@@ -2118,90 +2340,8 @@ export class WordService {
       docXml = this.removeParagraphByParaId(docXml, '6A4D9E21');
     }
 
-    // ═══════════════════════════════════════════════════════
-    // ОБЗОРНАЯ СХЕМА (п.1.9.3) — вставка нового изображения в ячейку
-    // ═══════════════════════════════════════════════════════
-    if (programIei?.overviewImageName) {
-      try {
-        const imagePath = join(process.cwd(), 'uploads', 'program-iei', programIei.overviewImageName);
-        const imageBuffer = await readFile(imagePath);
-        const ext = programIei.overviewImageName.split('.').pop()?.toLowerCase() || 'png';
-
-        const mediaName = `igmi-overview.${ext}`;
-        zip.file(`word/media/${mediaName}`, imageBuffer);
-
-        const relsFile = zip.file('word/_rels/document.xml.rels');
-        if (relsFile) {
-          let relsXml = relsFile.asText();
-          const usedRelationshipIds = [...relsXml.matchAll(/Id="rId(\d+)"/g)].map(
-            (match) => Number(match[1]),
-          );
-          const newRid = `rId${Math.max(0, ...usedRelationshipIds) + 1}`;
-          relsXml = relsXml.replace(
-            '</Relationships>',
-            `<Relationship Id="${newRid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${mediaName}"/></Relationships>`,
-          );
-          zip.file('word/_rels/document.xml.rels', relsXml);
-
-          if (ext === 'jpg' || ext === 'jpeg') {
-            const ctFile = zip.file('[Content_Types].xml');
-            if (ctFile) {
-              let ctXml = ctFile.asText();
-              if (!ctXml.includes('Extension="jpg"') && !ctXml.includes('Extension="jpeg"')) {
-                ctXml = ctXml.replace('</Types>',
-                  '<Default Extension="jpg" ContentType="image/jpeg"/><Default Extension="jpeg" ContentType="image/jpeg"/></Types>');
-                zip.file('[Content_Types].xml', ctXml);
-              }
-            }
-          }
-
-          let imgWidthEmu = 5400000;
-          let imgHeightEmu = 3600000;
-          if (ext === 'png' && imageBuffer.length > 24) {
-            const w = imageBuffer.readUInt32BE(16);
-            const h = imageBuffer.readUInt32BE(20);
-            if (w > 0 && h > 0) {
-              const maxWidthEmu = 5400000;
-              const ratio = h / w;
-              imgWidthEmu = maxWidthEmu;
-              imgHeightEmu = Math.round(maxWidthEmu * ratio);
-            }
-          }
-
-          const usedDocPrIds = [...docXml.matchAll(/<wp:docPr[^>]*\bid="(\d+)"/g)].map(
-            (match) => Number(match[1]),
-          );
-          const docPrId = Math.max(0, ...usedDocPrIds) + 1;
-          const drawingXml =
-            `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">` +
-            `<wp:extent cx="${imgWidthEmu}" cy="${imgHeightEmu}"/>` +
-            `<wp:docPr id="${docPrId}" name="OverviewImage"/>` +
-            `<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">` +
-            `<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
-            `<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
-            `<pic:nvPicPr><pic:cNvPr id="0" name="${mediaName}"/><pic:cNvPicPr/></pic:nvPicPr>` +
-            `<pic:blipFill><a:blip r:embed="${newRid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>` +
-            `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${imgWidthEmu}" cy="${imgHeightEmu}"/></a:xfrm>` +
-            `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>` +
-            `</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
-
-          const targetParaId = '3180C077';
-          const paraRe = new RegExp(
-            `(<w:p[^>]*w14:paraId="${targetParaId}"[^>]*>)([\\s\\S]*?)(</w:p>)`,
-          );
-          docXml = docXml.replace(
-            paraRe,
-            (_m: string, open: string, body: string, close: string) => {
-              const pPrMatch = body.match(/<w:pPr[\s\S]*?<\/w:pPr>/);
-              const pPr = pPrMatch ? pPrMatch[0] : '';
-              return `${open}${pPr}${drawingXml}${close}`;
-            },
-          );
-        }
-      } catch (error) {
-        console.error('[IGMI] Ошибка вставки обзорной схемы:', error);
-      }
-    }
+    // Обзорную схему (п.1.9.4) из программы ИЭИ в ИГМИ не копируем —
+    // ячейка остаётся пустой, схема вставляется вручную.
 
     // ═══════════════════════════════════════════════════════
     // НОРМАЛИЗАЦИЯ СТИЛЕЙ (идентично ИЭИ)

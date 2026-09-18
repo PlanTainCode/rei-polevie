@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { writeFile, mkdir, unlink, readFile } from 'fs/promises';
 import { join } from 'path';
@@ -22,6 +23,7 @@ interface UpdateProgramIeiDto {
   section82Text?: string;
   customerProvidesBackgroundConcentrations?: boolean;
   isRestrictedObject?: boolean;
+  reportIeiData?: Record<string, unknown>;
 }
 
 @Injectable()
@@ -63,18 +65,20 @@ export class ProgramIeiService {
   async update(projectId: string, data: UpdateProgramIeiDto) {
     await this.getOrCreate(projectId);
 
-    const updateData: Record<string, unknown> = {
-      cadastralNumber: data.cadastralNumber,
-      egrnDescription: data.egrnDescription,
-      nearbySouth: data.nearbySouth || null,
-      nearbyEast: data.nearbyEast || null,
-      nearbyWest: data.nearbyWest || null,
-      nearbyNorth: data.nearbyNorth || null,
-      openGroundPercent: data.openGroundPercent,
-      customObjectAddress: data.customObjectAddress,
-      radiometryAreaHa: data.radiometryAreaHa,
-      section82Text: data.section82Text,
-    };
+    const updateData: Record<string, unknown> = {};
+
+    if (data.cadastralNumber !== undefined) updateData.cadastralNumber = data.cadastralNumber;
+    if (data.egrnDescription !== undefined) updateData.egrnDescription = data.egrnDescription;
+    if (data.nearbySouth !== undefined) updateData.nearbySouth = data.nearbySouth || null;
+    if (data.nearbyEast !== undefined) updateData.nearbyEast = data.nearbyEast || null;
+    if (data.nearbyWest !== undefined) updateData.nearbyWest = data.nearbyWest || null;
+    if (data.nearbyNorth !== undefined) updateData.nearbyNorth = data.nearbyNorth || null;
+    if (data.openGroundPercent !== undefined) updateData.openGroundPercent = data.openGroundPercent;
+    if (data.customObjectAddress !== undefined) {
+      updateData.customObjectAddress = data.customObjectAddress;
+    }
+    if (data.radiometryAreaHa !== undefined) updateData.radiometryAreaHa = data.radiometryAreaHa;
+    if (data.section82Text !== undefined) updateData.section82Text = data.section82Text;
 
     if (data.customerProvidesBackgroundConcentrations !== undefined) {
       updateData.customerProvidesBackgroundConcentrations =
@@ -96,9 +100,15 @@ export class ProgramIeiService {
       updateData.coordinatesLon = data.coordinatesLon;
     }
 
+    if (data.reportIeiData !== undefined) {
+      updateData.reportIeiData = JSON.parse(
+        JSON.stringify(data.reportIeiData),
+      ) as Prisma.InputJsonValue;
+    }
+
     return this.prisma.programIei.update({
       where: { projectId },
-      data: updateData,
+      data: updateData as Prisma.ProgramIeiUpdateInput,
     });
   }
 

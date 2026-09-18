@@ -11,6 +11,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Модель XML-ТЗ живёт в API (попадает в его сборку), веб подключает её напрямую
+      '@tz-xml': path.resolve(__dirname, '../api/src/modules/technical-tasks/tz-xml'),
     },
   },
   server: {

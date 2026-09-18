@@ -32,6 +32,11 @@ export const companiesApi = {
   removeMember: async (companyId: string, memberId: string): Promise<void> => {
     await apiClient.delete(`/companies/${companyId}/members/${memberId}`);
   },
+
+  updateRequisites: async (companyId: string, requisites: Record<string, unknown>): Promise<Company> => {
+    const response = await apiClient.patch<Company>(`/companies/${companyId}/requisites`, { requisites });
+    return response.data;
+  },
 };
 
 export const invitationsApi = {

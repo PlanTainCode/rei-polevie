@@ -437,6 +437,31 @@ export class ProjectsController {
     };
   }
 
+  @Post(':id/generate-report-iei')
+  async generateReportIei(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+  ) {
+    const project = await this.projectsService.findById(id, req.user.userId);
+
+    if (project.parentProjectId) {
+      throw new BadRequestException(
+        'Отчёт ИЭИ генерируется только для основного проекта. Для допотбора используйте отчёт родительского проекта.',
+      );
+    }
+
+    const result = await this.wordService.generateReportIei({
+      projectId: id,
+      userId: req.user.userId,
+    });
+
+    return {
+      success: true,
+      fileName: result.fileName,
+      downloadUrl: `/generated/${result.fileName}`,
+    };
+  }
+
   // Генерация программы ИГМИ (Word)
   @Post(':id/generate-program-igmi')
   async generateProgramIgmi(

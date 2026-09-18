@@ -4,6 +4,8 @@ import { Building2, Users, UserPlus, Mail, Trash2, Loader2 } from 'lucide-react'
 import { companiesApi, invitationsApi } from '@/api/companies';
 import { useAuthStore } from '@/store/auth';
 import { Button, Card, CardHeader, CardTitle, CardContent } from '@/components/ui';
+import { CompanyRequisitesCard } from './CompanyRequisitesCard';
+import type { CompanyRequisites } from '@tz-xml';
 
 const ROLE_LABELS: Record<string, string> = {
   OWNER: 'Владелец',
@@ -82,6 +84,16 @@ export function CompanyPage() {
           </div>
         </CardHeader>
       </Card>
+
+      {/* Реквизиты для XML-заданий */}
+      <div className="mb-6">
+        <CompanyRequisitesCard
+          key={company.id}
+          companyId={company.id}
+          initial={(company.requisites as unknown as CompanyRequisites | null) ?? null}
+          canEdit={canManageMembers}
+        />
+      </div>
 
       {/* Сотрудники */}
       <Card className="mb-6">

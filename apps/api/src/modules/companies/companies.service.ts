@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateCompanyDto } from './dto/company.dto';
-import { CompanyRole } from '@prisma/client';
+import { CompanyRole, Prisma } from '@prisma/client';
 
 @Injectable()
 export class CompaniesService {
@@ -160,6 +160,15 @@ export class CompaniesService {
     }
 
     return { success: true };
+  }
+
+  /** Сохранить реквизиты компании для XML-ТЗ. Доступно владельцу и администратору. */
+  async updateRequisites(companyId: string, requisites: Record<string, unknown>, userId: string) {
+    await this.checkRole(companyId, userId, ['OWNER', 'ADMIN']);
+    return this.prisma.company.update({
+      where: { id: companyId },
+      data: { requisites: requisites as Prisma.InputJsonValue },
+    });
   }
 
   async checkMembership(companyId: string, userId: string) {

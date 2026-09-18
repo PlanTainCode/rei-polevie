@@ -2,6 +2,8 @@ export interface Company {
   id: string;
   name: string;
   inn?: string;
+  /** Реквизиты для XML-ТЗ (структура CompanyRequisites из tz-xml); null, если не заполнены */
+  requisites?: Record<string, unknown> | null;
   createdAt: Date;
   updatedAt: Date;
 }

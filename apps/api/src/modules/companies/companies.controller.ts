@@ -1,7 +1,7 @@
-import { Controller, Get, Post, Delete, Body, Param, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Request } from '@nestjs/common';
 import { CompaniesService } from './companies.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { CreateCompanyDto } from './dto/company.dto';
+import { CreateCompanyDto, UpdateCompanyRequisitesDto } from './dto/company.dto';
 
 @Controller('companies')
 @UseGuards(JwtAuthGuard)
@@ -28,6 +28,16 @@ export class CompaniesController {
   ) {
     await this.companiesService.checkMembership(id, req.user.userId);
     return this.companiesService.findById(id);
+  }
+
+  // Реквизиты компании для XML-ТЗ (организация + подписант)
+  @Patch(':id/requisites')
+  async updateRequisites(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @Body() dto: UpdateCompanyRequisitesDto,
+  ) {
+    return this.companiesService.updateRequisites(id, dto.requisites, req.user.userId);
   }
 
   @Get(':id/members')

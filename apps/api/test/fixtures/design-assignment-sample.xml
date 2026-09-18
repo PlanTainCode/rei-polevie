@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document TypeCode="05.03" VersionNumber="1" Id="7C9E6679-7425-40DE-944B-E07FC1F90AE7">
+  <Requisites>
+    <Date>2026-08-20</Date>
+    <Number>ЗП-2026-17</Number>
+    <Authors>
+      <Author>
+        <Organization>
+          <FullName>Общество с ограниченной ответственностью «Горсвязьстрой»</FullName>
+          <OGRN>1097746501269</OGRN>
+          <INN>7730001111</INN>
+          <KPP>773001001</KPP>
+          <Address><RussianAddress><RegionCode>77</RegionCode><OKTMOCode>45318000</OKTMOCode><OKTMOName>Муниципальный округ Дорогомилово</OKTMOName><City>Москва</City><Street>Бережковская набережная</Street><Building>20</Building></RussianAddress></Address>
+        </Organization>
+        <Representatives>
+          <Representative FunctionalRole="Утверждено"><Surname>Иванов</Surname><Name>Иван</Name><Position>Генеральный директор</Position></Representative>
+        </Representatives>
+      </Author>
+    </Authors>
+    <SecurityLabel>0</SecurityLabel>
+  </Requisites>
+  <Content SchemaVersion="01.01">
+    <Objective><Text>Строительство жилого дома.</Text></Objective>
+    <DecisionDocuments>
+      <DocumentInfo Id="d-1" Type="15.08">
+        <Name>Решение застройщика о подготовке проектной документации</Name>
+        <Number>12</Number>
+        <Date>2026-06-01</Date>
+        <AuthorNote>ООО «Горсвязьстрой»</AuthorNote>
+        <File><Name>Решение №12.pdf</Name><Format>pdf</Format><Checksum>0A1B2C3D</Checksum></File>
+      </DocumentInfo>
+    </DecisionDocuments>
+    <Developers>
+      <Organization>
+        <FullName>Общество с ограниченной ответственностью «Горсвязьстрой»</FullName>
+        <AbbreviatedName>ООО «Горсвязьстрой»</AbbreviatedName>
+        <OGRN>1097746501269</OGRN>
+        <INN>7730001111</INN>
+        <KPP>773001001</KPP>
+        <Address><RussianAddress><RegionCode>77</RegionCode><PostIndex>121059</PostIndex><OKTMOCode>45318000</OKTMOCode><OKTMOName>Муниципальный округ Дорогомилово</OKTMOName><City>Москва</City><Street>Бережковская набережная</Street><Building>20</Building></RussianAddress></Address>
+        <Email>gorsviaz@example.ru</Email>
+      </Organization>
+    </Developers>
+    <TechnicalCustomers>
+      <TechnicalCustomer>
+        <Organization NOPRIZNumber="П-001-000000000002-2021">
+          <FullName>Акционерное общество «Технический заказчик»</FullName>
+          <OGRN>1027700000001</OGRN>
+          <INN>7730003333</INN>
+          <KPP>773001003</KPP>
+          <Address><RussianAddress><RegionCode>77</RegionCode><OKTMOCode>45318000</OKTMOCode><OKTMOName>Муниципальный округ Дорогомилово</OKTMOName><Note>г. Москва, ул. Тестовая, д. 1</Note></RussianAddress></Address>
+        </Organization>
+      </TechnicalCustomer>
+    </TechnicalCustomers>
+    <Designers><Requirements><Requirement>Членство в СРО</Requirement></Requirements></Designers>
+    <FinanceSources><Source>Собственные средства</Source></FinanceSources>
+    <QualitySolutions><Text>В соответствии с НД.</Text></QualitySolutions>
+    <MarginalCost><Text>Не установлена.</Text></MarginalCost>
+    <Stages>
+      <Common><Text>Строительство в один этап.</Text></Common>
+      <Stage><Name>Этап 1</Name><BeginDate>2027-03-01</BeginDate><EndDate>2029-12-31</EndDate></Stage>
+    </Stages>
+    <DesignPhases><DesignPhase Phase="1"><Task>Подготовка проектной документации</Task></DesignPhase></DesignPhases>
+    <ClimateConditions>
+      <Common><Text>Климатический район II-В.</Text></Common>
+      <DangerousNatureProcesses><Text>Возможно подтопление территории грунтовыми водами.</Text></DangerousNatureProcesses>
+    </ClimateConditions>
+    <Land>
+      <SeizureLandAreasInfo>
+        <Common><Text>Участок в собственности застройщика.</Text></Common>
+        <SeizureLandAreaInfo><CadastralNumber>77:04:0004008:1234</CadastralNumber><LandCategory>2</LandCategory><UsingNote>Собственность</UsingNote></SeizureLandAreaInfo>
+      </SeizureLandAreasInfo>
+    </Land>
+    <InitialDocuments>
+      <DocumentInfo Id="d-2" Type="03.02">
+        <Name>Градостроительный план земельного участка</Name>
+        <Number>RU77-123</Number>
+        <Date>2026-05-15</Date>
+        <AuthorNote>Москомархитектура</AuthorNote>
+        <WebLink>https://example.ru/gpzu.pdf</WebLink>
+      </DocumentInfo>
+      <DocumentInfo Id="d-3" Type="06.04">
+        <Name>Технический отчёт ИЭИ 2020 г.</Name>
+        <Number>736-19</Number>
+        <Date>2020-10-01</Date>
+        <AuthorNote>ООО «РЭИ-Регион»</AuthorNote>
+        <File><Name>ИЭИ-2020.pdf</Name><Format>pdf</Format><Checksum>1234ABCD</Checksum></File>
+      </DocumentInfo>
+    </InitialDocuments>
+    <EngineeringSurvey>
+      <Common><Text>Изыскания выполнить в объёме, достаточном для подготовки проектной документации.</Text></Common>
+      <Address><RegionCode>77</RegionCode><District>район Кузьминки</District><CoordinateSystem>МСК-77</CoordinateSystem><HeightSystem>Балтийская 1977</HeightSystem></Address>
+      <SurveysRequirements>
+        <Survey><BasicEngineeringSurvey>4</BasicEngineeringSurvey><Scale>1:500</Scale><Bounds>В границах ГПЗУ</Bounds><Requirements><Text>Оценить радиационную обстановку.</Text></Requirements></Survey>
+        <Survey><BasicEngineeringSurvey>2</BasicEngineeringSurvey></Survey>
+      </SurveysRequirements>
+      <Norms><Norm>СП 47.13330.2016</Norm><Norm>СП 502.1325800.2021</Norm></Norms>
+      <ReuseDocuments><ReferenceToDocumentId>d-3</ReferenceToDocumentId></ReuseDocuments>
+    </EngineeringSurvey>
+    <Object ResponsibilityLevel="нормальный" DangerousIndustrialObject="Не относится к опасным производственным объектам" FireDangerCategory="Категория не устанавливается" PeoplePermanentStay="true" SecurityInfluence="false">
+      <Name>Жилой дом с подземной автостоянкой по адресу: г. Москва, ул. Юных Ленинцев, з/у 44/3</Name>
+      <Address><RussianAddress><RegionCode>77</RegionCode><OKTMOCode>45390000</OKTMOCode><OKTMOName>Муниципальный округ Кузьминки</OKTMOName><City>Москва</City><Street>улица Юных Ленинцев</Street><Building>земельный участок 44/3</Building></RussianAddress></Address>
+      <ObjectType>2</ObjectType>
+      <ConstructionType>1</ConstructionType>
+      <FunctionsClass>19.7.1.5</FunctionsClass>
+      <POI><Name>Общая площадь квартир</Name><Measure>055</Measure><Value>12000</Value></POI>
+      <TEI><Name>Этажность</Name><Measure>-</Measure><Value>17</Value></TEI>
+      <TEI><Name>Высота здания</Name><Measure>006</Measure><Value>54,5</Value></TEI>
+      <ProjectSolutions><Common><Text>Монолитный каркас.</Text></Common></ProjectSolutions>
+    </Object>
+  </Content>
+</Document>

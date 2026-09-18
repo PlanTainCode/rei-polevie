@@ -54,10 +54,13 @@ describe('актуальный шаблон ИГМИ', () => {
     expect(documentXml).toContain('Т.С.Матвеева');
     expect(documentXml).toContain('У.Н.Штефанова');
     expect(documentXml).toContain('И.М.Бурнацкая');
-    expect(relationshipsXml).toContain('igmi-signature-matveeva.png');
-    expect(relationshipsXml).toContain('igmi-signature-shtefanova.png');
-    expect(relationshipsXml).toContain('igmi-signature-burnatskaya.png');
-    expect(relationshipsXml).toContain('igmi-appendix-2-map.png');
+    // Word при пересохранении переименовывает media в image1..N — проверяем по составу:
+    // логотип + 3 подписи + карта приложения 2
+    const imageTargets = [...relationshipsXml.matchAll(/Target="media\/([^"]+)"/g)].map((m) => m[1]);
+    expect(imageTargets.length).toBeGreaterThanOrEqual(5);
+    const mediaSizes = imageTargets.map((name) => zip.file(`word/media/${name}`)?.asUint8Array().length ?? 0);
+    expect(mediaSizes.filter((size) => size > 0).length).toBeGreaterThanOrEqual(5);
+    expect(Math.max(...mediaSizes)).toBeGreaterThan(500_000); // карта приложения 2
     expect(footerXml).toContain('ГМ-1');
   });
 });

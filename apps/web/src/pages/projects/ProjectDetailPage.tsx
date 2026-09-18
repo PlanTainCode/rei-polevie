@@ -782,6 +782,36 @@ export function ProjectDetailPage() {
         </Card>
       )}
 
+      {/* Отчёт ИЭИ — отдельная страница (только для корневых проектов) */}
+      {!isChildProject && (
+        <Card className="mb-6">
+          <CardContent className="py-4">
+            <Link
+              to={`/projects/${id}/report-iei`}
+              className="flex items-center justify-between p-4 bg-[var(--bg-tertiary)] rounded-lg hover:bg-[var(--bg-secondary)] transition-colors group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-rose-500/20 flex items-center justify-center">
+                  <FileText className="w-5 h-5 text-rose-400" />
+                </div>
+                <div>
+                  <p className="font-medium flex items-center gap-2">
+                    Отчёт ИЭИ
+                    <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase bg-amber-500/20 text-amber-400 rounded">
+                      beta
+                    </span>
+                  </p>
+                  <p className="text-sm text-[var(--text-secondary)]">
+                    Технический отчёт по результатам инженерно-экологических изысканий
+                  </p>
+                </div>
+              </div>
+              <ArrowRight className="w-5 h-5 text-[var(--text-secondary)] group-hover:text-rose-400 transition-colors" />
+            </Link>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Программа ИГМИ — отдельная страница (только для корневых проектов) */}
       {!isChildProject && (
         <Card className="mb-6">

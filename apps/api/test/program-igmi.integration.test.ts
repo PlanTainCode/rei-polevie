@@ -89,10 +89,15 @@ test('generateProgramIgmi заполняет объединённый шабло
     expect(documentText).not.toContain('96 км');
     expect(documentText).not.toContain('НазваниеОрганизации');
     expect(documentText).not.toContain('ДиректорФИО');
-    expect(relationshipsXml).toContain('media/igmi-overview.png');
-    expect(relationshipsXml).toContain('media/igmi-signature-matveeva.png');
-    expect(zip.file('word/media/igmi-overview.png')).not.toBeNull();
-    expect(zip.file('word/media/igmi-signature-matveeva.png')).not.toBeNull();
+    // Обзорную схему из ИЭИ в п.1.9.4 ИГМИ не копируем — вставляется вручную
+    expect(relationshipsXml).not.toContain('media/igmi-overview.png');
+    expect(zip.file('word/media/igmi-overview.png')).toBeNull();
+    // Подписи и карта из шаблона сохраняются (Word переименовывает media в image1..N)
+    const imageTargets = [...relationshipsXml.matchAll(/Target="media\/([^"]+)"/g)].map((m) => m[1]);
+    expect(imageTargets.length).toBeGreaterThanOrEqual(5);
+    for (const name of imageTargets) {
+      expect(zip.file(`word/media/${name}`)).not.toBeNull();
+    }
     expect(footerText).toContain('№ 801-145-25-ПГМ-1');
     expect(footerText).toContain('2025');
     if (keepGeneratedFile) {

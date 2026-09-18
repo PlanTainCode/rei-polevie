@@ -72,3 +72,9 @@ apps/mobile/.cxx/
 !apps/web/public/polevie.apk
 *.aab
 *.hprof
+
+# Локальные рабочие файлы
+.iei-preview/
+.iei-dates-prompt.txt
+.claude/settings.local.json
+.cursor/hooks/

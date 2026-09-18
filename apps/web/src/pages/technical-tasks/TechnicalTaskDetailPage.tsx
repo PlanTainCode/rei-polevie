@@ -1,97 +1,41 @@
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
-import { 
-  ArrowLeft, 
-  FileText, 
-  Download, 
-  Trash2,
-  Clock,
-  CheckCircle2,
-  AlertCircle,
-  Loader2,
-  Calendar,
-  User,
-  RefreshCw,
-  Sparkles,
-  Eye,
-} from 'lucide-react';
-import { technicalTasksApi, type TechnicalTaskStatus } from '@/api/technical-tasks';
-import { Button, Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
-import { DocxEditor } from '@/components/document-editor';
+import { ArrowLeft, FileText, Download, Trash2, Clock, CheckCircle2, AlertCircle, Loader2, RefreshCw, Save, FileCode2, Eye, Info } from 'lucide-react';
+import type { TzXmlModel, ValidationIssue } from '@tz-xml';
+import { technicalTasksApi, type TechnicalTask, type TechnicalTaskStatus } from '@/api/technical-tasks';
+import { Button, Card, CardContent } from '@/components/ui';
+import { TzEditor } from './editor/TzEditor';
+import { XmlPreview } from './editor/XmlPreview';
 
-const STATUS_CONFIG: Record<TechnicalTaskStatus, { label: string; color: string; bgColor: string; icon: typeof Clock }> = {
-  DRAFT: { 
-    label: 'Черновик', 
-    color: 'text-gray-400',
-    bgColor: 'bg-gray-500/20',
-    icon: Clock
-  },
-  PROCESSING: { 
-    label: 'Обработка AI', 
-    color: 'text-amber-400',
-    bgColor: 'bg-amber-500/20',
-    icon: Loader2
-  },
-  COMPLETED: { 
-    label: 'Готово', 
-    color: 'text-emerald-400',
-    bgColor: 'bg-emerald-500/20',
-    icon: CheckCircle2
-  },
-  ERROR: { 
-    label: 'Ошибка', 
-    color: 'text-red-400',
-    bgColor: 'bg-red-500/20',
-    icon: AlertCircle
-  },
+const STATUS: Record<TechnicalTaskStatus, { label: string; cls: string; icon: typeof Clock }> = {
+  DRAFT: { label: 'Черновик', cls: 'bg-gray-500/20 text-gray-300', icon: Clock },
+  PROCESSING: { label: 'Извлечение данных', cls: 'bg-amber-500/20 text-amber-300', icon: Loader2 },
+  COMPLETED: { label: 'XML сформирован', cls: 'bg-emerald-500/20 text-emerald-300', icon: CheckCircle2 },
+  ERROR: { label: 'Ошибка', cls: 'bg-red-500/20 text-red-300', icon: AlertCircle },
 };
+
+const SOURCE_LABEL = { WORD: 'из ТЗ заказчика', DESIGN_XML: 'из задания на проектирование', SCRATCH: 'с нуля' };
 
 export function TechnicalTaskDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [showDocument, setShowDocument] = useState(false);
 
   const { data: task, isLoading, isError } = useQuery({
     queryKey: ['technical-task', id],
     queryFn: () => technicalTasksApi.getById(id!),
     enabled: !!id,
-    refetchInterval: (query) => {
-      // Автообновление пока статус PROCESSING
-      const data = query.state.data;
-      if (data?.status === 'PROCESSING') {
-        return 2000; // Каждые 2 секунды
-      }
-      return false;
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: () => technicalTasksApi.delete(id!),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['technical-tasks'] });
-      navigate('/technical-tasks');
-    },
-  });
-
-  const reprocessMutation = useMutation({
-    mutationFn: () => technicalTasksApi.reprocess(id!),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['technical-task', id] });
-    },
+    refetchInterval: (query) => (query.state.data?.status === 'PROCESSING' ? 2000 : false),
   });
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="relative">
-          <div className="w-16 h-16 border-4 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin" />
-        </div>
+        <div className="w-16 h-16 border-4 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin" />
       </div>
     );
   }
-
   if (isError || !task) {
     return (
       <div className="text-center py-20">
@@ -104,419 +48,221 @@ export function TechnicalTaskDetailPage() {
     );
   }
 
-  const status = STATUS_CONFIG[task.status];
+  return <TaskView task={task} onDeleted={() => { queryClient.invalidateQueries({ queryKey: ['technical-tasks'] }); navigate('/technical-tasks'); }} />;
+}
+
+function TaskView({ task, onDeleted }: { task: TechnicalTask; onDeleted: () => void }) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [model, setModel] = useState<TzXmlModel | null>(task.xmlData);
+  const [dirty, setDirty] = useState(false);
+  const [tab, setTab] = useState<'form' | 'preview'>('form');
+  const [generateIssues, setGenerateIssues] = useState<ValidationIssue[] | null>(null);
+  const lastSaved = useRef<string>(JSON.stringify(task.xmlData));
+
+  // Обновление модели с сервера (после извлечения данных или генерации), если нет несохранённых правок
+  useEffect(() => {
+    const incoming = JSON.stringify(task.xmlData);
+    if (!dirty && incoming !== lastSaved.current) {
+      setModel(task.xmlData);
+      lastSaved.current = incoming;
+    }
+  }, [task.xmlData, dirty]);
+
+  const saveMutation = useMutation({
+    mutationFn: (m: TzXmlModel) => technicalTasksApi.update(task.id, { xmlData: m }),
+    onSuccess: (data) => {
+      lastSaved.current = JSON.stringify(data.xmlData);
+      setDirty(false);
+      queryClient.setQueryData(['technical-task', task.id], data);
+    },
+  });
+
+  const generateMutation = useMutation({
+    mutationFn: async () => {
+      if (model && dirty) await technicalTasksApi.update(task.id, { xmlData: model });
+      setDirty(false);
+      return technicalTasksApi.generate(task.id);
+    },
+    onSuccess: (data) => {
+      setGenerateIssues(null);
+      lastSaved.current = JSON.stringify(data.xmlData);
+      queryClient.setQueryData(['technical-task', task.id], data);
+      setTab('preview');
+    },
+    onError: (error: { response?: { data?: { issues?: ValidationIssue[]; message?: string } } }) => {
+      setGenerateIssues(error.response?.data?.issues ?? []);
+      queryClient.invalidateQueries({ queryKey: ['technical-task', task.id] });
+    },
+  });
+
+  const deleteMutation = useMutation({ mutationFn: () => technicalTasksApi.delete(task.id), onSuccess: onDeleted });
+  const reprocessMutation = useMutation({
+    mutationFn: () => technicalTasksApi.reprocess(task.id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['technical-task', task.id] }),
+  });
+
+  // Автосохранение через 1,5 с после последней правки
+  useEffect(() => {
+    if (!dirty || !model) return;
+    const t = setTimeout(() => saveMutation.mutate(model), 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model, dirty]);
+
+  const onChange = (m: TzXmlModel) => {
+    setModel(m);
+    setDirty(true);
+  };
+
+  const status = STATUS[task.status];
   const StatusIcon = status.icon;
+  const isLegacy = !task.xmlData && !!task.generatedFileUrl;
 
   return (
-    <div className="animate-fade-in max-w-4xl mx-auto">
-      {/* Заголовок */}
-      <div className="mb-8">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => navigate('/technical-tasks')}
-          className="mb-4"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Назад к списку
+    <div className="animate-fade-in max-w-6xl mx-auto">
+      <div className="mb-6">
+        <Button variant="ghost" size="sm" onClick={() => navigate('/technical-tasks')} className="mb-3">
+          <ArrowLeft className="w-4 h-4" /> Назад к списку
         </Button>
-
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">{task.name}</h1>
-            <div className="flex items-center gap-4 text-[var(--text-secondary)]">
-              {task.createdBy && (
-              <span className="flex items-center gap-2">
-                <User className="w-4 h-4" />
-                {task.createdBy.firstName} {task.createdBy.lastName}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold mb-1 truncate">{task.name}</h1>
+            <div className="flex flex-wrap items-center gap-3 text-sm text-[var(--text-secondary)]">
+              <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${status.cls}`}>
+                <StatusIcon className={`w-3.5 h-3.5 ${task.status === 'PROCESSING' ? 'animate-spin' : ''}`} /> {status.label}
               </span>
+              <span>{SOURCE_LABEL[task.source]}</span>
+              {task.sourceFileName && (
+                <button type="button" className="inline-flex items-center gap-1 hover:text-[var(--text-primary)]" onClick={() => technicalTasksApi.downloadSourceFile(task.id)}>
+                  <FileText className="w-3.5 h-3.5" /> {task.sourceFileName}
+                </button>
               )}
-              <span className="flex items-center gap-2">
-                <Calendar className="w-4 h-4" />
-                {new Date(task.createdAt).toLocaleDateString('ru', {
-                  day: 'numeric',
-                  month: 'long',
-                  year: 'numeric'
-                })}
-              </span>
+              {saveMutation.isPending ? <span className="inline-flex items-center gap-1"><Loader2 className="w-3.5 h-3.5 animate-spin" /> сохраняем…</span> : dirty ? <span>есть несохранённые правки</span> : null}
             </div>
           </div>
+          <div className="flex flex-wrap gap-2">
+            {model && task.canEdit && (
+              <Button variant="secondary" size="sm" onClick={() => model && saveMutation.mutate(model)} disabled={!dirty || saveMutation.isPending}>
+                <Save className="w-4 h-4" /> Сохранить
+              </Button>
+            )}
+            {model && task.canEdit && (
+              <Button size="sm" onClick={() => generateMutation.mutate()} isLoading={generateMutation.isPending} disabled={task.status === 'PROCESSING'}>
+                <FileCode2 className="w-4 h-4" /> Сгенерировать XML
+              </Button>
+            )}
+            {task.xmlFileUrl && (
+              <Button variant="secondary" size="sm" onClick={() => technicalTasksApi.downloadXml(task.id)}>
+                <Download className="w-4 h-4" /> Скачать XML
+              </Button>
+            )}
+            {task.canDelete && (
+              <Button variant="danger" size="sm" onClick={() => confirm('Удалить это ТЗ?') && deleteMutation.mutate()} disabled={deleteMutation.isPending}>
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
 
-          {task.canDelete && (
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={() => {
-                if (confirm('Удалить это ТЗ?')) {
-                  deleteMutation.mutate();
-                }
-              }}
-              disabled={deleteMutation.isPending}
-            >
-              <Trash2 className="w-4 h-4" />
-              Удалить
+      {task.status === 'PROCESSING' && (
+        <Card className="mb-6">
+          <CardContent className="py-6 flex items-center gap-4">
+            <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+            <div className="flex-1">
+              <div className="font-semibold">ИИ извлекает данные из документа</div>
+              <div className="text-sm text-[var(--text-secondary)]">Обычно это занимает три–пять минут: модель разбирает документ целиком. Форма откроется автоматически.</div>
+            </div>
+            {task.canEdit && (
+              <Button variant="secondary" size="sm" onClick={() => reprocessMutation.mutate()} disabled={reprocessMutation.isPending} title="Если обработка зависла">
+                <RefreshCw className={`w-4 h-4 ${reprocessMutation.isPending ? 'animate-spin' : ''}`} /> Запустить заново
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {task.status === 'ERROR' && (
+        <Card className="mb-6 border-red-500/30">
+          <CardContent className="py-5 flex items-start gap-4">
+            <AlertCircle className="w-6 h-6 text-red-400 shrink-0" />
+            <div className="flex-1">
+              <div className="font-semibold text-red-300">Не удалось извлечь данные</div>
+              <div className="text-sm text-[var(--text-secondary)] mb-3">{task.processingError || 'Попробуйте запустить обработку ещё раз или заполните форму вручную.'}</div>
+              <Button variant="secondary" size="sm" onClick={() => reprocessMutation.mutate()} disabled={reprocessMutation.isPending}>
+                <RefreshCw className={`w-4 h-4 ${reprocessMutation.isPending ? 'animate-spin' : ''}`} /> Повторить
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {model?.importInfo && (model.importInfo.imported.length > 0 || model.importInfo.notes.length > 0) && (
+        <Card className="mb-6">
+          <CardContent className="py-4 text-sm space-y-2">
+            {model.importInfo.imported.length > 0 && (
+              <div className="flex items-start gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
+                <span>
+                  <span className="text-[var(--text-secondary)]">Перенесено из документа: </span>
+                  {model.importInfo.imported.join(', ')}
+                </span>
+              </div>
+            )}
+            {model.importInfo.notes.map((n, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <Info className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+                <span>{n}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {generateIssues && generateIssues.length > 0 && (
+        <Card className="mb-6 border-amber-500/30">
+          <CardContent className="py-4 text-sm">
+            <div className="font-semibold text-amber-300 mb-1">XML не сформирован: заполните обязательные поля</div>
+            <div className="text-[var(--text-secondary)]">Осталось {generateIssues.length}. Проблемные блоки отмечены в списке слева.</div>
+          </CardContent>
+        </Card>
+      )}
+
+      {isLegacy && (
+        <Card className="mb-6">
+          <CardContent className="py-5 flex flex-wrap items-center gap-4">
+            <div className="flex-1 text-sm">
+              <div className="font-semibold">ТЗ создано по прежнему Word-шаблону</div>
+              <div className="text-[var(--text-secondary)]">Для XML по схеме Минстроя создайте новое задание. Прежний документ можно скачать.</div>
+            </div>
+            <Button variant="secondary" size="sm" onClick={() => technicalTasksApi.downloadGeneratedFile(task.id)}>
+              <Download className="w-4 h-4" /> Скачать Word
             </Button>
-          )}
-        </div>
-      </div>
-
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* Статус */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Статус обработки</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className={`
-              inline-flex items-center gap-3 px-4 py-3 rounded-xl
-              ${status.bgColor}
-            `}>
-              <StatusIcon className={`w-6 h-6 ${status.color} ${task.status === 'PROCESSING' ? 'animate-spin' : ''}`} />
-              <div>
-                <div className={`font-semibold ${status.color}`}>
-                  {status.label}
-                </div>
-                {task.status === 'PROCESSING' && (
-                  <div className="text-sm text-[var(--text-secondary)]">
-                    AI анализирует документ...
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {task.status === 'PROCESSING' && (
-              <div className="mt-4">
-                <div className="h-2 bg-[var(--bg-tertiary)] rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full animate-pulse"
-                    style={{ width: '60%' }}
-                  />
-                </div>
-              </div>
-            )}
           </CardContent>
         </Card>
+      )}
 
-        {/* Исходный файл */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="w-5 h-5 text-cyan-400" />
-              Исходный файл
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {task.sourceFileName ? (
-              <div className="space-y-4">
-                <div className="p-4 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)]">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-lg bg-[var(--bg-secondary)] flex items-center justify-center">
-                      <FileText className="w-6 h-6 text-cyan-400" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{task.sourceFileName}</div>
-                      <div className="text-sm text-[var(--text-secondary)]">
-                        {task.sourceFileType?.toUpperCase()}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <Button
-                  variant="secondary"
-                  className="w-full"
-                  onClick={() => technicalTasksApi.downloadSourceFile(task.id)}
-                >
-                  <Download className="w-4 h-4" />
-                  Скачать исходный файл
-                </Button>
-              </div>
-            ) : (
-              <div className="text-center py-8 text-[var(--text-secondary)]">
-                <FileText className="w-12 h-12 mx-auto mb-2 opacity-30" />
-                <p>Файл не загружен</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Сгенерированный файл */}
-        <Card className="md:col-span-2">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-emerald-400" />
-              Результат обработки
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {task.status === 'COMPLETED' && task.generatedFileName ? (
-              <div className="space-y-4">
-                <div className="p-6 rounded-xl bg-gradient-to-br from-emerald-500/10 to-cyan-500/10 border border-emerald-500/20">
-                  <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 rounded-xl bg-emerald-500/20 flex items-center justify-center">
-                      <CheckCircle2 className="w-8 h-8 text-emerald-400" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="text-lg font-semibold text-emerald-400 mb-1">
-                        ТЗ успешно сформировано
-                      </div>
-                      <div className="text-sm text-[var(--text-secondary)]">
-                        {task.generatedFileName}
-                      </div>
-                      {task.generatedAt && (
-                        <div className="text-xs text-[var(--text-secondary)] mt-1">
-                          Сгенерировано: {new Date(task.generatedAt).toLocaleString('ru')}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Кнопки действий */}
-                <div className="grid grid-cols-2 gap-3">
-                  <Button
-                    variant={showDocument ? 'primary' : 'secondary'}
-                    onClick={() => setShowDocument(!showDocument)}
-                  >
-                    <Eye className="w-4 h-4" />
-                    {showDocument ? 'Скрыть документ' : 'Открыть документ'}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => technicalTasksApi.downloadGeneratedFile(task.id)}
-                  >
-                    <Download className="w-4 h-4" />
-                    Скачать
-                  </Button>
-                </div>
-              </div>
-            ) : task.status === 'PROCESSING' ? (
-              <div className="text-center py-12">
-                <div className="relative w-20 h-20 mx-auto mb-4">
-                  <div className="absolute inset-0 border-4 border-cyan-500/20 rounded-full" />
-                  <div className="absolute inset-0 border-4 border-transparent border-t-cyan-500 rounded-full animate-spin" />
-                  <Sparkles className="absolute inset-0 m-auto w-8 h-8 text-cyan-400" />
-                </div>
-                <h3 className="text-lg font-semibold mb-2">AI обрабатывает документ</h3>
-                <p className="text-[var(--text-secondary)]">
-                  Это может занять несколько минут...
-                </p>
-              </div>
-            ) : task.status === 'ERROR' ? (
-              <div className="text-center py-12">
-                <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-red-400 mb-2">
-                  Ошибка обработки
-                </h3>
-                <p className="text-[var(--text-secondary)] mb-4">
-                  Не удалось обработать документ. Попробуйте перезапустить обработку.
-                </p>
-                <Button 
-                  variant="secondary"
-                  onClick={() => reprocessMutation.mutate()}
-                  disabled={reprocessMutation.isPending}
-                >
-                  <RefreshCw className={`w-4 h-4 ${reprocessMutation.isPending ? 'animate-spin' : ''}`} />
-                  {reprocessMutation.isPending ? 'Запуск...' : 'Попробовать снова'}
-                </Button>
-              </div>
-            ) : (
-              <div className="text-center py-12 text-[var(--text-secondary)]">
-                <Clock className="w-16 h-16 mx-auto mb-4 opacity-30" />
-                <p>Загрузите файл ТЗ для начала обработки</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Просмотр/редактирование документа */}
-        {showDocument && task.status === 'COMPLETED' && task.generatedFileName && (
-          <Card className="md:col-span-2">
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-cyan-400" />
-                  Документ
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowDocument(false)}
-                >
-                  Скрыть
-                </Button>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <DocxEditor
-                fileUrl={technicalTasksApi.getGeneratedFileUrl(task.id)}
-                onDownload={() => technicalTasksApi.downloadGeneratedFile(task.id)}
-              />
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Извлечённые данные (если есть) */}
-        {task.extractedData && Object.keys(task.extractedData).length > 0 && (
-          <Card className="md:col-span-2">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-purple-400" />
-                Извлечённые данные
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ExtractedDataDisplay data={task.extractedData} />
-            </CardContent>
-          </Card>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// Компонент для красивого отображения извлечённых данных
-function ExtractedDataDisplay({ data }: { data: Record<string, unknown> }) {
-  const FIELD_LABELS: Record<string, string> = {
-    objectName: 'Наименование объекта',
-    objectLocation: 'Местоположение',
-    cadastralNumber: 'Кадастровый номер',
-    areaSize: 'Площадь участка',
-    contractNumber: 'Номер договора',
-    contractDate: 'Дата договора',
-    year: 'Год',
-    'customer.name': 'Заказчик',
-    'customer.address': 'Адрес заказчика',
-    'customer.contactName': 'Контактное лицо',
-    'customer.contactPhone': 'Телефон',
-    'customer.contactEmail': 'Email',
-    'objectInfo.purpose': 'Назначение объекта',
-    'objectInfo.responsibilityLevel': 'Уровень ответственности',
-    'technicalCharacteristics.description': 'Описание объекта',
-    'technicalCharacteristics.excavationDepth': 'Глубина земляных работ',
-    'technicalCharacteristics.foundationType': 'Тип фундамента',
-    'technicalCharacteristics.foundationDepth': 'Глубина заложения',
-    reportRequirements: 'Требования к отчётности',
-  };
-
-  const SECTION_LABELS: Record<string, string> = {
-    surveyTypes: 'Виды изысканий',
-    urbanPlanningActivities: 'Виды градостроительной деятельности',
-    ecologySurveyWorks: 'Состав экологических работ',
-    customer: 'Сведения о заказчике',
-    objectInfo: 'Сведения об объекте',
-    technicalCharacteristics: 'Технические характеристики',
-  };
-
-  const BOOL_LABELS: Record<string, string> = {
-    hydrometeorology: 'Гидрометеорология',
-    geology: 'Геология',
-    ecology: 'Экология',
-    architecturalDesign: 'Архитектурно-строительное проектирование',
-    construction: 'Строительство',
-    reconstruction: 'Реконструкция',
-    capitalRepair: 'Капитальный ремонт',
-    gammaTerrain: 'МЭД гамма на территории',
-    gammaBuilding: 'МЭД гамма в здании',
-    radonTerrain: 'Радон на территории',
-    radonBuilding: 'ЭРОА радона в здании',
-    heavyMetalsSoil: 'Тяжёлые металлы в грунте',
-    benzpyrene: 'Бенз(а)пирен',
-    oilProducts: 'Нефтепродукты',
-    microbiologySoil: 'Микробиология грунта',
-    noiseLevel: 'Уровень шума',
-    vibration: 'Вибрация',
-    emf: 'ЭМП',
-  };
-
-  const renderValue = (key: string, value: unknown): React.ReactNode => {
-    if (value === null || value === undefined || value === '') return null;
-    
-    if (typeof value === 'boolean') {
-      return value ? (
-        <span className="inline-flex items-center gap-1 text-emerald-400">
-          <CheckCircle2 className="w-4 h-4" /> Да
-        </span>
-      ) : null;
-    }
-    
-    if (Array.isArray(value)) {
-      if (value.length === 0) return null;
-      return (
-        <ul className="list-disc list-inside space-y-1">
-          {value.map((item, i) => (
-            <li key={i} className="text-[var(--text-secondary)]">{String(item)}</li>
-          ))}
-        </ul>
-      );
-    }
-    
-    if (typeof value === 'object') {
-      return (
-        <div className="space-y-2 pl-4 border-l-2 border-[var(--border-color)]">
-          {Object.entries(value as Record<string, unknown>).map(([k, v]) => {
-            const rendered = renderValue(k, v);
-            if (!rendered) return null;
-            return (
-              <div key={k}>
-                <span className="text-[var(--text-secondary)] text-sm">
-                  {BOOL_LABELS[k] || FIELD_LABELS[`${key}.${k}`] || k}:
-                </span>
-                <div className="mt-1">{rendered}</div>
-              </div>
-            );
-          })}
-        </div>
-      );
-    }
-    
-    return <span className="text-[var(--text-primary)]">{String(value)}</span>;
-  };
-
-  // Группируем поля
-  const mainFields = ['objectName', 'objectLocation', 'cadastralNumber', 'areaSize', 'contractNumber', 'year'];
-  const sections = ['surveyTypes', 'customer', 'objectInfo', 'technicalCharacteristics', 'ecologySurveyWorks'];
-
-  return (
-    <div className="space-y-6">
-      {/* Основные поля */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {mainFields.map((field) => {
-          const value = data[field];
-          if (!value) return null;
-          return (
-            <div key={field} className="p-4 rounded-lg bg-[var(--bg-tertiary)]">
-              <div className="text-sm text-[var(--text-secondary)] mb-1">
-                {FIELD_LABELS[field] || field}
-              </div>
-              <div className="font-medium">{String(value)}</div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Секции */}
-      {sections.map((section) => {
-        const value = data[section];
-        if (!value || typeof value !== 'object') return null;
-        
-        // Проверяем есть ли хотя бы одно значимое поле
-        const hasContent = Object.values(value as Record<string, unknown>).some(
-          v => v !== null && v !== undefined && v !== '' && v !== false
-        );
-        if (!hasContent) return null;
-
-        return (
-          <div key={section} className="p-4 rounded-lg bg-[var(--bg-tertiary)]">
-            <h4 className="font-medium mb-3 text-[var(--text-primary)]">
-              {SECTION_LABELS[section] || section}
-            </h4>
-            {renderValue(section, value)}
+      {model && (
+        <>
+          <div className="flex gap-2 mb-4 border-b border-[var(--border-color)]">
+            <button type="button" onClick={() => setTab('form')} className={`px-4 py-2 text-sm border-b-2 -mb-px ${tab === 'form' ? 'border-primary-500 text-[var(--text-primary)]' : 'border-transparent text-[var(--text-secondary)]'}`}>
+              Форма
+            </button>
+            <button type="button" onClick={() => setTab('preview')} disabled={!task.xmlFileUrl} className={`px-4 py-2 text-sm border-b-2 -mb-px inline-flex items-center gap-1.5 disabled:opacity-40 ${tab === 'preview' ? 'border-primary-500 text-[var(--text-primary)]' : 'border-transparent text-[var(--text-secondary)]'}`}>
+              <Eye className="w-4 h-4" /> Печатная форма
+            </button>
           </div>
-        );
-      })}
+          {tab === 'form' ? (
+            <TzEditor taskId={task.id} model={model} onChange={onChange} readOnly={!task.canEdit} />
+          ) : (
+            <div className="space-y-3">
+              {dirty && <div className="text-sm text-amber-300">Есть правки, не попавшие в XML. Сгенерируйте XML заново.</div>}
+              <XmlPreview taskId={task.id} version={task.xmlGeneratedAt} />
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
-
-

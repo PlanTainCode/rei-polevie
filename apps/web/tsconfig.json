@@ -17,7 +17,9 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@tz-xml": ["../api/src/modules/technical-tasks/tz-xml/index.ts"],
+      "@tz-xml/*": ["../api/src/modules/technical-tasks/tz-xml/*"]
     }
   },
   "include": ["src"],

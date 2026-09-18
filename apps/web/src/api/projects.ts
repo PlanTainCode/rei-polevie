@@ -12,6 +12,7 @@ export interface Project {
   objectAddress: string | null;
   objectPurpose: string | null;
   documentNumber: string | null;
+  samplingDate?: string | null;
   clientName: string | null;
   services: ServiceMatch[] | null;
   // Сгенерированный файл
@@ -138,6 +139,58 @@ export interface GenerateProgramIgiResult {
   downloadUrl: string;
 }
 
+export interface GenerateReportIeiResult {
+  success: boolean;
+  fileName: string;
+  downloadUrl: string;
+}
+
+export interface ReportIeiClimateValues {
+  atmosphereA?: string;
+  reliefCoef?: string;
+  maxTempHotMonth?: string;
+  meanTempColdMonth?: string;
+  windN?: string;
+  windNe?: string;
+  windE?: string;
+  windSe?: string;
+  windS?: string;
+  windSw?: string;
+  windW?: string;
+  windNw?: string;
+  windSpeed5?: string;
+}
+
+export interface ReportIeiData {
+  fieldWorkPeriod?: string;
+  cameralWorkPeriod?: string;
+  previousObjectName?: string;
+  hasObjectRename?: boolean;
+  isLandscapingOnly?: boolean;
+  hasBuildingSurvey?: boolean;
+  buildingDescription?: string;
+  socialInfrastructureText?: string;
+  noSocialInfrastructureNearby?: boolean;
+  waterObjectText?: string;
+  landUseZone?: string;
+  volume?: string;
+  reportCipher?: string;
+  siteFenceText?: string;
+  executorNames?: string[];
+  inventoryNumber?: string;
+  /** false — ветка [88] «справки ЦГМС нет», даже если в ТЗ есть номер. undefined — авто. */
+  hasCgmsCertificate?: boolean;
+  cgmsCertificateNumber?: string;
+  cgmsCertificateDate?: string;
+  weatherStation?: string;
+  climateValues?: ReportIeiClimateValues;
+  woodyPlantingsText?: string;
+  hasOopt?: boolean;
+  ooptName?: string;
+  ooptText?: string;
+  pollutionSourcesText?: string;
+}
+
 // Программа ИЭИ
 export interface ProgramIei {
   id: string;
@@ -170,6 +223,10 @@ export interface ProgramIei {
   igiGeneratedFileName: string | null;
   igiGeneratedFileUrl: string | null;
   igiGeneratedAt: string | null;
+  reportIeiData: ReportIeiData | null;
+  reportGeneratedFileName: string | null;
+  reportGeneratedFileUrl: string | null;
+  reportGeneratedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -193,6 +250,7 @@ export interface UpdateProgramIeiData {
   section82Text?: string;
   customerProvidesBackgroundConcentrations?: boolean;
   isRestrictedObject?: boolean;
+  reportIeiData?: ReportIeiData;
 }
 
 export type UpdateProgramIgmiData = UpdateProgramIeiData;
@@ -594,6 +652,15 @@ export const projectsApi = {
   generateProgramIgi: async (projectId: string): Promise<GenerateProgramIgiResult> => {
     const response = await apiClient.post<GenerateProgramIgiResult>(
       `/projects/${projectId}/generate-program-igi`,
+      undefined,
+      { timeout: 300000 },
+    );
+    return response.data;
+  },
+
+  generateReportIei: async (projectId: string): Promise<GenerateReportIeiResult> => {
+    const response = await apiClient.post<GenerateReportIeiResult>(
+      `/projects/${projectId}/generate-report-iei`,
       undefined,
       { timeout: 300000 },
     );

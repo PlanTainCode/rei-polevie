@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNotEmpty, IsEmail, IsEnum } from 'class-validator';
+import { IsString, IsOptional, IsNotEmpty, IsEmail, IsEnum, IsObject } from 'class-validator';
 import { CompanyRole } from '@prisma/client';
 
 export class CreateCompanyDto {
@@ -37,3 +37,8 @@ export class AcceptInviteDto {
   lastName: string;
 }
 
+
+export class UpdateCompanyRequisitesDto {
+  @IsObject()
+  requisites: Record<string, unknown>;
+}

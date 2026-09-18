@@ -1,56 +1,84 @@
 import { apiClient } from './client';
+import type { AttachedFile, BoundaryImage, TzSource, TzXmlModel, ValidationIssue } from '@tz-xml';
 
 export type TechnicalTaskStatus = 'DRAFT' | 'PROCESSING' | 'COMPLETED' | 'ERROR';
 
-export interface TechnicalTask {
+export interface TechnicalTaskListItem {
   id: string;
   name: string;
   status: TechnicalTaskStatus;
+  source: TzSource;
   sourceFileName: string | null;
+  xmlFileName: string | null;
+  xmlGeneratedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: { id: string; firstName: string; lastName: string } | null;
+}
+
+export interface TechnicalTask extends TechnicalTaskListItem {
   sourceFileUrl: string | null;
   sourceFileType: string | null;
+  /** Данные прежнего Word-шаблона (для ТЗ, созданных до XML) */
   extractedData: Record<string, unknown> | null;
   generatedFileName: string | null;
   generatedFileUrl: string | null;
   generatedAt: string | null;
+  xmlData: TzXmlModel | null;
+  xmlFileUrl: string | null;
+  processingError: string | null;
+  issues: ValidationIssue[];
   createdById: string | null;
-  createdBy: {
-    id: string;
-    firstName: string;
-    lastName: string;
-  } | null;
-  createdAt: string;
-  updatedAt: string;
   canEdit?: boolean;
   canDelete?: boolean;
 }
 
-export interface CreateTechnicalTaskData {
-  name: string;
+export interface UploadedAttachment extends AttachedFile {
+  imageType?: BoundaryImage['type'];
 }
 
-export interface UpdateTechnicalTaskData {
-  name?: string;
-  extractedData?: Record<string, unknown>;
+export interface GenerateError {
+  message: string;
+  issues?: ValidationIssue[];
+}
+
+function downloadBlob(data: Blob, fallbackName: string, contentDisposition?: string) {
+  let filename = fallbackName;
+  if (contentDisposition) {
+    const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;\s]+)/i);
+    const plainMatch = contentDisposition.match(/filename="?([^";\n]+)"?/);
+    if (utf8Match?.[1]) filename = decodeURIComponent(utf8Match[1]);
+    else if (plainMatch?.[1]) filename = decodeURIComponent(plainMatch[1]);
+  }
+  const url = window.URL.createObjectURL(data);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
+
+async function downloadFrom(url: string, fallbackName: string) {
+  const response = await apiClient.get(url, { responseType: 'blob' });
+  downloadBlob(new Blob([response.data]), fallbackName, response.headers['content-disposition']);
 }
 
 export const technicalTasksApi = {
-  create: async (data: CreateTechnicalTaskData, file?: File): Promise<TechnicalTask> => {
+  create: async (data: { name: string; source: TzSource }, file?: File): Promise<TechnicalTask> => {
     const formData = new FormData();
     formData.append('name', data.name);
-    if (file) {
-      formData.append('file', file);
-    }
+    formData.append('source', data.source);
+    if (file) formData.append('file', file);
     const response = await apiClient.post<TechnicalTask>('/technical-tasks', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+      headers: { 'Content-Type': 'multipart/form-data' },
     });
     return response.data;
   },
 
-  getAll: async (): Promise<TechnicalTask[]> => {
-    const response = await apiClient.get<TechnicalTask[]>('/technical-tasks');
+  getAll: async (): Promise<TechnicalTaskListItem[]> => {
+    const response = await apiClient.get<TechnicalTaskListItem[]>('/technical-tasks');
     return response.data;
   },
 
@@ -59,22 +87,8 @@ export const technicalTasksApi = {
     return response.data;
   },
 
-  update: async (id: string, data: UpdateTechnicalTaskData, file?: File): Promise<TechnicalTask> => {
-    const formData = new FormData();
-    if (data.name) {
-      formData.append('name', data.name);
-    }
-    if (data.extractedData) {
-      formData.append('extractedData', JSON.stringify(data.extractedData));
-    }
-    if (file) {
-      formData.append('file', file);
-    }
-    const response = await apiClient.patch<TechnicalTask>(`/technical-tasks/${id}`, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
+  update: async (id: string, data: { name?: string; xmlData?: TzXmlModel }): Promise<TechnicalTask> => {
+    const response = await apiClient.patch<TechnicalTask>(`/technical-tasks/${id}`, data);
     return response.data;
   },
 
@@ -82,69 +96,9 @@ export const technicalTasksApi = {
     await apiClient.delete(`/technical-tasks/${id}`);
   },
 
-  downloadSourceFile: async (id: string): Promise<void> => {
-    const response = await apiClient.get(`/technical-tasks/${id}/files/source`, {
-      responseType: 'blob',
-    });
-    
-    // Извлекаем имя файла из заголовка
-    const contentDisposition = response.headers['content-disposition'];
-    let filename = 'document';
-    if (contentDisposition) {
-      // Сначала пробуем filename*=UTF-8'' (RFC 5987)
-      const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;\s]+)/i);
-      if (utf8Match && utf8Match[1]) {
-        filename = decodeURIComponent(utf8Match[1]);
-      } else {
-        // Фолбэк на обычный filename
-        const match = contentDisposition.match(/filename="?([^";\n]+)"?/);
-        if (match && match[1]) {
-          filename = decodeURIComponent(match[1]);
-        }
-      }
-    }
-    
-    const blob = new Blob([response.data]);
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
-  },
-
-  downloadGeneratedFile: async (id: string): Promise<void> => {
-    const response = await apiClient.get(`/technical-tasks/${id}/files/generated`, {
-      responseType: 'blob',
-    });
-    
-    const contentDisposition = response.headers['content-disposition'];
-    let filename = 'document.docx';
-    if (contentDisposition) {
-      // Сначала пробуем filename*=UTF-8'' (RFC 5987)
-      const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;\s]+)/i);
-      if (utf8Match && utf8Match[1]) {
-        filename = decodeURIComponent(utf8Match[1]);
-      } else {
-        // Фолбэк на обычный filename
-        const match = contentDisposition.match(/filename="?([^";\n]+)"?/);
-        if (match && match[1]) {
-          filename = decodeURIComponent(match[1]);
-        }
-      }
-    }
-    
-    const blob = new Blob([response.data]);
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
+  generate: async (id: string): Promise<TechnicalTask> => {
+    const response = await apiClient.post<TechnicalTask>(`/technical-tasks/${id}/generate`);
+    return response.data;
   },
 
   reprocess: async (id: string): Promise<{ message: string }> => {
@@ -152,20 +106,43 @@ export const technicalTasksApi = {
     return response.data;
   },
 
-  // Получить HTML содержимое документа
+  uploadAttachment: async (id: string, file: File): Promise<UploadedAttachment> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await apiClient.post<UploadedAttachment>(`/technical-tasks/${id}/attachments`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  /** URL вложения для показа (изображения границ). */
+  attachmentUrl: (id: string, fileUrl: string): string => {
+    const fileName = fileUrl.split('/').pop() ?? '';
+    return `/api/technical-tasks/${id}/attachments/${encodeURIComponent(fileName)}`;
+  },
+
+  fetchAttachmentBlobUrl: async (id: string, fileUrl: string): Promise<string> => {
+    const fileName = fileUrl.split('/').pop() ?? '';
+    const response = await apiClient.get(`/technical-tasks/${id}/attachments/${encodeURIComponent(fileName)}`, { responseType: 'blob' });
+    return window.URL.createObjectURL(new Blob([response.data]));
+  },
+
+  downloadXml: (id: string) => downloadFrom(`/technical-tasks/${id}/files/xml`, 'task.xml'),
+  downloadSourceFile: (id: string) => downloadFrom(`/technical-tasks/${id}/files/source`, 'document'),
+  downloadGeneratedFile: (id: string) => downloadFrom(`/technical-tasks/${id}/files/generated`, 'document.docx'),
+
+  /** Текст XML и XSL для визуализации в браузере. */
+  getXmlText: async (id: string): Promise<string> => {
+    const response = await apiClient.get<string>(`/technical-tasks/${id}/files/xml/raw`, { responseType: 'text' });
+    return response.data;
+  },
+  getXslText: async (): Promise<string> => {
+    const response = await apiClient.get<string>('/technical-tasks/xsl', { responseType: 'text' });
+    return response.data;
+  },
+
   getDocumentHtml: async (id: string): Promise<{ html: string }> => {
     const response = await apiClient.get<{ html: string }>(`/technical-tasks/${id}/document/html`);
     return response.data;
-  },
-
-  // Сохранить изменённый HTML
-  saveDocumentHtml: async (id: string, html: string): Promise<{ message: string }> => {
-    const response = await apiClient.post<{ message: string }>(`/technical-tasks/${id}/document/html`, { html });
-    return response.data;
-  },
-
-  // Получить URL для просмотра документа (относительный для apiClient)
-  getGeneratedFileUrl: (id: string): string => {
-    return `/technical-tasks/${id}/files/generated`;
   },
 };

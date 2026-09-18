@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsArray, ValidateNested, IsNumber, IsBoolean } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray, ValidateNested, IsNumber, IsBoolean, IsObject } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateProjectDto {
@@ -151,5 +151,9 @@ export class UpdateProgramIeiDto {
   @IsBoolean()
   @IsOptional()
   isRestrictedObject?: boolean;
+
+  @IsObject()
+  @IsOptional()
+  reportIeiData?: Record<string, unknown>;
 }
 

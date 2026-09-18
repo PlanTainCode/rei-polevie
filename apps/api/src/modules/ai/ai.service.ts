@@ -19,6 +19,11 @@ import {
   determineObjectTypeViaAi,
   ObjectTypeFlags,
 } from './program-iei/object-type';
+import { parseJsonObjectFromAi } from './parse-json';
+import {
+  extractReportIeiSection1ViaAi,
+  type ReportIeiSection1AiData,
+} from './report-iei/section-1';
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -38,6 +43,7 @@ export type {
   ProgramIeiSection45Data,
   Section47LayersData,
   ObjectTypeFlags,
+  ReportIeiSection1AiData,
 };
 
 export interface ExtractedCoordinates {
@@ -328,6 +334,21 @@ export class AiService {
       chat: this.chat.bind(this),
       orderText,
       objectName,
+    });
+  }
+
+  async extractReportIeiSection1(params: {
+    tzText: string;
+    reportTemplateSection1: string;
+    nearbyText?: string;
+    objectName?: string;
+  }): Promise<ReportIeiSection1AiData> {
+    return extractReportIeiSection1ViaAi({
+      chat: this.chat.bind(this),
+      tzText: params.tzText,
+      reportTemplateSection1: params.reportTemplateSection1,
+      nearbyText: params.nearbyText,
+      objectName: params.objectName,
     });
   }
 
@@ -1096,14 +1117,14 @@ ${tzText}`;
         { role: 'user', content: userPrompt },
       ]);
 
-      // Парсим JSON из ответа
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        console.error('[AiService] Не удалось найти JSON в ответе:', response);
+      const parsed = parseJsonObjectFromAi(response) as ProgramIeiSection1Data | null;
+      if (!parsed || typeof parsed !== 'object') {
+        console.error(
+          '[AiService] Не удалось найти JSON в ответе:',
+          String(response || '').slice(0, 400),
+        );
         return this.getEmptySection1Data();
       }
-
-      const parsed = JSON.parse(jsonMatch[0]) as ProgramIeiSection1Data;
       
       // Логируем technicalCharacteristics для диагностики
       console.log('[AiService] technicalCharacteristics из AI:', parsed.technicalCharacteristics);

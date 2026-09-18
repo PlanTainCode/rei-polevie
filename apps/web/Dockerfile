@@ -12,6 +12,8 @@ RUN bun install
 
 # Копируем исходный код
 COPY packages/shared ./packages/shared
+# Модель XML-ТЗ подключается в веб через alias @tz-xml из исходников API
+COPY apps/api/src/modules/technical-tasks/tz-xml ./apps/api/src/modules/technical-tasks/tz-xml
 COPY apps/web ./apps/web
 
 # Собираем приложение
