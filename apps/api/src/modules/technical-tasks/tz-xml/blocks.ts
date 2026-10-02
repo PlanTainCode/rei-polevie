@@ -23,7 +23,7 @@ export const TZ_BLOCKS: TzBlock[] = [
   { id: 'object', title: 'Сведения об объекте', hint: 'Наименование, адрес, кадастр, характеристики объекта', required: true },
   { id: 'initiationDocuments', title: 'Основание для выполнения работ', hint: 'Договор и другие документы-основания', required: true },
   { id: 'construction', title: 'Вид деятельности и этап', hint: 'Вид градостроительной деятельности, этап изысканий, сроки', required: true },
-  { id: 'customer', title: 'Заказчик', hint: 'Застройщик или технический заказчик', required: true },
+  { id: 'customer', title: 'Заказчик', hint: 'Застройщик, технический заказчик или оба', required: true },
   { id: 'researchers', title: 'Исполнители', hint: 'Лица, заключившие договоры на изыскания', required: false, enabledKey: 'researchers' },
   { id: 'purposes', title: 'Цели и задачи', hint: 'Общие цели и задачи инженерных изысканий', required: true },
   { id: 'surveys', title: 'Виды изысканий', hint: 'Основные, специальные и иные исследования с целями и задачами', required: true },

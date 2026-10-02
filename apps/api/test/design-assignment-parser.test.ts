@@ -24,12 +24,20 @@ test('переносит объект, адрес, характеристики 
 
 test('переносит застройщика, техзаказчика и утверждающую организацию', () => {
   const { model } = parseDesignAssignment(xml);
-  expect(model.customerKind).toBe('DEVELOPER');
+  expect(model.customerKind).toBe('BOTH');
   expect(model.developer.organization.inn).toBe('7730001111');
   expect(model.developer.organization.address.postIndex).toBe('121059');
   expect(model.technicalCustomer.noprizNumber).toBe('П-001-000000000002-2021');
   expect(model.approver.organization.fullName).toBe(model.developer.organization.fullName);
   expect(model.approver.organization.noprizNumber).toBe('Не требуется');
+});
+
+test('импорт задания с одной стороной оставляет выбранной только эту сторону', () => {
+  const developerOnly = parseDesignAssignment(xml.replace(/<TechnicalCustomers>[\s\S]*?<\/TechnicalCustomers>/, '')).model;
+  expect(developerOnly.customerKind).toBe('DEVELOPER');
+  const technicalCustomerOnly = parseDesignAssignment(xml.replace(/<Developers>[\s\S]*?<\/Developers>/, '')).model;
+  expect(technicalCustomerOnly.customerKind).toBe('TECHNICAL_CUSTOMER');
+  expect(technicalCustomerOnly.approver.organization.fullName).toBe(technicalCustomerOnly.technicalCustomer.fullName);
 });
 
 test('переносит документы, изыскания, нормы и материалы прошлых лет', () => {

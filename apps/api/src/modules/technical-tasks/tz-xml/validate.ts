@@ -296,10 +296,14 @@ export function validateModel(model: TzXmlModel): ValidationIssue[] {
   if (!inDict(SURVEY_STAGES, model.stage)) add('construction', 'stage', 'Выберите этап выполнения изысканий');
 
   // --- Заказчик --------------------------------------------------------------
-  if (model.customerKind === 'DEVELOPER') {
+  if (!['DEVELOPER', 'TECHNICAL_CUSTOMER', 'BOTH'].includes(model.customerKind)) {
+    add('customer', 'customerKind', 'Выберите застройщика, технического заказчика или обе стороны');
+  }
+  if (model.customerKind === 'DEVELOPER' || model.customerKind === 'BOTH') {
     if (model.developer.kind === 'ORGANIZATION') checkOrganization('customer', 'developer.organization', model.developer.organization, false);
     else checkPerson('customer', 'developer.person', model.developer.person);
-  } else {
+  }
+  if (model.customerKind === 'TECHNICAL_CUSTOMER' || model.customerKind === 'BOTH') {
     checkOrganization('customer', 'technicalCustomer', model.technicalCustomer, true);
   }
 

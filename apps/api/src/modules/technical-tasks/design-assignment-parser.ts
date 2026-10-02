@@ -360,7 +360,7 @@ export function parseDesignAssignment(xml: string): DesignParseResult {
   if (tcOrgs.length) {
     model.technicalCustomer = tcOrgs[0];
     mark('technicalCustomer');
-    if (!devOrg && !devPerson) model.customerKind = 'TECHNICAL_CUSTOMER';
+    model.customerKind = devOrg || devPerson ? 'BOTH' : 'TECHNICAL_CUSTOMER';
     imported.push('технический заказчик');
     if (tcOrgs.length > 1) notes.push('В задании на проектирование несколько технических заказчиков; перенесён первый');
   }

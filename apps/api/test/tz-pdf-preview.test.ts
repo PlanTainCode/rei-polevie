@@ -73,6 +73,17 @@ xsltTest('PDF-шаблон сохраняет физлицо-застройщи�
   for (const value of ['Заказчиков', 'Алексей', 'Петрович', 'customer@example.ru']) expect(text).toContain(value);
 });
 
+xsltTest('PDF-шаблон показывает застройщика и технического заказчика одновременно', async () => {
+  const m = buildSampleModel();
+  m.customerKind = 'BOTH';
+  m.developer.organization.fullName = 'Застройщик для одновременного просмотра';
+  m.technicalCustomer = { ...m.researchers[0].organization, fullName: 'Технический заказчик для одновременного просмотра' };
+  const text = await previewText(m);
+  expect(text).toContain(m.developer.organization.fullName);
+  expect(text).toContain(m.technicalCustomer.fullName);
+  expect(text).not.toContain('Сведения о техническом заказчике отсутствуют');
+});
+
 xsltTest('неполный черновик можно просмотреть: документы без файлов, отдельные примечания и описание контроля не теряются', async () => {
   const m = createEmptyModel();
   m.object.name = 'Незавершённый объект';

@@ -449,12 +449,13 @@ function writeObjectInfo(x: Xml, m: TzXmlModel, objectId: string): void {
 }
 
 function writeCustomer(x: Xml, m: TzXmlModel): void {
-  if (m.customerKind === 'DEVELOPER') {
+  if (m.customerKind === 'DEVELOPER' || m.customerKind === 'BOTH') {
     x.open('Developer');
     if (m.developer.kind === 'ORGANIZATION') writeOrganization(x, 'Organization', m.developer.organization, false);
     else writePerson(x, 'Person', m.developer.person);
     x.close('Developer');
-  } else {
+  }
+  if (m.customerKind === 'TECHNICAL_CUSTOMER' || m.customerKind === 'BOTH') {
     x.open('TechnicalCustomer');
     writeOrganization(x, 'Organization', m.technicalCustomer, true);
     x.close('TechnicalCustomer');

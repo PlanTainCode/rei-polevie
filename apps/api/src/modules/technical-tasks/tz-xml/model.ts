@@ -430,8 +430,8 @@ export interface TzXmlModel {
   initiationDocuments: DocumentsInfo;
   constructionType: string; // CONSTRUCTION_TYPES
   timePeriod?: string;
-  /** Кто заказчик задания: застройщик или технический заказчик. */
-  customerKind: 'DEVELOPER' | 'TECHNICAL_CUSTOMER';
+  /** Стороны задания: застройщик, технический заказчик или оба. */
+  customerKind: 'DEVELOPER' | 'TECHNICAL_CUSTOMER' | 'BOTH';
   developer: Developer;
   technicalCustomer: Organization;
   researchers: Researcher[];

@@ -300,6 +300,8 @@ export function ConstructionBlock({ model, onChange, issues }: BlockProps) {
 
 export function CustomerBlock({ model, onChange, issues }: BlockProps) {
   const prov = model.provenance ?? {};
+  const hasDeveloper = model.customerKind === 'DEVELOPER' || model.customerKind === 'BOTH';
+  const hasTechnicalCustomer = model.customerKind === 'TECHNICAL_CUSTOMER' || model.customerKind === 'BOTH';
   return (
     <div className="space-y-4">
       <Section title="Кто выступает заказчиком задания">
@@ -311,10 +313,12 @@ export function CustomerBlock({ model, onChange, issues }: BlockProps) {
             options={[
               { code: 'DEVELOPER', label: 'Застройщик' },
               { code: 'TECHNICAL_CUSTOMER', label: 'Технический заказчик' },
+              { code: 'BOTH', label: 'Застройщик и технический заказчик' },
             ]}
             allowEmpty={false}
+            error={errorFor(issues, 'customerKind')}
           />
-          {model.customerKind === 'DEVELOPER' && (
+          {hasDeveloper && (
             <SelectField
               label="Застройщик — это"
               value={model.developer.kind}
@@ -328,7 +332,7 @@ export function CustomerBlock({ model, onChange, issues }: BlockProps) {
           )}
         </Grid>
       </Section>
-      {model.customerKind === 'DEVELOPER' ? (
+      {hasDeveloper && (
         model.developer.kind === 'ORGANIZATION' ? (
           <Section title="Застройщик (юридическое лицо)">
             <OrganizationEditor value={model.developer.organization} onChange={(organization) => onChange({ ...model, developer: { ...model.developer, organization } })} issues={issues} path="developer.organization" provenance={prov['developer.organization']} />
@@ -338,7 +342,8 @@ export function CustomerBlock({ model, onChange, issues }: BlockProps) {
             <PersonEditor value={model.developer.person} onChange={(person) => onChange({ ...model, developer: { ...model.developer, person } })} issues={issues} path="developer.person" />
           </Section>
         )
-      ) : (
+      )}
+      {hasTechnicalCustomer && (
         <Section title="Технический заказчик" description="Организация должна состоять в реестре НОПРИЗ.">
           <OrganizationEditor value={model.technicalCustomer} onChange={(technicalCustomer) => onChange({ ...model, technicalCustomer })} issues={issues} path="technicalCustomer" nopriz provenance={prov['technicalCustomer']} />
         </Section>
