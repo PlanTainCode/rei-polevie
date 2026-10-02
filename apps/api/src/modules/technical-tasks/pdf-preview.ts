@@ -4,7 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { promisify } from 'util';
 import { convertDocumentToPdf } from '../inquiry-requests/pdf.utils';
-import sharp from 'sharp';
+import sharp = require('sharp');
 
 const execFileAsync = promisify(execFile);
 
