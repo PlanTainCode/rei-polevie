@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, FileText, Download, Trash2, Clock, CheckCircle2, AlertCircle, Loader2, RefreshCw, Save, FileCode2, Eye, Info } from 'lucide-react';
-import type { TzXmlModel, ValidationIssue } from '@tz-xml';
+import { createEmptyModel, type TzXmlModel, type ValidationIssue } from '@tz-xml';
 import { technicalTasksApi, type TechnicalTask, type TechnicalTaskStatus } from '@/api/technical-tasks';
 import { Button, Card, CardContent } from '@/components/ui';
 import { TzEditor } from './editor/TzEditor';
-import { XmlPreview } from './editor/XmlPreview';
+import { PdfPreview } from './editor/PdfPreview';
+import { createTaskOperationQueue } from './task-operation-queue';
 
 const STATUS: Record<TechnicalTaskStatus, { label: string; cls: string; icon: typeof Clock }> = {
   DRAFT: { label: 'Черновик', cls: 'bg-gray-500/20 text-gray-300', icon: Clock },
@@ -48,50 +49,60 @@ export function TechnicalTaskDetailPage() {
     );
   }
 
-  return <TaskView task={task} onDeleted={() => { queryClient.invalidateQueries({ queryKey: ['technical-tasks'] }); navigate('/technical-tasks'); }} />;
+  return <TaskView key={task.id} task={task} onDeleted={() => { queryClient.invalidateQueries({ queryKey: ['technical-tasks'] }); navigate('/technical-tasks'); }} />;
 }
 
 function TaskView({ task, onDeleted }: { task: TechnicalTask; onDeleted: () => void }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [model, setModel] = useState<TzXmlModel | null>(task.xmlData);
-  const [dirty, setDirty] = useState(false);
+  const [model, setModel] = useState<TzXmlModel | null>(() => task.xmlData ?? (task.status === 'ERROR' && !task.generatedFileUrl ? createEmptyModel() : null));
+  const [dirty, setDirty] = useState(Boolean(model && !task.xmlData));
   const [tab, setTab] = useState<'form' | 'preview'>('form');
   const [generateIssues, setGenerateIssues] = useState<ValidationIssue[] | null>(null);
+  const [generateError, setGenerateError] = useState<string | null>(null);
   const lastSaved = useRef<string>(JSON.stringify(task.xmlData));
+  const currentModel = useRef(model);
+  const enqueue = useMemo(() => createTaskOperationQueue(), [task.id]);
 
   // Обновление модели с сервера (после извлечения данных или генерации), если нет несохранённых правок
   useEffect(() => {
     const incoming = JSON.stringify(task.xmlData);
     if (!dirty && incoming !== lastSaved.current) {
       setModel(task.xmlData);
+      currentModel.current = task.xmlData;
       lastSaved.current = incoming;
     }
   }, [task.xmlData, dirty]);
 
+  const acceptSavedTask = (data: TechnicalTask) => {
+    lastSaved.current = JSON.stringify(data.xmlData);
+    // Ответ на старый снимок формы не должен отменять новые несохранённые правки.
+    setDirty(JSON.stringify(currentModel.current) !== lastSaved.current);
+    queryClient.setQueryData(['technical-task', task.id], data);
+    queryClient.invalidateQueries({ queryKey: ['technical-tasks'] });
+  };
+
   const saveMutation = useMutation({
-    mutationFn: (m: TzXmlModel) => technicalTasksApi.update(task.id, { xmlData: m }),
-    onSuccess: (data) => {
-      lastSaved.current = JSON.stringify(data.xmlData);
-      setDirty(false);
-      queryClient.setQueryData(['technical-task', task.id], data);
-    },
+    mutationFn: (m: TzXmlModel) => enqueue(() => technicalTasksApi.update(task.id, { xmlData: m })),
+    onSuccess: acceptSavedTask,
   });
 
   const generateMutation = useMutation({
-    mutationFn: async () => {
-      if (model && dirty) await technicalTasksApi.update(task.id, { xmlData: model });
-      setDirty(false);
+    mutationFn: (m: TzXmlModel) => enqueue(async () => {
+      // Черновик сохраняется до проверки XML, включая незаполненные и ошибочные поля.
+      const saved = await technicalTasksApi.update(task.id, { xmlData: m });
+      acceptSavedTask(saved);
       return technicalTasksApi.generate(task.id);
-    },
+    }),
     onSuccess: (data) => {
       setGenerateIssues(null);
-      lastSaved.current = JSON.stringify(data.xmlData);
-      queryClient.setQueryData(['technical-task', task.id], data);
+      setGenerateError(null);
+      acceptSavedTask(data);
       setTab('preview');
     },
     onError: (error: { response?: { data?: { issues?: ValidationIssue[]; message?: string } } }) => {
       setGenerateIssues(error.response?.data?.issues ?? []);
+      setGenerateError(error.response?.data?.issues?.length ? null : error.response?.data?.message || 'Не удалось сгенерировать XML. Попробуйте ещё раз.');
       queryClient.invalidateQueries({ queryKey: ['technical-task', task.id] });
     },
   });
@@ -104,15 +115,29 @@ function TaskView({ task, onDeleted }: { task: TechnicalTask; onDeleted: () => v
 
   // Автосохранение через 1,5 с после последней правки
   useEffect(() => {
-    if (!dirty || !model) return;
+    if (!task.canEdit || !dirty || !model || generateMutation.isPending) return;
     const t = setTimeout(() => saveMutation.mutate(model), 1500);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [model, dirty]);
+  }, [model, dirty, task.canEdit, generateMutation.isPending]);
 
   const onChange = (m: TzXmlModel) => {
+    currentModel.current = m;
     setModel(m);
-    setDirty(true);
+    setDirty(JSON.stringify(m) !== lastSaved.current);
+    setGenerateIssues(null);
+    setGenerateError(null);
+  };
+
+  const showPreview = async () => {
+    if (model && task.canEdit && (dirty || saveMutation.isPending)) {
+      try {
+        await saveMutation.mutateAsync(model);
+      } catch {
+        return; // Ошибка сохранения показана рядом с формой, правки остаются в ней.
+      }
+    }
+    setTab('preview');
   };
 
   const status = STATUS[task.status];
@@ -138,17 +163,17 @@ function TaskView({ task, onDeleted }: { task: TechnicalTask; onDeleted: () => v
                   <FileText className="w-3.5 h-3.5" /> {task.sourceFileName}
                 </button>
               )}
-              {saveMutation.isPending ? <span className="inline-flex items-center gap-1"><Loader2 className="w-3.5 h-3.5 animate-spin" /> сохраняем…</span> : dirty ? <span>есть несохранённые правки</span> : null}
+              {saveMutation.isPending ? <span className="inline-flex items-center gap-1"><Loader2 className="w-3.5 h-3.5 animate-spin" /> сохраняем…</span> : dirty ? <span>есть несохранённые правки</span> : saveMutation.isSuccess ? <span className="text-emerald-400">Сохранено</span> : null}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
             {model && task.canEdit && (
-              <Button variant="secondary" size="sm" onClick={() => model && saveMutation.mutate(model)} disabled={!dirty || saveMutation.isPending}>
-                <Save className="w-4 h-4" /> Сохранить
+              <Button type="button" variant="secondary" size="sm" onClick={() => model && saveMutation.mutate(model)}>
+                <Save className="w-4 h-4" /> {saveMutation.isPending ? 'Сохранить текущие правки' : 'Сохранить'}
               </Button>
             )}
             {model && task.canEdit && (
-              <Button size="sm" onClick={() => generateMutation.mutate()} isLoading={generateMutation.isPending} disabled={task.status === 'PROCESSING'}>
+              <Button type="button" size="sm" onClick={() => model && generateMutation.mutate(model)} isLoading={generateMutation.isPending} disabled={task.status === 'PROCESSING'}>
                 <FileCode2 className="w-4 h-4" /> Сгенерировать XML
               </Button>
             )}
@@ -165,6 +190,20 @@ function TaskView({ task, onDeleted }: { task: TechnicalTask; onDeleted: () => v
           </div>
         </div>
       </div>
+
+      {saveMutation.isError && (
+        <Card className="mb-6 border-red-500/30">
+          <CardContent className="py-4 text-sm text-red-300">
+            Не удалось сохранить черновик. Правки остаются в форме; нажмите «Сохранить» для повторной попытки.
+          </CardContent>
+        </Card>
+      )}
+
+      {generateError && (
+        <Card className="mb-6 border-red-500/30">
+          <CardContent className="py-4 text-sm text-red-300">{generateError}</CardContent>
+        </Card>
+      )}
 
       {task.status === 'PROCESSING' && (
         <Card className="mb-6">
@@ -249,16 +288,16 @@ function TaskView({ task, onDeleted }: { task: TechnicalTask; onDeleted: () => v
             <button type="button" onClick={() => setTab('form')} className={`px-4 py-2 text-sm border-b-2 -mb-px ${tab === 'form' ? 'border-primary-500 text-[var(--text-primary)]' : 'border-transparent text-[var(--text-secondary)]'}`}>
               Форма
             </button>
-            <button type="button" onClick={() => setTab('preview')} disabled={!task.xmlFileUrl} className={`px-4 py-2 text-sm border-b-2 -mb-px inline-flex items-center gap-1.5 disabled:opacity-40 ${tab === 'preview' ? 'border-primary-500 text-[var(--text-primary)]' : 'border-transparent text-[var(--text-secondary)]'}`}>
-              <Eye className="w-4 h-4" /> Печатная форма
+            <button type="button" onClick={() => void showPreview()} className={`px-4 py-2 text-sm border-b-2 -mb-px inline-flex items-center gap-1.5 ${tab === 'preview' ? 'border-primary-500 text-[var(--text-primary)]' : 'border-transparent text-[var(--text-secondary)]'}`}>
+              <Eye className="w-4 h-4" /> Просмотр PDF
             </button>
           </div>
           {tab === 'form' ? (
             <TzEditor taskId={task.id} model={model} onChange={onChange} readOnly={!task.canEdit} />
           ) : (
             <div className="space-y-3">
-              {dirty && <div className="text-sm text-amber-300">Есть правки, не попавшие в XML. Сгенерируйте XML заново.</div>}
-              <XmlPreview taskId={task.id} version={task.xmlGeneratedAt} />
+              {task.issues.length > 0 && <div className="text-sm text-amber-300">Просмотр черновика: обязательные поля ещё не заполнены.</div>}
+              <PdfPreview taskId={task.id} version={task.updatedAt} />
             </div>
           )}
         </>

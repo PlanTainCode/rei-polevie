@@ -1,11 +1,12 @@
 import { PDFDocument } from 'pdf-lib';
 import { writeFile, readFile, unlink, mkdtemp, rm } from 'fs/promises';
-import { join, basename } from 'path';
+import { join, basename, extname } from 'path';
+import { pathToFileURL } from 'url';
 import { tmpdir } from 'os';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 // Кэш пути к LibreOffice (определяется один раз)
 let cachedSofficePath: string | null = null;
@@ -25,7 +26,7 @@ async function findSoffice(): Promise<string> {
 
   for (const p of paths) {
     try {
-      await execAsync(`"${p}" --version`, { timeout: 10000 });
+      await execFileAsync(p, ['--version'], { timeout: 10000 });
       return p;
     } catch {
       continue;
@@ -40,10 +41,10 @@ async function findSoffice(): Promise<string> {
 }
 
 /**
- * Конвертирует Word документ (.docx) в PDF через LibreOffice (headless)
+ * Конвертирует документ (.docx или .html) в PDF через LibreOffice (headless).
  */
-export async function convertDocxToPdf(docxPath: string): Promise<Buffer> {
-  console.log(`[PDF] Начинаю конвертацию: ${docxPath}`);
+export async function convertDocumentToPdf(documentPath: string): Promise<Buffer> {
+  console.log(`[PDF] Начинаю конвертацию: ${documentPath}`);
 
   if (!cachedSofficePath) {
     cachedSofficePath = await findSoffice();
@@ -57,17 +58,18 @@ export async function convertDocxToPdf(docxPath: string): Promise<Buffer> {
   try {
     // Конвертируем через LibreOffice headless
     // -env:UserInstallation — изолированный профиль, чтобы не конфликтовать с открытым LibreOffice
-    const cmd =
-      `"${cachedSofficePath}" --headless --convert-to pdf ` +
-      `--outdir "${tmpDir}" ` +
-      `-env:UserInstallation=file://${profileDir} ` +
-      `"${docxPath}"`;
-
-    console.log(`[PDF] Запускаю: ${cmd}`);
-    await execAsync(cmd, { timeout: 120000 });
+    const args = [
+      '--headless',
+      `-env:UserInstallation=${pathToFileURL(profileDir).href}`,
+      ...(extname(documentPath).toLowerCase() === '.html' ? ['--infilter=HTML (StarWriter)'] : []),
+      '--convert-to', 'pdf:writer_pdf_Export',
+      '--outdir', tmpDir,
+      documentPath,
+    ];
+    await execFileAsync(cachedSofficePath, args, { timeout: 120000 });
 
     // Читаем сконвертированный PDF
-    const pdfFileName = basename(docxPath).replace(/\.docx$/i, '.pdf');
+    const pdfFileName = basename(documentPath, extname(documentPath)) + '.pdf';
     const pdfPath = join(tmpDir, pdfFileName);
     const pdfBuffer = await readFile(pdfPath);
 
@@ -76,7 +78,7 @@ export async function convertDocxToPdf(docxPath: string): Promise<Buffer> {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[PDF] Ошибка конвертации:', error);
-    throw new Error(`Ошибка конвертации Word в PDF: ${message}`);
+    throw new Error(`Ошибка конвертации документа в PDF: ${message}`);
   } finally {
     // Удаляем временную директорию
     try {
@@ -85,6 +87,11 @@ export async function convertDocxToPdf(docxPath: string): Promise<Buffer> {
       /* ignore cleanup errors */
     }
   }
+}
+
+/** Сохраняем общий конвертер Word для запросов, ДВ и других документов. */
+export async function convertDocxToPdf(docxPath: string): Promise<Buffer> {
+  return convertDocumentToPdf(docxPath);
 }
 
 /**

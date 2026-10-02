@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import { isAxiosError } from 'axios';
 import type { AttachedFile, BoundaryImage, TzSource, TzXmlModel, ValidationIssue } from '@tz-xml';
 
 export type TechnicalTaskStatus = 'DRAFT' | 'PROCESSING' | 'COMPLETED' | 'ERROR';
@@ -130,6 +131,25 @@ export const technicalTasksApi = {
   downloadXml: (id: string) => downloadFrom(`/technical-tasks/${id}/files/xml`, 'task.xml'),
   downloadSourceFile: (id: string) => downloadFrom(`/technical-tasks/${id}/files/source`, 'document'),
   downloadGeneratedFile: (id: string) => downloadFrom(`/technical-tasks/${id}/files/generated`, 'document.docx'),
+
+  getPreviewPdf: async (id: string, signal?: AbortSignal): Promise<{ blob: Blob; fileName: string }> => {
+    try {
+      const response = await apiClient.get<Blob>(`/technical-tasks/${id}/document/pdf`, { responseType: 'blob', signal });
+      const disposition = response.headers['content-disposition'] as string | undefined;
+      const filename = disposition?.match(/filename\*=UTF-8''([^;\s]+)/i)?.[1];
+      return { blob: response.data, fileName: filename ? decodeURIComponent(filename) : 'ЗИИ.pdf' };
+    } catch (error) {
+      if (isAxiosError(error) && error.response?.data instanceof Blob) {
+        let message: string | undefined;
+        try {
+          const body = JSON.parse(await error.response.data.text()) as { message?: string };
+          message = body.message;
+        } catch { /* Ответ без JSON — используем общее сообщение. */ }
+        throw new Error(message || 'Не удалось сформировать PDF. Попробуйте ещё раз.');
+      }
+      throw error;
+    }
+  },
 
   /** Текст XML и XSL для визуализации в браузере. */
   getXmlText: async (id: string): Promise<string> => {

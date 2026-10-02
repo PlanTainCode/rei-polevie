@@ -2,7 +2,7 @@
 
 
 <xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
-	<xsl:output method="html" media-type="text/html" encoding="UTF-8" omit-xml-declaration="yes" doctype-public="/"/>
+	<xsl:output method="html" media-type="text/html" encoding="UTF-8" omit-xml-declaration="yes" />
 
 	<xsl:template match="/">
 		<xsl:apply-templates select="Document"/>
@@ -17,11 +17,12 @@
 					<xsl:value-of select="Requisites/Number"/>
 				</title>
 				<style type="text/css">
+					@page { size: A4; margin: 20mm; }
 					body {
 					    font-family: Times New Roman;
 					    font-size: 15px;
-					    width: 800px;
-					    margin: 2em auto;
+					    width: auto;
+					    margin: 0;
 					    text-align: left;
 					}
 					table {
@@ -33,6 +34,7 @@
 					th {
 					    border: 1px solid black;
 					    padding: 0.2em 0.4em;
+					    overflow-wrap: anywhere;
 					}
 					thead tr,
 					tfoot tr {
@@ -221,8 +223,8 @@
 							<p><xsl:value-of select="Position"/></p>
 							<p><xsl:value-of select="../../Organization/FullName"/></p>
 							<p><b>
-									<i><xsl:value-of select="Surname"/></i>
-									<i><xsl:value-of select="Name"/></i>
+									<i><xsl:value-of select="Surname"/></i><xsl:text> </xsl:text>
+									<i><xsl:value-of select="Name"/></i><xsl:if test="Patronymic"><xsl:text> </xsl:text></xsl:if>
 									<xsl:value-of select="Patronymic"/>
 								</b></p>
 						</xsl:if>
@@ -230,8 +232,8 @@
 							<p class="upper">индивидуальный предприниматель</p>
 							<p class="upper">ОГРНИП: <xsl:value-of select="OGRNIP"/></p>
 							<p><b>
-									<i><xsl:value-of select="Surname"/></i>
-									<i><xsl:value-of select="Name"/></i>
+									<i><xsl:value-of select="Surname"/></i><xsl:text> </xsl:text>
+									<i><xsl:value-of select="Name"/></i><xsl:if test="Patronymic"><xsl:text> </xsl:text></xsl:if>
 									<xsl:value-of select="Patronymic"/>
 								</b></p>
 						</xsl:if>
@@ -239,8 +241,8 @@
 							<p class="upper">физическое лицо</p>
 							<p class="upper">СНИЛС: <xsl:value-of select="SNILS"/></p>
 							<p><b>
-									<i><xsl:value-of select="Surname"/></i>
-									<i><xsl:value-of select="Name"/></i>
+									<i><xsl:value-of select="Surname"/></i><xsl:text> </xsl:text>
+									<i><xsl:value-of select="Name"/></i><xsl:if test="Patronymic"><xsl:text> </xsl:text></xsl:if>
 									<xsl:value-of select="Patronymic"/>
 								</b></p>
 						</xsl:if>
@@ -276,17 +278,17 @@
 					</xsl:if>
 
 
-					<xsl:if test="/Document/Content/ExerciseSurveyNumber">
-						<h2 class="center">№ <xsl:value-of select="/Document/Content/ExerciseSurveyNumber"/></h2>
+					<xsl:if test="/Document/Requisites/Number">
+						<h2 class="center">№ <xsl:value-of select="/Document/Requisites/Number"/></h2>
 					</xsl:if>
 					<h2 class="center upper clear">
-						<xsl:value-of select="/Document/Content/ObjectInfo/*/Name"/>
+						<xsl:value-of select="/Document/Content/ObjectInfo/OKS/*/Name"/>
 					</h2>
 					<p class="under-text">наименование объекта капитального строительства (далее - объект)</p>
 
-					<xsl:if test="/Document/Content/Object/Address">
+					<xsl:if test="/Document/Content/ObjectInfo/OKS/*/Placement/Address">
 						<h2 class="center clear">
-							<xsl:apply-templates select="/Document/Content/Object/Address"/>
+							<xsl:apply-templates select="/Document/Content/ObjectInfo/OKS/*/Placement/Address"/>
 						</h2>
 						<p class="under-text">адрес (местоположение) объекта</p>
 					</xsl:if>
@@ -364,7 +366,7 @@
 		<a name="chAuthors"/>
 		<h2 class="bckgr upper center">лист согласования задания на проведение изысканий</h2>
 		
-		<xsl:for-each select="//IssueAuthors/Author">
+		<xsl:for-each select="/Document/Requisites/Authors/Author">
 			
 			<xsl:if test="Organization">
 				<p class="center bold margin-top-small upper">
@@ -372,7 +374,7 @@
 					<xsl:if test="Organization[OGRN]">Юридическое лицо</xsl:if>
 				</p>
 				<xsl:apply-templates select="Organization"/>
-				<xsl:for-each select="Representatives/Representative[@FunctionalRole != 'Утверждено']">
+				<xsl:for-each select="Representatives/Representative">
 					<xsl:sort select="@FunctionalRole"/>
 					<b><xsl:call-template name="FunctionalRolesList">
 						<xsl:with-param name="Code"><xsl:value-of select="@FunctionalRole"/></xsl:with-param>
@@ -403,6 +405,9 @@
 									<xsl:value-of select="Patronymic"/>
 								</td>
 							</tr>
+						</xsl:if>
+						<xsl:if test="Email">
+							<tr><td>Адрес электронной почты:</td><td><xsl:value-of select="Email"/></td></tr>
 						</xsl:if>
 					</table>
 				</xsl:for-each>
@@ -555,7 +560,6 @@
 		</xsl:if>
 
 		<xsl:if test="//ObjectInfo/OKS">
-			<xsl:value-of select="//ObjectInfo/OKS"/>
 			<xsl:apply-templates select="//ObjectInfo/OKS"/>
 		</xsl:if>
 
@@ -592,7 +596,7 @@
 	</xsl:template>
 
 	<xsl:template match="OKS">
-		<h3>Объект капитального строительства: <xsl:value-of select="Name"/></h3>
+		<h3>Объект капитального строительства: <xsl:value-of select="ArealOKS/Name | LinearOKS/Name"/></h3>
 
 		<p>Идентификатор объекта: <xsl:value-of select="@ObjectID"/></p>
 		<p>Статус объекта: <xsl:value-of select="@ObjectStatus"/></p>
@@ -614,7 +618,7 @@
 		<xsl:param name="obj"/>
 
 		<p>Местоположение объекта:</p>
-		<xsl:apply-templates select="Placement"/>
+		<xsl:apply-templates select="$obj/Placement"/>
 
 		<p>Код классификатора функционального назначения объектов капитального строительства: <xsl:value-of select="$obj/FunctionsClass"/></p>
 		<p>Уровень ответственности: <xsl:value-of select="$obj/ResponsibilityLevel"/></p>
@@ -667,7 +671,7 @@
 		<xsl:param name="obj"/>
 
 		<p>Местоположение объекта:</p>
-		<xsl:value-of select="$obj/Placement"/>
+		<xsl:apply-templates select="$obj/Placement"/>
 
 		<p>Код классификатора функционального назначения объектов капитального строительства: <xsl:value-of select="$obj/FunctionsClass"/></p>
 		<p>Уровень ответственности: <xsl:value-of select="$obj/ResponsibilityLevel"/></p>
@@ -684,7 +688,7 @@
 				<xsl:if test="position() != last()">, </xsl:if>
 			</xsl:for-each>
 		</p>
-		<xsl:if test="SingleMaterial">
+		<xsl:if test="FoundationMaterial">
 			<p>Материал Фундамента: <xsl:value-of select="FoundationMaterial"/></p>
 		</xsl:if>
 		<xsl:if test="CombinedFoundationMaterial">
@@ -711,8 +715,8 @@
 			<p>Материал Фундамента: <xsl:value-of select="FoundationMaterial"/></p>
 		</xsl:if>
 		<xsl:if test="CombinedFoundationMaterial">
-			<p>Материалы Фундамента (комбинированный): <xsl:for-each select="CombinedFoundationMaterial">
-					<xsl:value-of select="Material"/>
+			<p>Материалы Фундамента (комбинированный): <xsl:for-each select="CombinedFoundationMaterial/Material">
+					<xsl:value-of select="."/>
 					<xsl:if test="position() != last()">, </xsl:if>
 				</xsl:for-each>
 			</p>
@@ -762,7 +766,7 @@
 
 	<xsl:template match="Foundation">
 		<p>Сведения о фундаменте:</p>
-		<p>Тип Фундамента: <xsl:for-each select="Type">
+		<p>Тип Фундамента: <xsl:for-each select="Type"><xsl:value-of select="."/>
 				<xsl:if test="position() != last()">, </xsl:if>
 			</xsl:for-each>
 		</p>
@@ -868,7 +872,7 @@
 			</tbody>
 		</table>
 		
-		<xsl:if test="/SurveysInitiationDocuments/Note">
+		<xsl:if test="/Document/Content/SurveysInitiationDocuments/Note">
 			<p class="upper">Дополнительные сведения:</p>
 			<table>
 				<tr>
@@ -894,13 +898,13 @@
 		<a name="ch3"/>
 		<h3 class="bckgr upper">3. Застройщик</h3>
 		
-		<xsl:for-each select="//Developers/*">
+		<xsl:for-each select="/Document/Content/Developer/*">
 			<xsl:apply-templates select=".">
 				<xsl:with-param name="ShowType" select="1"/>
 			</xsl:apply-templates>
 		</xsl:for-each>
 		
-		<xsl:if test="not(//Developers)">
+		<xsl:if test="not(/Document/Content/Developer)">
 			<table>
 				<tr>
 					<td>Отсутствует</td>
@@ -937,7 +941,7 @@
 		</xsl:if>
 		<xsl:if test="//Researchers">
 			<xsl:for-each select="//Researchers/Researcher">
-				<p><xsl:number value="position()" format="1. "/>Договор № <xsl:value-of select="Contract/Number"/> от <xsl:apply-templates select="Date"/></p>
+				<p><xsl:number value="position()" format="1. "/>Договор № <xsl:value-of select="Contract/Number"/> от <xsl:apply-templates select="Contract/Date"/></p>
 				<xsl:if test="Organization">
 					<xsl:apply-templates select="Organization"/>
 				</xsl:if>
@@ -954,16 +958,16 @@
 		<xsl:if test="count(//Purposes/Purpose) = 0">
 			<p>Задачи изысканий не указаны.</p>
 		</xsl:if>
-		<xsl:if test="count(Purposes/Purpose) != 0">
+		<xsl:if test="count(Content/Purposes/Purpose) != 0">
 			<p class="italic bold center">Общие цели</p>
-			<xsl:for-each select="Purposes/Purpose">
+			<xsl:for-each select="Content/Purposes/Purpose">
 				<p>
 					<xsl:number value="position()" format="1. "/>
 					<xsl:value-of select="."/>
 				</p>
 			</xsl:for-each>
 		</xsl:if>
-		<xsl:for-each select="EngineeringSurveyTypes/BasicEngineeringSurvey[Purposes] | EngineeringSurveyTypes/SpecialEngineeringSurvey[Purposes] | EngineeringSurveyTypes/OtherEngineeringSurvey[Purposes]">
+		<xsl:for-each select="Content/EngineeringSurveyTypes/BasicEngineeringSurvey[Purposes] | Content/EngineeringSurveyTypes/SpecialEngineeringSurvey[Purposes] | Content/EngineeringSurveyTypes/OtherEngineeringSurvey[Purposes]">
 			<p class="italic bold center">
 				<xsl:if test="not(OtherEngineeringSurveyType)">
 					<xsl:call-template name="SurveyTypeList">
@@ -971,7 +975,7 @@
 					</xsl:call-template>
 				</xsl:if>
 				<xsl:if test="OtherEngineeringSurveyType">
-					<xsl:value-of select="OtherEngineeringSurveyType"/>
+					<xsl:for-each select="OtherEngineeringSurveyType"><xsl:value-of select="."/><xsl:if test="position() != last()">, </xsl:if></xsl:for-each>
 				</xsl:if>
 			</p>
 
@@ -990,16 +994,16 @@
 		<xsl:if test="count(//Tasks/Task) = 0">
 			<p>Цели изысканий не указаны.</p>
 		</xsl:if>
-		<xsl:if test="count(Tasks/Task) != 0">
+		<xsl:if test="count(Content/Tasks/Task) != 0">
 			<p class="italic bold center">Общие задачи</p>
-			<xsl:for-each select="Tasks/Task">
+			<xsl:for-each select="Content/Tasks/Task">
 				<p>
 					<xsl:number value="position()" format="1. "/>
 					<xsl:value-of select="."/>
 				</p>
 			</xsl:for-each>
 		</xsl:if>
-		<xsl:for-each select="EngineeringSurveyTypes/BasicEngineeringSurvey[Tasks] | EngineeringSurveyTypes/SpecialEngineeringSurvey[Tasks] | EngineeringSurveyTypes/OtherEngineeringSurvey[Tasks]">
+		<xsl:for-each select="Content/EngineeringSurveyTypes/BasicEngineeringSurvey[Tasks] | Content/EngineeringSurveyTypes/SpecialEngineeringSurvey[Tasks] | Content/EngineeringSurveyTypes/OtherEngineeringSurvey[Tasks]">
 			<p class="italic bold center">
 				<xsl:if test="not(OtherEngineeringSurveyType)">
 					<xsl:call-template name="SurveyTypeList">
@@ -1007,7 +1011,7 @@
 					</xsl:call-template>
 				</xsl:if>
 				<xsl:if test="OtherEngineeringSurveyType">
-					<xsl:value-of select="OtherEngineeringSurveyType"/>
+					<xsl:for-each select="OtherEngineeringSurveyType"><xsl:value-of select="."/><xsl:if test="position() != last()">, </xsl:if></xsl:for-each>
 				</xsl:if>
 			</p>
 
@@ -1073,7 +1077,7 @@
 
 		<xsl:if test="OtherEngineeringSurveyType">
 			<h3>
-				<xsl:value-of select="OtherEngineeringSurveyType"/>
+				<xsl:for-each select="OtherEngineeringSurveyType"><xsl:value-of select="."/><xsl:if test="position() != last()">, </xsl:if></xsl:for-each>
 			</h3>
 		</xsl:if>
 
@@ -1171,7 +1175,7 @@
 			</xsl:call-template>
 		</xsl:if>
 		
-		<xsl:if test="//BoundariesArealLinear/ProjectedPlanningMarks">
+		<xsl:if test="//BoundariesArealLinear/AreaOutWorks">
 			<h3>Сведения о работах за границей землеотвода, площади работ</h3>
 			<xsl:call-template name="TextBlockInTable">
 				<xsl:with-param name="obj" select="//BoundariesArealLinear/AreaOutWorks"/>
@@ -1184,49 +1188,49 @@
 		<a name="ch12"/>
 		<h3 class="bckgr upper">12. Наличие предполагаемых опасных природных процессов и явлений, многолетнемерзлых и специфических грунтов на территории расположения объекта</h3>
 		
-		<xsl:if test="//DangerousNaturalProcessesSoils/DangerousNaturalProcesses">
+		<xsl:if test="/Document/Content/DangerousNaturalProcesses/DangerousNaturalProcesses">
 			<h3>Сведения об опасных природных процессах и явлениях</h3>
 			
-			<p>На площадке изысканий предполагается наличие: <xsl:for-each select="//DangerousNaturalProcessesSoils/DangerousNaturalProcesses/Process">
+			<p>На площадке изысканий предполагается наличие: <xsl:for-each select="/Document/Content/DangerousNaturalProcesses/DangerousNaturalProcesses/Process">
 				<xsl:value-of select="."/>
 				<xsl:if test="position() != last()">, </xsl:if>
 			</xsl:for-each>
 			</p>
-			<xsl:if test="//DangerousNaturalProcessesSoils/DangerousNaturalProcessesAdditional">
+			<xsl:if test="/Document/Content/DangerousNaturalProcesses/DangerousNaturalProcessesAdditional">
 				<xsl:call-template name="TextBlockInTable">
-					<xsl:with-param name="obj" select="//DangerousNaturalProcessesSoils/DangerousNaturalProcessesAdditional"/>
+					<xsl:with-param name="obj" select="/Document/Content/DangerousNaturalProcesses/DangerousNaturalProcessesAdditional"/>
 				</xsl:call-template>
 				
 			</xsl:if>
 		</xsl:if>
 		
-		<xsl:if test="//DangerousNaturalProcessesSoils/PermafrostSoils">
+		<xsl:if test="/Document/Content/DangerousNaturalProcesses/PermafrostSoils">
 			<h3>Сведения об наличии многолетнемерзлых грунтов</h3>
 			
-			<xsl:if test="//DangerousNaturalProcessesSoils/PermafrostSoils = 'да'">
+			<xsl:if test="/Document/Content/DangerousNaturalProcesses/PermafrostSoils = 'да'">
 				<p>На площадке изысканий предполагается наличие многолетнемерзлых грунтов.</p>
 			</xsl:if>
-			<xsl:if test="//DangerousNaturalProcessesSoils/PermafrostSoils = 'нет'">
+			<xsl:if test="/Document/Content/DangerousNaturalProcesses/PermafrostSoils = 'нет'">
 				<p>На площадке изысканий не предполагается наличие многолетнемерзлых грунтов.</p>
 			</xsl:if>
-			<xsl:if test="//DangerousNaturalProcessesSoils/PermafrostSoilsAdditional">
+			<xsl:if test="/Document/Content/DangerousNaturalProcesses/PermafrostSoilsAdditional">
 				<xsl:call-template name="TextBlockInTable">
-					<xsl:with-param name="obj" select="//DangerousNaturalProcessesSoils/PermafrostSoilsAdditional"/>
+					<xsl:with-param name="obj" select="/Document/Content/DangerousNaturalProcesses/PermafrostSoilsAdditional"/>
 				</xsl:call-template>
 			</xsl:if>
 		</xsl:if>
 		
-		<xsl:if test="//DangerousNaturalProcessesSoils/SpecificSoils">
+		<xsl:if test="/Document/Content/DangerousNaturalProcesses/SpecificSoils">
 			<h3>Сведения о наличии специфических грунтов</h3>
 			
-			<p>На площадке изысканий предполагается наличие следующих специфических грунтов: <xsl:for-each select="//DangerousNaturalProcessesSoils/SpecificSoils/Soil">
+			<p>На площадке изысканий предполагается наличие следующих специфических грунтов: <xsl:for-each select="/Document/Content/DangerousNaturalProcesses/SpecificSoils/Soil">
 				<xsl:value-of select="."/>
 				<xsl:if test="position() != last()">, </xsl:if>
 			</xsl:for-each>
 			</p>
-			<xsl:if test="//DangerousNaturalProcessesSoils/SpecificSoilsAdditional">
+			<xsl:if test="/Document/Content/DangerousNaturalProcesses/SpecificSoilsAdditional">
 				<xsl:call-template name="TextBlockInTable">
-					<xsl:with-param name="obj" select="//DangerousNaturalProcessesSoils/SpecificSoilsAdditional"/>
+					<xsl:with-param name="obj" select="/Document/Content/DangerousNaturalProcesses/SpecificSoilsAdditional"/>
 				</xsl:call-template>
 			</xsl:if>
 		</xsl:if>
@@ -1531,12 +1535,12 @@
 			</tbody>
 		</table>
 
-		<xsl:if test="/AvailableDocuments/Note">
+		<xsl:if test="/Document/Content/AvailableDocuments/Note">
 			<p class="upper">Дополнительные сведения:</p>
 			<table>
 				<tr>
 					<td>
-						<xsl:value-of select="//SurveysInitiationDocuments/Note"/>
+						<xsl:value-of select="//AvailableDocuments/Note"/>
 					</td>
 				</tr>
 			</table>
@@ -1570,7 +1574,7 @@
 			<table>
 				<tr>
 					<td>
-						<xsl:value-of select="//SurveysInitiationDocuments/Note"/>
+						<xsl:value-of select="//ArchivalMaterials/Note"/>
 					</td>
 				</tr>
 			</table>
@@ -1607,7 +1611,7 @@
 						</td>
 					</xsl:if>
 					<td>
-						<xsl:value-of select="Name"/>.<xsl:value-of select="Format"/>
+						<xsl:value-of select="Name"/>
 					</td>
 					<td class="center">
 						<xsl:value-of select="Checksum"/>
@@ -1616,7 +1620,7 @@
 				<xsl:for-each select="SignFile">
 					<tr>
 						<td class="italic">
-							<xsl:value-of select="Name"/>.<xsl:value-of select="Format"/>
+							<xsl:value-of select="Name"/>
 						</td>
 						<td class="center italic">
 							<xsl:value-of select="Checksum"/>
@@ -1671,6 +1675,9 @@
 					</a>
 				</td>
 			</tr>
+		</xsl:if>
+		<xsl:if test="$FileNumber = 0 and not(ReferenceToDocumentId) and not(WebLink)">
+			<tr><td><xsl:number value="$Pos"/>.</td><td colspan="3"><xsl:apply-templates select="."/></td></tr>
 		</xsl:if>
 	</xsl:template>
 
@@ -1755,7 +1762,7 @@
 						<xsl:for-each select="Areas/Area">
 							<table>
 								<tr class="bckgr">
-									<td colspan="2">Система координат: <xsl:value-of select="@CoorSystem"/><br/>Система высот: <xsl:value-of select="@HeightSystem"/></td>
+									<td colspan="2">Система координат: <xsl:value-of select="CoordinateAndHeightSystem/*/@Name"/><br/>Система высот: <xsl:value-of select="CoordinateAndHeightSystem/*/@HeightSystem"/></td>
 								</tr>
 								<tr class="bckgr">
 									<td class="center">Координата X</td>
@@ -2255,8 +2262,8 @@
 		<xsl:choose>
 			<xsl:when test="$Code = 1">РАЗРАБОТКА</xsl:when>
 			<xsl:when test="$Code = 2">НОРМОКОНТРОЛЬ</xsl:when>
-			<xsl:when test="$Code = 3">СОГЛАСОВАНО</xsl:when>
-			<xsl:when test="$Code = 4">УТВЕРЖДЕНО</xsl:when>
+			<xsl:when test="$Code = 3 or $Code = 'Согласовано'">СОГЛАСОВАНО</xsl:when>
+			<xsl:when test="$Code = 4 or $Code = 'Утверждено'">УТВЕРЖДЕНО</xsl:when>
 		</xsl:choose>
 	</xsl:template>
 

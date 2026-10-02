@@ -15,6 +15,9 @@ RUN apk add --no-cache openssl fontconfig && \
 COPY apps/api/fonts/ /usr/share/fonts/truetype/msfonts/
 RUN fc-cache -f
 
+# XSLT для серверного просмотра ТЗ. Отдельный слой сохраняет кэш LibreOffice.
+RUN apk add --no-cache libxslt
+
 WORKDIR /app
 
 # ========== BUILDER ==========
@@ -78,4 +81,3 @@ EXPOSE 3001
 
 # Запуск с миграциями
 CMD ["sh", "-c", "bunx prisma db push --skip-generate && bun run start:prod"]
-

@@ -31,6 +31,8 @@ export interface BuildOptions {
   images: Record<string, string>;
   /** Идентификатор объекта (xs:ID). */
   objectId?: string;
+  /** Сохраняем заполненные части незавершённых блоков для просмотра PDF. */
+  preview?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,8 +222,8 @@ function writeDocument(x: Xml, d: DocumentInfo): void {
   x.close('DocumentInfo');
 }
 
-function writeDocuments(x: Xml, tag: string, d: DocumentsInfo | undefined): void {
-  if (!d || d.documents.length === 0) return;
+function writeDocuments(x: Xml, tag: string, d: DocumentsInfo | undefined, preview = false): void {
+  if (!d || (d.documents.length === 0 && !(preview && filled(d.note)))) return;
   x.open(tag);
   for (const doc of d.documents) writeDocument(x, doc);
   x.el('Note', d.note);
@@ -570,7 +572,7 @@ function writeDangerous(x: Xml, m: TzXmlModel): void {
   x.close('DangerousNaturalProcesses');
 }
 
-function writeRequirements(x: Xml, m: TzXmlModel): void {
+function writeRequirements(x: Xml, m: TzXmlModel, preview = false): void {
   const q = m.requirements;
   x.open('Requirements');
   writeTextBlock(x, 'ScientificSupport', q.scientificSupport);
@@ -583,7 +585,7 @@ function writeRequirements(x: Xml, m: TzXmlModel): void {
   const out = q.controlQuality.outside;
   if (out) {
     const hasPeople = out.by === 'ORGANIZATION' ? out.organizations.length > 0 : out.representatives.length > 0;
-    if (hasPeople) {
+    if (hasPeople || (preview && out.description?.paragraphs.some(filled))) {
       x.open('OutsideControlQuality');
       writeTextBlock(x, 'Description', out.description);
       if (out.by === 'ORGANIZATION') {
@@ -606,7 +608,7 @@ function writeRequirements(x: Xml, m: TzXmlModel): void {
   x.close('ControlQuality');
 
   writeTextBlock(x, 'CompositionOrderTransfer', q.compositionOrderTransfer);
-  if (m.enabled.archivalMaterials) writeDocuments(x, 'ArchivalMaterials', q.archivalMaterials);
+  if (m.enabled.archivalMaterials) writeDocuments(x, 'ArchivalMaterials', q.archivalMaterials, preview);
   if (m.enabled.modelFormat) writeTextBlock(x, 'ModelFormat', q.modelFormat);
   if (m.enabled.usedNorms) writeStringList(x, 'UsedNorms', 'UsedNorm', q.usedNorms);
   x.close('Requirements');
@@ -629,7 +631,7 @@ export function buildTzXml(m: TzXmlModel, options: BuildOptions): string {
 
   x.open('Content', { SchemaVersion: m.schemaVersion });
   writeObjectInfo(x, m, objectId);
-  writeDocuments(x, 'SurveysInitiationDocuments', m.initiationDocuments);
+  writeDocuments(x, 'SurveysInitiationDocuments', m.initiationDocuments, options.preview);
   x.el('ConstructionType', m.constructionType);
   if (m.enabled.timePeriod) x.el('EngineeringSurveyTimePeriod', m.timePeriod);
   writeCustomer(x, m);
@@ -642,8 +644,8 @@ export function buildTzXml(m: TzXmlModel, options: BuildOptions): string {
   writeEcology(x, m);
   writeBoundaries(x, m, options.images);
   writeDangerous(x, m);
-  writeRequirements(x, m);
-  writeDocuments(x, 'AvailableDocuments', m.availableDocuments);
+  writeRequirements(x, m, options.preview);
+  writeDocuments(x, 'AvailableDocuments', m.availableDocuments, options.preview);
   x.close('Content');
   x.close('Document');
 

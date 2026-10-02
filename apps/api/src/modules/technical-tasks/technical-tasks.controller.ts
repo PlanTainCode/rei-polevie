@@ -139,6 +139,16 @@ export class TechnicalTasksController {
     sendFile(res, path, fileName || 'document.docx');
   }
 
+  /** PDF текущего сохранённого задания, включая незавершённый черновик. */
+  @Get(':id/document/pdf')
+  async previewPdf(@Request() req: Req, @Param('id') id: string, @Res() res: Response) {
+    const { buffer, fileName } = await this.technicalTasksService.getPreviewPdf(id, req.user.userId);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(buffer);
+  }
+
   /** HTML сгенерированного Word прежних записей. */
   @Get(':id/document/html')
   async getDocumentHtml(@Request() req: Req, @Param('id') id: string) {

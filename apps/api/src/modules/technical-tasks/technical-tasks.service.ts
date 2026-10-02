@@ -21,6 +21,7 @@ import { join, extname, basename } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { existsSync } from 'fs';
 import * as mammoth from 'mammoth';
+import { convertTzXmlToPdf } from './pdf-preview';
 
 // process.cwd() уже указывает на apps/api при запуске через bun workspaces
 const API_ROOT = process.cwd();
@@ -159,9 +160,14 @@ export class TechnicalTasksService {
       this.logger.log(`ТЗ ${taskId}: данные извлечены (${imported.length} полей)`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const task = await this.prisma.technicalTask.findUnique({ where: { id: taskId } });
       await this.prisma.technicalTask.update({
         where: { id: taskId },
-        data: { status: 'ERROR', processingError: message },
+        data: {
+          status: 'ERROR', processingError: message,
+          // После ошибки извлечения можно сразу заполнить и сохранить черновик вручную.
+          ...(!task?.xmlData ? { xmlData: applyCompanyRequisites(createEmptyModel(), requisites) as unknown as Prisma.InputJsonValue } : {}),
+        },
       });
       throw error;
     }
@@ -239,8 +245,12 @@ export class TechnicalTasksService {
         throw new BadRequestException('Некорректная структура данных задания');
       }
       data.xmlData = model as unknown as Prisma.InputJsonValue;
+      // Ошибки обязательных полей относятся к экспорту XML, а не к сохранению черновика.
       // после правок сгенерированный XML устаревает
-      if (task.status === 'COMPLETED') data.status = 'DRAFT';
+      if (task.status === 'ERROR' || (task.status === 'COMPLETED' && JSON.stringify(task.xmlData) !== JSON.stringify(model))) {
+        data.status = 'DRAFT';
+        data.processingError = null;
+      }
     }
     await this.prisma.technicalTask.update({ where: { id }, data });
     return this.findById(id, userId);
@@ -320,12 +330,7 @@ export class TechnicalTasksService {
       throw new BadRequestException({ message: 'Задание заполнено не полностью', issues });
     }
 
-    const images: Record<string, string> = {};
-    for (const img of model.boundaries.images) {
-      const path = join(API_ROOT, 'uploads', img.fileUrl);
-      if (!existsSync(path)) throw new BadRequestException(`Файл изображения «${img.name}» не найден, загрузите его заново`);
-      images[img.fileUrl] = (await readFile(path)).toString('base64');
-    }
+    const images = await this.loadBoundaryImages(model);
 
     const xml = buildTzXml(model, { images, objectId: `object-${id}` });
     if (task.xmlFileUrl) await this.deleteFile(task.xmlFileUrl);
@@ -350,6 +355,28 @@ export class TechnicalTasksService {
   getXslPath(): string {
     if (!existsSync(this.xslPath)) throw new NotFoundException('Файл визуализации схемы не найден');
     return this.xslPath;
+  }
+
+  private async loadBoundaryImages(model: TzXmlModel): Promise<Record<string, string>> {
+    const images: Record<string, string> = {};
+    for (const img of model.boundaries.images) {
+      const path = join(API_ROOT, 'uploads', img.fileUrl);
+      if (!existsSync(path)) throw new BadRequestException(`Файл изображения «${img.name}» не найден, загрузите его заново`);
+      images[img.fileUrl] = (await readFile(path)).toString('base64');
+    }
+    return images;
+  }
+
+  /** Просмотр сохранённого черновика, даже если обязательные поля ещё не заполнены. */
+  async getPreviewPdf(id: string, userId: string) {
+    const task = await this.findById(id, userId);
+    const model = task.xmlData as unknown as TzXmlModel | null;
+    if (!model) throw new BadRequestException('Данные задания ещё не заполнены');
+    const images = await this.loadBoundaryImages(model);
+    const xml = buildTzXml(model, { images, objectId: `object-${id}`, preview: true });
+    const buffer = await convertTzXmlToPdf(xml, this.getXslPath());
+    const fileName = `${safeBaseName(model.requisites.number || task.name || 'ЗИИ')}.pdf`;
+    return { buffer, fileName };
   }
 
   // ---------------------------------------------------------------------------
