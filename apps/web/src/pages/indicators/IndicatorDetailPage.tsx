@@ -1,3 +1,4 @@
+import { METAL_VALUE_ERROR, parseMetalValue } from './metal-value';
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
@@ -472,16 +473,9 @@ export function IndicatorDetailPage() {
     soilType: string | null,
     pH: number | null,
   ): string | number => {
-    if (value === null || value === undefined) return 'нет';
-    
-    let numValue: number;
-    if (typeof value === 'string') {
-      if (value.toLowerCase().includes('менее')) return 'нет';
-      numValue = parseFloat(value.replace(',', '.'));
-      if (isNaN(numValue)) return 'нет';
-    } else {
-      numValue = value;
-    }
+    const numValue = parseMetalValue(value);
+    if (numValue === METAL_VALUE_ERROR) return METAL_VALUE_ERROR;
+    if (numValue === null) return 'нет';
 
     // Для ртути - единый ПДК
     if (metal === 'Hg') {
@@ -512,17 +506,10 @@ export function IndicatorDetailPage() {
     value: string | number | null,
     soilType: string | null,
     regionType: 'moscow' | 'mo',
-  ): number => {
-    if (value === null || value === undefined) return 0;
-    
-    let numValue: number;
-    if (typeof value === 'string') {
-      if (value.toLowerCase().includes('менее')) return 0;
-      numValue = parseFloat(value.replace(',', '.'));
-      if (isNaN(numValue)) return 0;
-    } else {
-      numValue = value;
-    }
+  ): number | typeof METAL_VALUE_ERROR => {
+    const numValue = parseMetalValue(value);
+    if (numValue === METAL_VALUE_ERROR) return METAL_VALUE_ERROR;
+    if (numValue === null) return 0;
 
     // Выбираем фоновое значение
     let background: number;
@@ -541,7 +528,7 @@ export function IndicatorDetailPage() {
   const calcZc = (
     sample: IndicatorSample,
     regionType: RegionType,
-  ): number => {
+  ): number | typeof METAL_VALUE_ERROR => {
     const soilType = sample.soilTypeCode;
     
     // Выбираем фоновые значения
@@ -556,17 +543,9 @@ export function IndicatorDetailPage() {
     let sum = 0;
 
     for (const metal of metals) {
-      const value = getChemValue(sample, metal);
-      if (value === null) continue;
-
-      let numValue: number;
-      if (typeof value === 'string') {
-        if (value.toLowerCase().includes('менее')) continue;
-        numValue = parseFloat(value.replace(',', '.'));
-        if (isNaN(numValue)) continue;
-      } else {
-        numValue = value;
-      }
+      const numValue = parseMetalValue(getChemValue(sample, metal));
+      if (numValue === METAL_VALUE_ERROR) return METAL_VALUE_ERROR;
+      if (numValue === null) continue;
 
       const Kc = numValue / background[metal];
       if (Kc >= 1) {
@@ -590,7 +569,10 @@ export function IndicatorDetailPage() {
   };
 
   // Категория по Zc с учётом наличия превышений ПДК
-  const getZcCategory = (zc: number, hasExcess: boolean): { label: string; className: string } => {
+  const getZcCategory = (zc: number | typeof METAL_VALUE_ERROR, hasExcess: boolean): { label: string; className: string } => {
+    if (zc === METAL_VALUE_ERROR) {
+      return { label: METAL_VALUE_ERROR, className: 'text-red-400 font-bold' };
+    }
     if (zc < 16) {
       if (!hasExcess) return { label: 'Ч', className: 'bg-green-600 text-white font-bold' };
       return { label: 'Д', className: 'bg-white/10 text-white' };
@@ -1293,6 +1275,7 @@ export function IndicatorDetailPage() {
 
                 // Подсветка для таблицы превышений
                 const getExcessClass = (v: string | number) => {
+                  if (v === METAL_VALUE_ERROR) return 'text-red-400 font-bold';
                   if (metalsView !== 'excess') return '';
                   if (v === 'нет') return '';
                   const num = typeof v === 'number' ? v : parseFloat(String(v));
@@ -1343,7 +1326,9 @@ export function IndicatorDetailPage() {
                       {formatCellValue(znVal)}
                     </td>
                     <td className="px-3 py-2 text-center bg-primary-500/10 font-medium">
-                      {parseFloat(zc.toFixed(1)).toString()}
+                      {zc === METAL_VALUE_ERROR
+                        ? <span className="text-red-400 font-bold">{METAL_VALUE_ERROR}</span>
+                        : parseFloat(zc.toFixed(1)).toString()}
                     </td>
                     <td className="px-3 py-2 text-center">
                       <span className={`inline-block px-3 py-1 rounded ${zcCategory.className}`}>
@@ -1447,10 +1432,13 @@ export function IndicatorDetailPage() {
                 const tmIdx = categoryOrder.indexOf(tmCategory.label);
                 const bpIdx = categoryOrder.indexOf(benzapyreneCategory.label);
                 const maxIdx = Math.max(tmIdx, bpIdx);
-                const overallLabel = categoryOrder[maxIdx] || 'Д';
+                const overallLabel = tmCategory.label === METAL_VALUE_ERROR
+                  ? METAL_VALUE_ERROR
+                  : categoryOrder[maxIdx] || 'Д';
                 
                 const getCategoryClass = (label: string) => {
                   switch (label) {
+                    case METAL_VALUE_ERROR: return 'text-red-400 font-bold';
                     case 'ЧО': return 'bg-red-500 text-white font-bold';
                     case 'О': return 'bg-orange-500 text-white font-bold';
                     case 'УО': return 'bg-yellow-500 text-white font-bold';
