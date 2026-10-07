@@ -1008,7 +1008,7 @@ export function IndicatorDetailPage() {
 
                 // Форматирование превышения
                 const excessDisplay = typeof excess === 'number' 
-                  ? formatValue(excess) 
+                  ? excess.toFixed(1)
                   : excess;
 
                 return (
@@ -1113,7 +1113,7 @@ export function IndicatorDetailPage() {
 
                 // Форматирование превышения
                 const excessDisplay = typeof excess === 'number' 
-                  ? formatValue(excess) 
+                  ? excess.toFixed(1)
                   : excess;
 
                 return (
@@ -1270,7 +1270,7 @@ export function IndicatorDetailPage() {
 
                 const formatCellValue = (v: string | number) => {
                   if (typeof v === 'string') return v;
-                  return parseFloat(v.toFixed(1)).toString();
+                  return v.toFixed(1);
                 };
 
                 // Подсветка для таблицы превышений
@@ -1328,7 +1328,7 @@ export function IndicatorDetailPage() {
                     <td className="px-3 py-2 text-center bg-primary-500/10 font-medium">
                       {zc === METAL_VALUE_ERROR
                         ? <span className="text-red-400 font-bold">{METAL_VALUE_ERROR}</span>
-                        : parseFloat(zc.toFixed(1)).toString()}
+                        : zc.toFixed(1)}
                     </td>
                     <td className="px-3 py-2 text-center">
                       <span className={`inline-block px-3 py-1 rounded ${zcCategory.className}`}>
