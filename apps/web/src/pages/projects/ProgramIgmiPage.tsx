@@ -107,13 +107,16 @@ export function ProgramIgmiPage() {
     if (programIgmi) {
       setCadastralNumber(programIgmi.cadastralNumber || '');
       setEgrnDescription(programIgmi.egrnDescription || '');
-      const parts = [
-        programIgmi.nearbySouth ? `К югу: ${programIgmi.nearbySouth}` : 'К югу: ',
-        programIgmi.nearbyEast ? `К востоку: ${programIgmi.nearbyEast}` : 'К востоку: ',
-        programIgmi.nearbyWest ? `К западу: ${programIgmi.nearbyWest}` : 'К западу: ',
-        programIgmi.nearbyNorth ? `К северу: ${programIgmi.nearbyNorth}` : 'К северу: ',
-      ];
-      setNearbyText(parts.join('\n'));
+      if (programIgmi.nearbyText) {
+        setNearbyText(programIgmi.nearbyText);
+      } else {
+        const parts: string[] = [];
+        if (programIgmi.nearbySouth) parts.push(`К югу: ${programIgmi.nearbySouth}`);
+        if (programIgmi.nearbyEast) parts.push(`К востоку: ${programIgmi.nearbyEast}`);
+        if (programIgmi.nearbyWest) parts.push(`К западу: ${programIgmi.nearbyWest}`);
+        if (programIgmi.nearbyNorth) parts.push(`К северу: ${programIgmi.nearbyNorth}`);
+        setNearbyText(parts.join('\n'));
+      }
       setOpenGroundPercent(programIgmi.openGroundPercent ?? null);
       setHasChanges(false);
     }
@@ -126,40 +129,11 @@ export function ProgramIgmiPage() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  const parseNearbyText = (text: string) => {
-    const markers = [
-      { key: 'nearbySouth', prefix: /к\s*югу\s*:\s*/i },
-      { key: 'nearbyEast', prefix: /к\s*востоку\s*:\s*/i },
-      { key: 'nearbyWest', prefix: /к\s*западу\s*:\s*/i },
-      { key: 'nearbyNorth', prefix: /к\s*северу\s*:\s*/i },
-    ];
-    const result: Record<string, string> = {};
-    const positions: { key: string; start: number; prefixEnd: number }[] = [];
-
-    for (const m of markers) {
-      const match = text.match(m.prefix);
-      if (match && match.index !== undefined) {
-        positions.push({
-          key: m.key,
-          start: match.index,
-          prefixEnd: match.index + match[0].length,
-        });
-      }
-    }
-    positions.sort((a, b) => a.start - b.start);
-
-    for (let i = 0; i < positions.length; i++) {
-      const from = positions[i].prefixEnd;
-      const to = i + 1 < positions.length ? positions[i + 1].start : text.length;
-      result[positions[i].key] = text.slice(from, to).trim();
-    }
-    return result;
-  };
-
   const updateMutation = useMutation({
     mutationFn: (data: {
       cadastralNumber?: string;
       egrnDescription?: string;
+      nearbyText?: string | null;
       nearbySouth?: string;
       nearbyEast?: string;
       nearbyWest?: string;
@@ -219,14 +193,15 @@ export function ProgramIgmiPage() {
       return;
     }
 
-    const parsed = parseNearbyText(nearbyText);
     updateMutation.mutate({
       cadastralNumber: cadastralNumber || undefined,
       egrnDescription: egrnDescription || undefined,
-      nearbySouth: parsed.nearbySouth || undefined,
-      nearbyEast: parsed.nearbyEast || undefined,
-      nearbyWest: parsed.nearbyWest || undefined,
-      nearbyNorth: parsed.nearbyNorth || undefined,
+      nearbyText: nearbyText || null,
+      // Clear legacy fields so deleting the description does not restore old directions.
+      nearbySouth: '',
+      nearbyEast: '',
+      nearbyWest: '',
+      nearbyNorth: '',
       openGroundPercent,
     });
   };
@@ -495,6 +470,7 @@ export function ProgramIgmiPage() {
                   Окружение участка
                 </label>
                 <textarea
+                  placeholder="Опишите окружение участка в свободной форме"
                   value={nearbyText}
                   onChange={(e) => {
                     setNearbyText(e.target.value);
