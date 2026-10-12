@@ -2061,7 +2061,7 @@ export class WordService {
 
   /**
    * Генерирует программу инженерно-гидрометеорологических изысканий (ИГМИ).
-   * Заполняет разделы до п.4 включительно, остальное оставляет как в шаблоне.
+   * Заполняет титул, раздел 1 и окружение в п.3.2; разделы 2 и далее сохраняет из шаблона.
    * Использует paraId-замены (в ИГМИ-шаблоне нет HYPERLINK-плейсхолдеров).
    */
   async generateProgramIgmi(options: GenerateOptions): Promise<GeneratedWordResult> {
@@ -2193,28 +2193,17 @@ export class WordService {
           })
           .filter(Boolean);
 
-    let distanceFromOfficeKm: number | null = project.distanceKm ?? null;
-    if (distanceFromOfficeKm == null) {
-      const effectiveAddress =
-        String(programIei?.customObjectAddress ?? '').trim() || project.objectAddress;
-      if (effectiveAddress) {
-        try {
-          distanceFromOfficeKm = await this.distanceService.getDistanceToAddress(
-            effectiveAddress,
-            project.objectName || undefined,
-          );
-        } catch (error) {
-          console.error('[IGMI] Ошибка расчёта расстояния до объекта:', error);
-        }
-      }
-    }
-
     // ─── Загрузка ИГМИ-шаблона ───
     const templatePath = join(this.templateDir, 'игми', this.programIgmiTemplate);
     const templateContent = await readFile(templatePath, 'binary');
     const zip = new PizZip(templateContent);
     let docXml = zip.file('word/document.xml')?.asText() || '';
-    const igmiEndBlock = extractProgramIeiEndSignaturesBlock(docXml);
+    const section2Marker = '<w:tr w14:paraId="62AE2747">';
+    const section2Start = docXml.indexOf(section2Marker);
+    if (section2Start < 0) {
+      throw new BadRequestException('Не найден раздел 2 в шаблоне ИГМИ. Программа не сохранена.');
+    }
+    const templateFromSection2 = docXml.slice(section2Start);
 
     // ═══════════════════════════════════════════════════════
     // ТИТУЛ — paraId-замены (в ИГМИ нет HYPERLINK-плейсхолдеров)
@@ -2359,31 +2348,6 @@ export class WordService {
       }
     }
 
-    // 3.2 Окружение участка — ручные данные из интерфейса имеют приоритет.
-    if (nearbyLines.length > 0) {
-      docXml = this.replaceParagraphTextWithBreaks(
-        docXml,
-        '332D0BAC',
-        nearbyLines.join('\n'),
-      );
-    } else {
-      docXml = this.removeParagraphByParaId(docXml, '332D0BAC');
-    }
-
-    // 4.1 Расстояние от базы до участка.
-    if (distanceFromOfficeKm != null && Number.isFinite(distanceFromOfficeKm)) {
-      const distanceText = new Intl.NumberFormat('ru-RU', {
-        maximumFractionDigits: 1,
-      }).format(distanceFromOfficeKm);
-      docXml = replaceParagraphTextByParaIdPreserveRunProps(
-        docXml,
-        '6A4D9E21',
-        `Расстояние от базы изыскательской организации до участка изысканий: ${distanceText} км.`,
-      );
-    } else {
-      docXml = this.removeParagraphByParaId(docXml, '6A4D9E21');
-    }
-
     // Загруженная обзорная схема — п.1.9.4.
     if (programIei?.overviewImageName) {
       try {
@@ -2401,7 +2365,23 @@ export class WordService {
     docXml = normalizeDocumentStyles(docXml);
     docXml = this.normalizeGeneratedTextFormatting(docXml);
     docXml = fixMissingSpacesInDocxXml(docXml);
-    docXml = restoreProgramIeiEndSignaturesBlock(docXml, igmiEndBlock);
+    // Разделы 2 и далее возвращаем дословно вместе с оформлением и подписями.
+    const generatedSection2Start = docXml.indexOf(section2Marker);
+    if (generatedSection2Start < 0) {
+      throw new BadRequestException('Нарушена структура разделов ИГМИ. Программа не сохранена.');
+    }
+    docXml = docXml.slice(0, generatedSection2Start) + templateFromSection2;
+
+    // 3.2 Окружение участка — ручные данные из интерфейса имеют приоритет.
+    if (nearbyLines.length > 0) {
+      docXml = this.replaceParagraphTextWithBreaks(
+        docXml,
+        '332D0BAC',
+        nearbyLines.join('\n'),
+      );
+    } else {
+      docXml = this.removeParagraphByParaId(docXml, '332D0BAC');
+    }
     zip.file('word/document.xml', docXml);
 
     // Колонтитулы — номер документа
@@ -2440,14 +2420,7 @@ export class WordService {
       }
     }
 
-    // styles.xml
-    const stylesFile = zip.file('word/styles.xml');
-    if (stylesFile) {
-      let stylesXml = stylesFile.asText();
-      stylesXml = stylesXml.replace(/w:val="0000FF"/gi, 'w:val="000000"');
-      stylesXml = stylesXml.replace(/<w:u w:val="[^"]*"\/>/g, '');
-      zip.file('word/styles.xml', stylesXml);
-    }
+    // Общие стили шаблона сохраняем: они используются разделами 2 и далее.
 
     // ═══════════════════════════════════════════════════════
     // ГЕНЕРАЦИЯ ФАЙЛА + СОХРАНЕНИЕ В БД

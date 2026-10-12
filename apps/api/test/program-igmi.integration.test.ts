@@ -52,7 +52,7 @@ test('generateProgramIgmi заполняет объединённый шабло
         nearbyEast: null,
         nearbyWest: null,
         nearbyNorth: 'автомобильная дорога',
-        nearbyText: null,
+        nearbyText: 'Рядом находится парк.\nЗа участком проходит дорога.',
         customObjectAddress: null,
       }),
       upsert: async () => ({}),
@@ -86,10 +86,19 @@ test('generateProgramIgmi заполняет объединённый шабло
       const paragraph = documentXml.match(new RegExp(`<w:p\\b[^>]*w14:paraId="${paraId}"[^>]*>[\\s\\S]*?</w:p>`))?.[0] ?? '';
       expect(visibleText(paragraph)).toBe('Реконструкция сетей связи ПАО МГТС');
     }
-    expect(documentText).toContain('К югу: жилой дом');
-    expect(documentText).toContain('К северу: автомобильная дорога');
-    expect(documentText).toContain('12,5 км');
-    expect(documentText).not.toContain('96 км');
+    expect(documentText).toContain('Рядом находится парк.');
+    expect(documentText).toContain('За участком проходит дорога.');
+    expect(documentText).not.toContain('12,5 км');
+    const templateZip = new PizZip(await readFile(join(apiDir, 'templates/игми/Программа ИГМИ (1).docx')));
+    const templateXml = templateZip.file('word/document.xml')!.asText();
+    const protectedTail = (xml: string) => {
+      const start = xml.indexOf('<w:tr w14:paraId="62AE2747">');
+      expect(start).toBeGreaterThan(0);
+      return xml.slice(start).replace(/<w:p\b[^>]*w14:paraId="332D0BAC"[^>]*>[\s\S]*?<\/w:p>/, '');
+    };
+    // Все XML-элементы с раздела 2, кроме абзаца окружения 3.2, совпадают побайтно.
+    expect(protectedTail(documentXml)).toBe(protectedTail(templateXml));
+    expect(zip.file('word/styles.xml')!.asText()).toBe(templateZip.file('word/styles.xml')!.asText());
     expect(documentText).not.toContain('НазваниеОрганизации');
     expect(documentText).not.toContain('ДиректорФИО');
     // Загруженная схема вставлена; остальные изображения сохранены
