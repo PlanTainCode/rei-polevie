@@ -33,14 +33,14 @@ test('generateProgramIgmi заполняет объединённый шабло
       findUnique: async () => ({
         id: 'project-igmi-test',
         name: 'Тестовый проект',
-        objectName: 'Тестовый объект ИГМИ',
+        objectName: 'Реконструкция сетей связи ПАО МГТС',
         objectAddress: 'г. Москва, тестовый адрес',
         objectPurpose: 'Инженерные сети',
         clientName: 'АО «Тестовый заказчик»',
         clientAddress: 'г. Москва',
         documentNumber: '801-145-25',
         distanceKm: 12.5,
-        tzFileUrl: null,
+        tzFileUrl: '../templates/игми/Программа ИГМИ (1).docx',
       }),
     },
     programIei: {
@@ -58,7 +58,7 @@ test('generateProgramIgmi заполняет объединённый шабло
       upsert: async () => ({}),
     },
   };
-  const aiService = {};
+  const aiService = { extractProgramIeiSection1: async () => ({ urbanPlanningActivity: 'Архитектурно-строительное проектирование' }) };
   const distanceService = {
     getDistanceToAddress: async () => 99,
   };
@@ -82,16 +82,20 @@ test('generateProgramIgmi заполняет объединённый шабло
         .join(''),
     );
 
-    expect(documentText).toContain('Тестовый объект ИГМИ');
+    for (const paraId of ['22CE0801', '1B932D72']) {
+      const paragraph = documentXml.match(new RegExp(`<w:p\\b[^>]*w14:paraId="${paraId}"[^>]*>[\\s\\S]*?</w:p>`))?.[0] ?? '';
+      expect(visibleText(paragraph)).toBe('Реконструкция сетей связи ПАО МГТС');
+    }
     expect(documentText).toContain('К югу: жилой дом');
     expect(documentText).toContain('К северу: автомобильная дорога');
     expect(documentText).toContain('12,5 км');
     expect(documentText).not.toContain('96 км');
     expect(documentText).not.toContain('НазваниеОрганизации');
     expect(documentText).not.toContain('ДиректорФИО');
-    // Обзорную схему из ИЭИ в п.1.9.4 ИГМИ не копируем — вставляется вручную
-    expect(relationshipsXml).not.toContain('media/igmi-overview.png');
-    expect(zip.file('word/media/igmi-overview.png')).toBeNull();
+    // Загруженная схема вставлена; остальные изображения сохранены
+    expect(relationshipsXml).toContain('media/igmi-overview.png');
+    expect(zip.file('word/media/igmi-overview.png')).not.toBeNull();
+    expect(documentXml.match(/<w:p\b[^>]*w14:paraId="3180C077"[^>]*>[\s\S]*?<\/w:p>/)?.[0]).toContain('<w:drawing>');
     // Подписи и карта из шаблона сохраняются (Word переименовывает media в image1..N)
     const imageTargets = [...relationshipsXml.matchAll(/Target="media\/([^"]+)"/g)].map((m) => m[1]);
     expect(imageTargets.length).toBeGreaterThanOrEqual(5);

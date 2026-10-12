@@ -1,3 +1,5 @@
+import { replaceParagraphTextByParaIdPreserveRunProps } from './docx-xml';
+
 /** Известные варианты вида градостроительной деятельности в шаблоне программы. */
 export const URBAN_PLANNING_ACTIVITY_OPTIONS = [
   'Архитектурно-строительное проектирование',
@@ -87,4 +89,26 @@ export function extractUrbanPlanningActivityFromTz(tzText: string): string | nul
     /Вид градостроительной деятельности\s*[:–—-]?\s*([А-ЯЁа-яё][^\n]{2,120})/i,
   );
   return phraseFromCandidate(looseSame?.[1] || '');
+}
+
+/** Меняет только значение строки 1.7, не затрагивая названия объектов и другие разделы. */
+export function replaceUrbanPlanningActivityCell(xml: string, value: string): string {
+  if (!value?.trim()) return xml;
+  return xml.replace(/<w:tr\b[\s\S]*?<\/w:tr>/g, (row) => {
+    const cells = [...row.matchAll(/<w:tc\b[\s\S]*?<\/w:tc>/g)];
+    if (cells.length !== 3) return row;
+    const label = [...cells[1][0].matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g)]
+      .map((match) => match[1]).join('').replace(/\s+/g, ' ').trim();
+    if (label !== 'Вид градостроительной деятельности') return row;
+    const cell = cells[2];
+    let filled = false;
+    const updated = cell[0].replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, (paragraph) => {
+      if (filled) return '';
+      const paraId = paragraph.match(/w14:paraId="([^"]+)"/)?.[1];
+      if (!paraId) return paragraph;
+      filled = true;
+      return replaceParagraphTextByParaIdPreserveRunProps(paragraph, paraId, value.trim());
+    });
+    return row.slice(0, cell.index!) + updated + row.slice(cell.index! + cell[0].length);
+  });
 }

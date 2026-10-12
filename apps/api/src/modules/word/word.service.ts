@@ -1,3 +1,4 @@
+import { insertIgmiOverview } from './program-igmi/overview';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { aiDiagnosticContext, diagnosticError, logAiDiagnostic } from '../ai/diagnostics';
@@ -80,7 +81,7 @@ import {
 import { resolveProgramIeiLocation12 } from './program-iei/precise-location';
 import {
   extractUrbanPlanningActivityFromTz,
-  URBAN_PLANNING_ACTIVITY_OPTIONS,
+  replaceUrbanPlanningActivityCell,
 } from './program-iei/urban-planning';
 import {
   extractGoalsTextFromSection1,
@@ -2383,8 +2384,16 @@ export class WordService {
       docXml = this.removeParagraphByParaId(docXml, '6A4D9E21');
     }
 
-    // Обзорную схему (п.1.9.4) из программы ИЭИ в ИГМИ не копируем —
-    // ячейка остаётся пустой, схема вставляется вручную.
+    // Загруженная обзорная схема — п.1.9.4.
+    if (programIei?.overviewImageName) {
+      try {
+        const imagePath = join(this.uploadsDir, 'program-iei', programIei.overviewImageName);
+        docXml = await insertIgmiOverview(docXml, zip, await readFile(imagePath), programIei.overviewImageName);
+      } catch (error) {
+        console.error('[IGMI] Ошибка вставки обзорной схемы:', error);
+        throw new BadRequestException('Не удалось вставить загруженную обзорную схему ИГМИ. Программа не сохранена. Используйте PNG или JPEG.');
+      }
+    }
 
     // ═══════════════════════════════════════════════════════
     // НОРМАЛИЗАЦИЯ СТИЛЕЙ (идентично ИЭИ)
@@ -3399,45 +3408,7 @@ export class WordService {
    * Оставляет только выбранное значение (как в ТЗ, 1:1)
    */
   private replaceUrbanPlanningActivityOptions(xml: string, selectedValue: string): string {
-    if (!selectedValue || selectedValue.trim() === '') {
-      return xml;
-    }
-
-    const allOptions = [...URBAN_PLANNING_ACTIVITY_OPTIONS];
-    const normalizedSelected = selectedValue.trim();
-    const normalizedLower = normalizedSelected.toLowerCase();
-
-    // Находим совпадение со списком шаблона (или оставляем текст из ТЗ как есть)
-    let matchedOption =
-      allOptions.find((o) => o.toLowerCase() === normalizedLower) ||
-      allOptions.find((o) => normalizedLower.includes(o.toLowerCase().substring(0, 15))) ||
-      normalizedSelected;
-
-    let keptOne = false;
-    for (const option of allOptions) {
-      const escapedOption = option.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const regex = new RegExp(`(<w:t[^>]*>)\\s*${escapedOption}[^<]*(<\\/w:t>)`, 'gi');
-      if (option.toLowerCase() === matchedOption.toLowerCase() && !keptOne) {
-        xml = xml.replace(regex, `$1${this.escapeXml(matchedOption)}$2`);
-        keptOne = true;
-      } else {
-        xml = xml.replace(regex, '$1$2');
-      }
-    }
-
-    // Если в шаблоне не нашли ни одного варианта — подставляем текст в первый непустой слот списка
-    if (!keptOne) {
-      for (const option of allOptions) {
-        const escapedOption = option.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`(<w:t[^>]*>)\\s*${escapedOption}[^<]*(<\\/w:t>)`, 'i');
-        if (regex.test(xml)) {
-          xml = xml.replace(regex, `$1${this.escapeXml(matchedOption)}$2`);
-          break;
-        }
-      }
-    }
-
-    return xml;
+    return replaceUrbanPlanningActivityCell(xml, selectedValue);
   }
 
   /**
