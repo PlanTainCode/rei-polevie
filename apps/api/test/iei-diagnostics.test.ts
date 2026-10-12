@@ -106,3 +106,58 @@ test('generation stops before writing document or replacing last result when sec
     await rm(outputDir, { recursive: true, force: true });
   }
 });
+
+for (const response of ['', 'not json', '{}', '{"objectName":"","siteDescription":""}']) {
+  test(`strict section1 rejects unusable response: ${response}`, async () => {
+    const ai = new AiService(new ConfigService({ DEEPSEEK_API_KEY: 'test' }));
+    globalThis.fetch = (async (_url: unknown, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      expect(body.thinking).toEqual({ type: 'disabled' });
+      return Response.json({ choices: [{ message: { content: response }, finish_reason: 'stop' }] });
+    }) as any;
+    await expect(ai.extractProgramIeiSection1('ТЗ', 'Шаблон', { strict: true })).rejects.toThrow();
+  });
+}
+
+test('strict section1 accepts extracted data with thinking disabled', async () => {
+  const ai = new AiService(new ConfigService({ DEEPSEEK_API_KEY: 'test' }));
+  globalThis.fetch = (async (_url: unknown, init: RequestInit) => {
+    expect(JSON.parse(String(init.body)).thinking).toEqual({ type: 'disabled' });
+    return Response.json({ choices: [{ message: { content: '{"objectName":"Тестовый объект"}' }, finish_reason: 'stop' }] });
+  }) as any;
+  const result = await ai.extractProgramIeiSection1('ТЗ', 'Шаблон', { strict: true });
+  expect(result.objectName).toBe('Тестовый объект');
+});
+
+test('section1 failure aborts IEI before later AI calls and leaves last document untouched', async () => {
+  const outputDir = await mkdtemp(join(tmpdir(), 'iei-section1-test-'));
+  const log = spyOn(console, 'log').mockImplementation(() => {});
+  const error = spyOn(console, 'error').mockImplementation(() => {});
+  let saves = 0;
+  let requests = 0;
+  try {
+    const templateDir = join(import.meta.dir, '../templates');
+    const prisma = {
+      project: {
+        findUnique: async () => ({ id: 'test', name: 'Тест', distanceKm: 1, tzFileUrl: 'Программа ИЭИ актуальная.docx' }),
+        findMany: async () => [],
+      },
+      programIei: { upsert: async () => { saves++; } },
+    };
+    const ai = new AiService(new ConfigService({ DEEPSEEK_API_KEY: 'test' }));
+    globalThis.fetch = (async () => {
+      requests++;
+      return Response.json({ choices: [{ message: { content: '', reasoning_content: 'reasoning' }, finish_reason: 'length' }] });
+    }) as any;
+    const service = new WordService(prisma as any, ai, {} as any);
+    Object.assign(service, { templateDir, uploadsDir: templateDir, outputDir });
+    await expect(service.generateProgramIei({ projectId: 'test', userId: 'test' })).rejects.toThrow('Не удалось извлечь раздел 1');
+    expect(requests).toBe(1);
+    expect(saves).toBe(0);
+    expect(await readdir(outputDir)).toEqual([]);
+    expect(log.mock.calls.some(c => c[0] === '[AiDiagnostics]' && String(c[1]).includes('section1_generation_aborted'))).toBe(true);
+  } finally {
+    log.mockRestore(); error.mockRestore();
+    await rm(outputDir, { recursive: true, force: true });
+  }
+});

@@ -319,7 +319,10 @@ export class AiService {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ' + this.apiKey,
         },
-        body: JSON.stringify({ model: this.model, messages, temperature: 0.1, max_tokens: 8192 }),
+        body: JSON.stringify({
+          model: this.model, messages, temperature: 0.1, max_tokens: 8192,
+          thinking: { type: 'disabled' },
+        }),
       });
       logAiDiagnostic('response_headers', { ...details, status: response.status, elapsedMs: Date.now() - started });
       if (!response.ok) {
@@ -949,6 +952,7 @@ ${TEMPLATE_SERVICES.map((s, i) => `${i + 1}. [Строка ${s.row}, №${s.num}
   async extractProgramIeiSection1(
     tzText: string,
     templateSection1Text: string,
+    options: { strict?: boolean } = {},
   ): Promise<ProgramIeiSection1Data> {
     const systemPrompt = `Ты эксперт по инженерно-экологическим изысканиям (ИЭИ).
 Твоя задача - ТОЧНО извлечь данные из Технического Задания (ТЗ) для заполнения программы ИЭИ.
@@ -1152,11 +1156,15 @@ ${tzText}`;
 
       const parsed = parseJsonObjectFromAi(response) as ProgramIeiSection1Data | null;
       if (!parsed || typeof parsed !== 'object') {
-        console.error(
-          '[AiService] Не удалось найти JSON в ответе:',
-          String(response || '').slice(0, 400),
-        );
-        return this.getEmptySection1Data();
+        logAiDiagnostic('section1_invalid', { reason: 'invalid_json', responseChars: response.length });
+        throw new Error('Invalid section 1 JSON');
+      }
+      if (options.strict && ![
+        parsed.objectName, parsed.objectLocation, parsed.goalsAndTasks,
+        parsed.technicalCharacteristics, parsed.siteDescription,
+      ].some(value => typeof value === 'string' && value.trim())) {
+        logAiDiagnostic('section1_invalid', { reason: 'empty_extracted_data' });
+        throw new Error('Empty section 1 data');
       }
       
       // Логируем technicalCharacteristics для диагностики
@@ -1166,6 +1174,8 @@ ${tzText}`;
       return this.normalizeSection1Data(parsed);
     } catch (error) {
       console.error('[AiService] Ошибка извлечения данных раздела 1:', error);
+      logAiDiagnostic('section1_failed', { strict: Boolean(options.strict), ...diagnosticError(error) });
+      if (options.strict) throw error;
       return this.getEmptySection1Data();
     }
   }

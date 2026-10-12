@@ -828,7 +828,7 @@ export class WordService {
         const templateSection1Text = await this.extractSection1FromTemplate();
 
         // Извлекаем данные через AI
-        section1Data = await this.aiService.extractProgramIeiSection1(tzTextValue, templateSection1Text);
+        section1Data = await this.aiService.extractProgramIeiSection1(tzTextValue, templateSection1Text, { strict: true });
 
         // ВАЖНО: в \"Границы площадки...\" всегда должна быть фраза про площадь (из ТЗ).
         // AI иногда обрезает/теряет её — склеиваем детерминированно.
@@ -862,6 +862,10 @@ export class WordService {
         console.log('[WordService] AI извлёк данные пункта 4.5:', JSON.stringify(section45Data, null, 2));
       } catch (error) {
         console.error('[WordService] Ошибка чтения ТЗ или AI:', error);
+        if (!section1Data) {
+          logAiDiagnostic('section1_generation_aborted', { ...diagnosticError(error) });
+          throw new BadRequestException('Не удалось извлечь раздел 1 из ТЗ. Программа не сохранена. Повторите генерацию; если ошибка повторится, передайте логи администратору.');
+        }
       }
     } else {
       console.warn('[WordService] ТЗ не загружено (tzFileUrl пуст) - используем данные из project');
