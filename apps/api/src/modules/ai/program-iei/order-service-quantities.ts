@@ -1,4 +1,5 @@
 import type { ServiceMatch } from '../ai.service';
+import { diagnosticError, logAiDiagnostic } from '../diagnostics';
 
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -128,7 +129,10 @@ export async function extractOrderServiceQuantitiesViaAi(params: {
     ]);
 
     const json = safeJsonExtract(resp);
-    if (!json) return { ok: false, byRow: {}, usedLines: candidates };
+    if (!json) {
+      logAiDiagnostic('order_quantities_failed', { reason: 'missing_json', responseChars: resp.length });
+      return { ok: false, byRow: {}, usedLines: candidates };
+    }
 
     const parsed = JSON.parse(json) as { byRow?: Record<string, number | string | null> };
     const byRow: Record<number, number | string> = {};
@@ -145,7 +149,8 @@ export async function extractOrderServiceQuantitiesViaAi(params: {
     }
 
     return { ok: true, byRow, usedLines: candidates };
-  } catch {
+  } catch (error) {
+    logAiDiagnostic('order_quantities_failed', { reason: 'request_or_json_error', ...diagnosticError(error) });
     return { ok: false, byRow: {}, usedLines: candidates };
   }
 }

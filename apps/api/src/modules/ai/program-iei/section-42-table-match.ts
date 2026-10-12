@@ -1,4 +1,5 @@
 import type { ServiceMatch } from '../ai.service';
+import { diagnosticError, logAiDiagnostic } from '../diagnostics';
 
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -84,18 +85,27 @@ export async function matchProgramIeiSection42TableRowsViaAi(params: {
     ]);
 
     const json = safeJsonExtract(resp);
-    if (!json) return { ok: false, keepWorkRowIndexes: [] };
+    if (!json) {
+      logAiDiagnostic('section42_failed', { reason: 'missing_json', responseChars: resp.length });
+      return { ok: false, keepWorkRowIndexes: [] };
+    }
 
     const parsed = JSON.parse(json) as Partial<ProgramIeiSection42TableMatchResult>;
-    const keep = Array.isArray((parsed as any).keepWorkRowIndexes)
-      ? uniqInts((parsed as any).keepWorkRowIndexes)
-      : [];
+    if (!parsed || !Array.isArray(parsed.keepWorkRowIndexes) ||
+        parsed.keepWorkRowIndexes.length === 0 ||
+        parsed.keepWorkRowIndexes.some((i) => !Number.isInteger(i) || i < 0 || i >= workRows.length)) {
+      logAiDiagnostic('section42_failed', { reason: 'invalid_or_empty_indexes', workRowCount: workRows.length });
+      return { ok: false, keepWorkRowIndexes: [] };
+    }
+    const keep = uniqInts(parsed.keepWorkRowIndexes);
 
     // Фильтруем за пределами массива
     const bounded = keep.filter((i) => i >= 0 && i < workRows.length);
 
+    logAiDiagnostic('section42_selected', { workRowCount: workRows.length, keepWorkRowIndexes: bounded });
     return { ok: true, keepWorkRowIndexes: bounded };
-  } catch {
+  } catch (error) {
+    logAiDiagnostic('section42_failed', { reason: 'request_or_json_error', ...diagnosticError(error) });
     return { ok: false, keepWorkRowIndexes: [] };
   }
 }

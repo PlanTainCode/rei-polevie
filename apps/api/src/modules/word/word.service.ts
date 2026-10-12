@@ -1,4 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { aiDiagnosticContext, diagnosticError, logAiDiagnostic } from '../ai/diagnostics';
 import {
   Document,
   Packer,
@@ -745,6 +747,21 @@ export class WordService {
    * Использует AI для извлечения данных из ТЗ
    */
   async generateProgramIei(options: GenerateOptions): Promise<GeneratedWordResult> {
+    return aiDiagnosticContext.run({ generationId: randomUUID(), projectId: options.projectId }, async () => {
+      const started = Date.now();
+      logAiDiagnostic('generation_started');
+      try {
+        const result = await this.generateProgramIeiDocument(options);
+        logAiDiagnostic('generation_completed', { elapsedMs: Date.now() - started, fileName: result.fileName });
+        return result;
+      } catch (error) {
+        logAiDiagnostic('generation_failed', { elapsedMs: Date.now() - started, ...diagnosticError(error) });
+        throw error;
+      }
+    });
+  }
+
+  private async generateProgramIeiDocument(options: GenerateOptions): Promise<GeneratedWordResult> {
     const { projectId } = options;
 
     const project = await this.prisma.project.findUnique({
@@ -929,6 +946,7 @@ export class WordService {
         console.log('[WordService] AI извлёк слои грунта п.4.7:', JSON.stringify(section47LayersData, null, 2));
       } catch (error) {
         console.error('[WordService] Ошибка чтения поручения или AI (order flags):', error);
+        throw new BadRequestException('Не удалось обработать основное поручение. Программа не сохранена.');
       }
     }
 
@@ -965,6 +983,7 @@ export class WordService {
           console.log(`[WordService] Обработан допотбор: ${child.name}`);
         } catch (error) {
           console.error(`[WordService] Ошибка чтения поручения допотбора ${child.name}:`, error);
+          throw new BadRequestException('Не удалось обработать поручение допотбора. Программа не сохранена.');
         }
       }
     }
@@ -1163,6 +1182,10 @@ export class WordService {
 
     // --- П.4.2: таблица работ (фильтруем строки по поручению, стиль таблицы не трогаем)
     // Извлекаем услуги из каждого поручения отдельно и суммируем количества
+    if (allOrderTexts.length === 0) {
+      logAiDiagnostic('section42_failed', { reason: 'missing_order_text' });
+      throw new BadRequestException('Для проверки состава работ 4.2 необходимо загрузить поручение. Программа не сохранена.');
+    }
     if (allOrderTexts.length > 0) {
       // Гарантированно есть хотя бы одно поручение — используем объединённый текст
       const combinedOrderTextForSection42 = orderText || allOrderTexts.join('\n\n--- ДОПОТБОР ---\n\n');
@@ -1177,6 +1200,10 @@ export class WordService {
         try {
           console.log(`[WordService] Поручение ${orderLabel}: текст ${singleOrderText.length} символов`);
           const singleServices = await this.aiService.matchServicesFromOrder(singleOrderText);
+          if (singleServices.length === 0) {
+            logAiDiagnostic('section42_failed', { reason: 'no_services_recognized', orderIdx });
+            throw new BadRequestException('Не удалось распознать услуги в поручении для п.4.2. Программа не сохранена.');
+          }
           console.log(`[WordService] Поручение ${orderLabel}: найдено ${singleServices.length} услуг`);
           if (singleServices.length > 0) {
             console.log(`[WordService] Поручение ${orderLabel} услуги:`, 
@@ -1250,6 +1277,8 @@ export class WordService {
           }
         } catch (error) {
           console.error('[WordService] Ошибка AI при обработке поручения:', error);
+          if (error instanceof BadRequestException) throw error;
+          throw new BadRequestException('Не удалось обработать услуги поручения для п.4.2. Программа не сохранена.');
         }
       }
 
@@ -1260,6 +1289,10 @@ export class WordService {
       console.log(`[WordService] Итоговые количества по row:`, JSON.stringify(quantitiesByRow));
 
       const extracted42 = extractProgramIeiSection42Table(docXml);
+      if (!extracted42 || extracted42.workRows.length === 0) {
+        logAiDiagnostic('section42_failed', { reason: 'template_table_missing_or_empty' });
+        throw new BadRequestException('Не удалось найти таблицу работ 4.2 в шаблоне. Программа не сохранена.');
+      }
       if (extracted42) {
         try {
           // Сохраняем исходный текст строки (шаблон), но НЕ меняем docXml до фильтрации таблицы,
@@ -1299,7 +1332,11 @@ export class WordService {
             tzContextText: section1Data?.siteDescription || '',
           });
 
-          // Если AI не смог — не фильтруем таблицу (лучше оставить всё, чем удалить нужное)
+          if (!match.ok || match.keepWorkRowIndexes.length === 0) {
+            throw new BadRequestException('Не удалось проверить состав работ в п.4.2 по поручению. Программа не сохранена. Повторите генерацию; если ошибка повторится, передайте логи администратору.');
+          }
+
+          // До фильтрации допускаем только проверенный непустой результат AI.
           const forceKeepWorkIdxs: number[] = [];
           if (match.ok) {
             const mustKeepPredicates = [
@@ -1506,6 +1543,8 @@ export class WordService {
           }
         } catch (error) {
           console.error('[WordService] Ошибка обработки п.4.2:', error);
+          if (error instanceof BadRequestException) throw error;
+          throw new BadRequestException('Ошибка обработки таблицы работ 4.2. Программа не сохранена. Передайте логи администратору.');
         }
       }
     }

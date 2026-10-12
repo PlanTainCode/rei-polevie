@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { diagnosticError, logAiDiagnostic } from './diagnostics';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -243,7 +245,7 @@ export class AiService {
     if (!this.apiKey) {
       console.error('[AiService] ⚠️ DEEPSEEK_API_KEY не установлен! AI функции не будут работать.');
     } else {
-      console.log(`[AiService] DeepSeek API initialized (${this.model}), key: ${this.apiKey.substring(0, 8)}...`);
+      console.log(`[AiService] DeepSeek API initialized (${this.model}), key configured`);
     }
   }
 
@@ -297,29 +299,60 @@ export class AiService {
     }
   }
 
-  private async chat(messages: ChatMessage[]): Promise<string> {
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.model,
-        messages,
-        temperature: 0.1,
-        max_tokens: 8192,
-      }),
-    });
+  private chatFor(operation: string) {
+    return (messages: ChatMessage[]) => this.chat(messages, operation);
+  }
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      console.error(`[AiService] DeepSeek error ${response.status}:`, errorBody);
-      throw new Error(`DeepSeek API error: ${response.status} - ${errorBody}`);
+  private async chat(messages: ChatMessage[], operation: string): Promise<string> {
+    const requestId = randomUUID();
+    const started = Date.now();
+    const details = { requestId, operation, model: this.model };
+    logAiDiagnostic('request_started', { ...details, inputChars: messages.reduce((n, m) => n + m.content.length, 0) });
+    const pending = setInterval(() => {
+      logAiDiagnostic('request_pending', { ...details, elapsedMs: Date.now() - started });
+    }, 30000);
+    pending.unref();
+    try {
+      const response = await fetch(this.baseUrl + '/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + this.apiKey,
+        },
+        body: JSON.stringify({ model: this.model, messages, temperature: 0.1, max_tokens: 8192 }),
+      });
+      logAiDiagnostic('response_headers', { ...details, status: response.status, elapsedMs: Date.now() - started });
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new Error('DeepSeek API error: ' + response.status);
+      }
+      const data = (await response.json()) as AiChatResponse & {
+        choices?: Array<{ message: { content: string; reasoning_content?: string }; finish_reason?: string }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+      };
+      const choice = data.choices?.[0];
+      const content = choice?.message?.content;
+      logAiDiagnostic('request_completed', {
+        ...details, elapsedMs: Date.now() - started, finishReason: choice?.finish_reason,
+        outputChars: typeof content === 'string' ? content.length : 0,
+        reasoningChars: choice?.message?.reasoning_content?.length || 0,
+        promptTokens: data.usage?.prompt_tokens, completionTokens: data.usage?.completion_tokens,
+      });
+      if (typeof content !== 'string' || !content.trim()) {
+        logAiDiagnostic('response_invalid', { ...details, reason: 'empty_content' });
+        throw new Error('Empty DeepSeek response');
+      }
+      if (choice?.finish_reason === 'length') {
+        logAiDiagnostic('response_invalid', { ...details, reason: 'token_limit' });
+        throw new Error('DeepSeek response truncated by token limit');
+      }
+      return content;
+    } catch (error) {
+      logAiDiagnostic('request_failed', { ...details, elapsedMs: Date.now() - started, ...diagnosticError(error) });
+      throw error;
+    } finally {
+      clearInterval(pending);
     }
-
-    const data = (await response.json()) as AiChatResponse;
-    return data.choices[0]?.message?.content || '';
   }
 
   /**
@@ -331,7 +364,7 @@ export class AiService {
     objectName: string,
   ): Promise<ProgramIeiOrderFlags> {
     return extractProgramIeiOrderFlagsViaAi({
-      chat: this.chat.bind(this),
+      chat: this.chatFor('extractProgramIeiOrderFlags'),
       orderText,
       objectName,
     });
@@ -344,7 +377,7 @@ export class AiService {
     objectName?: string;
   }): Promise<ReportIeiSection1AiData> {
     return extractReportIeiSection1ViaAi({
-      chat: this.chat.bind(this),
+      chat: this.chatFor('extractReportIeiSection1'),
       tzText: params.tzText,
       reportTemplateSection1: params.reportTemplateSection1,
       nearbyText: params.nearbyText,
@@ -363,7 +396,7 @@ export class AiService {
     tzContextText?: string;
   }): Promise<{ ok: boolean; keepWorkRowIndexes: number[] }> {
     return matchProgramIeiSection42TableRowsViaAi({
-      chat: this.chat.bind(this),
+      chat: this.chatFor('matchProgramIeiSection42TableRows'),
       orderText: params.orderText,
       workRows: params.workRows,
       servicesFromOrder: params.servicesFromOrder,
@@ -380,7 +413,7 @@ export class AiService {
     servicesFromOrder: ServiceMatch[];
   }): Promise<{ ok: boolean; byRow: Record<number, number | string> }> {
     const res = await extractOrderServiceQuantitiesViaAi({
-      chat: this.chat.bind(this),
+      chat: this.chatFor('extractOrderServiceQuantities'),
       orderText: params.orderText,
       servicesCatalog: TEMPLATE_SERVICES.map((s) => ({
         row: s.row,
@@ -402,7 +435,7 @@ export class AiService {
     templateLineText: string;
   }): Promise<{ ok: boolean; hasCysts: boolean; finalText: string }> {
     return buildBioContaminationLineViaAi({
-      chat: this.chat.bind(this),
+      chat: this.chatFor('buildProgramIeiBioContaminationLine'),
       orderText: params.orderText,
       templateLineText: params.templateLineText,
     });
@@ -412,21 +445,21 @@ export class AiService {
    * Извлекает текст раздела "Требования к составлению прогноза изменения природных условий" из ТЗ (для п.4.5)
    */
   async extractProgramIeiSection45(tzText: string): Promise<ProgramIeiSection45Data> {
-    return extractProgramIeiSection45ViaAi(tzText, this.chat.bind(this));
+    return extractProgramIeiSection45ViaAi(tzText, this.chatFor('extractProgramIeiSection45'));
   }
 
   /**
    * П.4.7: Извлекает информацию о слоях грунта из поручения
    */
   async extractSection47Layers(orderText: string): Promise<Section47LayersData> {
-    return extractSection47LayersViaAi(orderText, this.chat.bind(this));
+    return extractSection47LayersViaAi(orderText, this.chatFor('extractSection47Layers'));
   }
 
   /**
    * П.8.3-8.4: Определяет тип объекта (электросети, дорога) по наименованию
    */
   async determineObjectType(objectName: string): Promise<ObjectTypeFlags> {
-    return determineObjectTypeViaAi(objectName, this.chat.bind(this));
+    return determineObjectTypeViaAi(objectName, this.chatFor('determineObjectType'));
   }
 
   /**
@@ -461,7 +494,7 @@ ${documentText.substring(0, 3000)}
 Извлеки адрес объекта:`;
 
     try {
-      const response = await this.chat([
+      const response = await this.chatFor('extractObjectAddress')([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ]);
@@ -511,7 +544,7 @@ ${documentText.substring(0, 3000)}
 ${address}`;
 
     try {
-      const response = await this.chat([
+      const response = await this.chatFor('formatAddressForInquiries')([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ]);
@@ -603,7 +636,7 @@ ${address}`;
 Отвечай ТОЛЬКО названием, одной строкой.`;
 
     try {
-      const response = await this.chat([
+      const response = await this.chatFor('extractClientName')([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Текст секции о заказчике:\n\n${clientSection}\n\nНазвание заказчика:` },
       ]);
@@ -646,7 +679,7 @@ ${address}`;
 Отвечай ТОЛЬКО адресом, одной строкой.`;
 
     try {
-      const response = await this.chat([
+      const response = await this.chatFor('extractClientAddress')([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Текст секции о заказчике:\n\n${clientSection}\n\nАдрес заказчика:` },
       ]);
@@ -684,7 +717,7 @@ ${address}`;
 Какое назначение объекта?`;
 
     try {
-      const response = await this.chat([
+      const response = await this.chatFor('determineObjectPurpose')([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ]);
@@ -760,7 +793,7 @@ ${TEMPLATE_SERVICES.map((s, i) => `${i + 1}. [Строка ${s.row}, №${s.num}
 Если услуга не упоминается в тексте - НЕ включай её в ответ.`;
 
     try {
-      const response = await this.chat([
+      const response = await this.chatFor('matchServicesFromOrder')([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Проанализируй текст поручения:\n\n${orderText}` },
       ]);
@@ -840,7 +873,7 @@ ${TEMPLATE_SERVICES.map((s, i) => `${i + 1}. [Строка ${s.row}, №${s.num}
 Отвечай ТОЛЬКО "ДА" или "НЕТ".`;
 
     try {
-      const response = await this.chat([
+      const response = await this.chatFor('checkAddressInName')([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Название объекта: ${objectName}\nАдрес для сравнения: ${objectAddress}\n\nСодержит ли название адрес?` },
       ]);
@@ -1112,7 +1145,7 @@ clientName: название организации из блока "Заказ�
 ${tzText}`;
 
     try {
-      const response = await this.chat([
+      const response = await this.chatFor('extractProgramIeiSection1')([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ]);
@@ -1193,7 +1226,7 @@ ${tzText}`;
 ${addressText}`;
 
     try {
-      const response = await this.chat([
+      const response = await this.chatFor('extractProgramIeiSection31')([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ]);
@@ -1286,7 +1319,7 @@ territoryConditionText:
     const userPrompt = `ТЗ:\n${tzText}`;
 
     try {
-      const response = await this.chat([
+      const response = await this.chatFor('extractProgramIeiSection32')([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ]);
@@ -1635,7 +1668,7 @@ B) ПОРУЧЕНИЕ С НОМЕРАМИ ПЛОЩАДОК — в скобках
       console.log('[AiService] extractSamplingLayers: секция отбора проб:', probsSection?.[0]?.substring(0, 500) || 'не найдена');
       console.log('[AiService] extractSamplingLayers: длина документа:', documentText.length);
 
-      const response = await this.chat([
+      const response = await this.chatFor('extractSamplingLayers')([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Извлеки данные о слоях отбора проб из этого документа:\n\n${documentText}` },
       ]);
@@ -1760,7 +1793,7 @@ waterForAll — берётся ли вода на всех пунктах
 sedimentForAll — берутся ли донные отложения на всех пунктах`;
 
     try {
-      const response = await this.chat([
+      const response = await this.chatFor('extractMonitoringProbes')([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Извлеки пункты наблюдения из этого документа мониторинга:\n\n${documentText.substring(0, 15000)}` },
       ]);
