@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { projectsApi, type GenerateExcelResult, type ExcelGenerateMode } from '@/api/projects';
 import { indicatorsApi } from '@/api/indicators';
+import { MaedProtocols } from '@/pages/indicators/MaedProtocols';
 import { Button, Input, Card, CardHeader, CardTitle, CardContent, Select } from '@/components/ui';
 
 function normalizeDisplayedFilename(name: string | null): string | null {
@@ -1085,6 +1086,8 @@ export function ProjectDetailPage() {
       )}
 
       {/* Показатели — после допотборов */}
+      <MaedProtocols key={project.id} projectId={project.id} canEdit={!!project.canEdit} />
+
       {project.processedAt && (
         <Card className="mb-6">
           {project.indicator ? (

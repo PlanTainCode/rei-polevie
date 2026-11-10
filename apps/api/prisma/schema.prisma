@@ -170,6 +170,7 @@ model Project {
   programIei     ProgramIei?
   inquiryRequest InquiryRequest?
   indicator      Indicator?
+  maedProtocols  MaedProtocol[]
 
   @@map("projects")
 }
@@ -480,6 +481,25 @@ enum TechnicalTaskStatus {
   PROCESSING  // В обработке
   COMPLETED   // Готов
   ERROR       // Ошибка
+}
+
+// Протоколы измерений МАЭД на участке (несколько протоколов на объект)
+model MaedProtocol {
+  id              String   @id @default(cuid())
+  projectId       String
+  protocolNumber  String?
+  measurementDate String?
+  fileName        String
+  storedFileName  String
+  points          Json
+  uncertainty     Float?
+  instrumentName  String?
+  calculationSettings Json?
+  createdAt       DateTime @default(now())
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("maed_protocols")
 }
 
 // Показатели лабораторных исследований (связь 1:1 с проектом)

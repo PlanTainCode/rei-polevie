@@ -15,6 +15,7 @@ import { TelegramModule } from './modules/telegram/telegram.module';
 import { InquiryRequestsModule } from './modules/inquiry-requests/inquiry-requests.module';
 import { TechnicalTasksModule } from './modules/technical-tasks/technical-tasks.module';
 import { IndicatorsModule } from './modules/indicators/indicators.module';
+import { MaedModule } from './modules/maed/maed.module';
 import { MonitoringsModule } from './modules/monitorings/monitorings.module';
 import { GtsMonitoringsModule } from './modules/gts-monitorings/gts-monitorings.module';
 
@@ -45,6 +46,7 @@ import { GtsMonitoringsModule } from './modules/gts-monitorings/gts-monitorings.
     InquiryRequestsModule,
     TechnicalTasksModule,
     IndicatorsModule,
+    MaedModule,
     MonitoringsModule,
     GtsMonitoringsModule,
   ],
