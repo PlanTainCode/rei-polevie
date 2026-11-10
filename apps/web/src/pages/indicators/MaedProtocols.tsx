@@ -24,7 +24,7 @@ function ProtocolResults({ protocol, projectId, canEdit }: { protocol: MaedProto
     mutationFn: () => maedApi.delete(projectId, protocol.id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['maed', projectId] }),
   });
-  const rows = maedRows(protocol.summary);
+  const rows = maedRows(protocol.summary, protocol.points);
   const complete = rows.every((row) => row.value !== null);
   const belowLimitCount = protocol.points.filter((point) => point.belowLimit).length;
 
@@ -53,7 +53,7 @@ function ProtocolResults({ protocol, projectId, canEdit }: { protocol: MaedProto
         }}><Trash2 className="h-4 w-4" />Удалить</Button>}
       </div>
       {remove.isError && <p role="alert" className="text-sm text-red-400">{errorMessage(remove.error)}</p>}
-      {belowLimitCount > 0 && <p className="rounded-lg bg-amber-500/10 p-3 text-sm">Точек с результатом «менее»: {belowLimitCount}. В расчёте среднего, минимума, максимума и неопределённости вместо таких значений используется указанный предел (например, «менее 0,1» → 0,1). Исходные записи сохранены в таблице измерений.</p>}
+      {belowLimitCount > 0 && <p className="rounded-lg bg-amber-500/10 p-3 text-sm">Точек с результатом «менее»: {belowLimitCount}. В расчётах вместо таких значений используется указанный предел (например, «менее 0,1» → 0,1). Если минимум соответствует такой точке, он отображается и копируется с пометкой «менее». Исходные записи сохранены в таблице измерений.</p>}
       {protocol.calculation.method === 'manual' ? (
         <p className="text-sm text-[var(--text-secondary)]">δ введена вручную как готовая абсолютная расширенная неопределённость.</p>
       ) : (
@@ -90,8 +90,8 @@ function ProtocolResults({ protocol, projectId, canEdit }: { protocol: MaedProto
         </table>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" variant="secondary" disabled={!complete} onClick={() => copy(() => copyMaedResults(protocol.summary, true))}><Copy className="h-4 w-4" />Копировать значения</Button>
-        <Button size="sm" variant="secondary" disabled={!complete} onClick={() => copy(() => copyMaedResults(protocol.summary, false))}><Copy className="h-4 w-4" />Копировать таблицу</Button>
+        <Button size="sm" variant="secondary" disabled={!complete} onClick={() => copy(() => copyMaedResults(protocol.summary, true, protocol.points))}><Copy className="h-4 w-4" />Копировать значения</Button>
+        <Button size="sm" variant="secondary" disabled={!complete} onClick={() => copy(() => copyMaedResults(protocol.summary, false, protocol.points))}><Copy className="h-4 w-4" />Копировать таблицу</Button>
         <span role="status" className="text-sm text-green-500">{notice}</span>
       </div>
       {copyError && <p role="alert" className="text-sm text-red-400">{copyError}</p>}

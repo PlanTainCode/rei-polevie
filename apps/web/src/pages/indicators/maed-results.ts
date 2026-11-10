@@ -1,4 +1,4 @@
-import type { MaedSummary } from '@/api/maed';
+import type { MaedProtocol, MaedSummary } from '@/api/maed';
 
 export const maedLabels = [
   'Среднее значение МАЭД ГИ, H̄',
@@ -12,17 +12,21 @@ const numberFormat = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: false,
 });
 
-export function maedRows(summary: MaedSummary) {
+export function maedRows(summary: MaedSummary, points: MaedProtocol['points'] = []) {
+  const minimumBelowLimit = points.some((point) => point.belowLimit && point.value === summary.min);
   return [summary.mean, summary.uncertainty, summary.meanWithUncertainty, summary.max, summary.min]
-    .map((value, index) => ({ label: maedLabels[index], value: value === null ? null : numberFormat.format(value) }));
+    .map((value, index) => ({
+      label: maedLabels[index],
+      value: value === null ? null : index === 4 && minimumBelowLimit ? `менее ${value}` : numberFormat.format(value),
+    }));
 }
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[char]!));
 
-export function maedClipboard(summary: MaedSummary, valuesOnly: boolean) {
-  const rows = maedRows(summary);
+export function maedClipboard(summary: MaedSummary, valuesOnly: boolean, points: MaedProtocol['points'] = []) {
+  const rows = maedRows(summary, points);
   if (rows.some((row) => row.value === null)) throw new Error('Для копирования всех результатов необходимо указать общую неопределённость δ');
   const cells = rows.map((row, index) => valuesOnly ? [row.value!] : [String(index + 1), row.label, row.value!]);
   const headers = ['№ п/п', 'Наименование показателя', 'Значение, мкЗв/ч'];
@@ -32,8 +36,8 @@ export function maedClipboard(summary: MaedSummary, valuesOnly: boolean) {
   };
 }
 
-export async function copyMaedResults(summary: MaedSummary, valuesOnly: boolean) {
-  const content = maedClipboard(summary, valuesOnly);
+export async function copyMaedResults(summary: MaedSummary, valuesOnly: boolean, points: MaedProtocol['points'] = []) {
+  const content = maedClipboard(summary, valuesOnly, points);
   if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
     try {
       await navigator.clipboard.write([new ClipboardItem({

@@ -36,3 +36,16 @@ test('МАЭД: пять значений для базовой оценки с 
   const result = { mean: .132, uncertainty, meanWithUncertainty: .132 + uncertainty, max: .15, min: .12 };
   expect(maedClipboard(result, true).text).toBe('0.13\n0.02\n0.15\n0.15\n0.12');
 });
+
+test('МАЭД: минимум «менее 0.1» одинаково отображается и копируется, включая равный числовой результат', () => {
+  const result = { ...summary, min: .1 };
+  const points = [
+    { number: '1', value: .1, uncertainty: .04 },
+    { number: '2', value: .1, uncertainty: null, belowLimit: true, sourceValue: 'менее 0.1' },
+  ];
+  expect(maedRows(result, points)[4].value).toBe('менее 0.1');
+  expect(maedClipboard(result, true, points).text.split('\n')[4]).toBe('менее 0.1');
+  expect(maedClipboard(result, false, points).html).toContain('>менее 0.1</td>');
+  expect(maedRows(result, points).slice(0, 4)).toEqual(maedRows(result).slice(0, 4));
+  expect(maedRows(result, points.slice(0, 1))[4].value).toBe('0.10');
+});
