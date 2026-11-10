@@ -60,7 +60,7 @@ test('МАЭД: не включает поисковую гамма-съёмку
 });
 
 test('МАЭД: некорректные результаты не пропускаются и не превращаются в нули', () => {
-  for (const value of ['', 'менее 0.1', '0.12 ошибка', -0.1]) {
+  for (const value of ['', 'менее неизвестно', 'менее 0.1 ошибка', '< 0', '0.12 ошибка', -0.1]) {
     expect(() => parseMaed(workbook([...heading, pointRow(1, value)]))).toThrow('Некорректное измерение');
   }
   expect(() => parseMaed(workbook([...heading, pointRow(1, 0.1, '± ошибка')]))).toThrow();
@@ -68,6 +68,32 @@ test('МАЭД: некорректные результаты не пропус�
   expect(() => parseMaed(workbook([['Химические исследования'], ['pH', 7]]))).toThrow('не найдена');
   expect(() => parseMaed(workbook([...heading, pointRow(1, 0.1)].map((row) => row.map((cell) => typeof cell === 'string' ? cell.replace('мкЗв/ч', 'мЗв/ч') : cell))))).toThrow('мкЗв/ч');
   expect(() => parseMaed(workbook([...heading, pointRow(1, 0.1)].map((row) => row.map((cell) => typeof cell === 'string' ? cell.replace('k=2', 'k=3') : cell))))).toThrow('k=2');
+});
+
+test('МАЭД: «менее» и прочерки в протоколе 2492П-26 сохраняются, в расчёте используется предел', () => {
+  const parsed = parseMaed(workbook([
+    ...heading,
+    pointRow(1, 'менее 0.1', '---'), pointRow(2, 'менее 0.1', '---'),
+    ...[.11, .11, .13, .12, .14, .14, .10].map((value, index) => pointRow(index + 3, value, '± 0.04')),
+  ]));
+  expect(parsed.points).toHaveLength(9);
+  expect(parsed.points[0]).toEqual({ number: '1', value: .1, uncertainty: null, belowLimit: true, sourceValue: 'менее 0.1' });
+  expect(parsed.points.filter((point) => point.belowLimit)).toHaveLength(2);
+  const calculation = calculateMaedUncertainty(parsed.points, { mainErrorPercent: 13, additionalErrorsPercent: [] });
+  const summary = summarizeMaed(parsed.points, calculation.uncertainty);
+  expect(summary.mean).toBeCloseTo(1.05 / 9, 12);
+  expect(summary.min).toBe(.1);
+  expect(summary.max).toBe(.14);
+  expect(calculation.uncertainty).toBeGreaterThan(0);
+  expect(summary.meanWithUncertainty).toBeCloseTo(summary.mean + calculation.uncertainty!, 12);
+});
+
+test('МАЭД: варианты записи предела и отсутствующей неопределённости', () => {
+  const rows = [['МЕНЕЕ 0,1', '—'], ['<0.10', '–'], ['< 0,10', '−'], ['менее\u00a00,10', '']];
+  const parsed = parseMaed(workbook([...heading, ...rows.map(([value, uncertainty], index) => pointRow(index + 1, value, uncertainty))]));
+  expect(parsed.points.every((point) => point.value === .1 && point.belowLimit && point.uncertainty === null)).toBe(true);
+  const ordinary = parseMaed(workbook([...heading, pointRow(1, .1, '---')]));
+  expect(ordinary.points[0]).toEqual({ number: '1', value: .1, uncertainty: null });
 });
 
 function serviceFixture({ access = true, role = 'OWNER', createdById = 'someone' } = {}) {

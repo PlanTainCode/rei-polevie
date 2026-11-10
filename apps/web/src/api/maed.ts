@@ -24,7 +24,7 @@ export interface MaedProtocol {
     sourceUrl: string | null;
     reason: string | null;
   };
-  points: { number: string; value: number; uncertainty: number | null }[];
+  points: { number: string; value: number; uncertainty: number | null; belowLimit?: boolean; sourceValue?: string }[];
   summary: MaedSummary;
 }
 

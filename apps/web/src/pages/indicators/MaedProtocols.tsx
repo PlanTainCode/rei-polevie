@@ -26,6 +26,7 @@ function ProtocolResults({ protocol, projectId, canEdit }: { protocol: MaedProto
   });
   const rows = maedRows(protocol.summary);
   const complete = rows.every((row) => row.value !== null);
+  const belowLimitCount = protocol.points.filter((point) => point.belowLimit).length;
 
   async function copy(action: () => Promise<void>) {
     setNotice('');
@@ -52,6 +53,7 @@ function ProtocolResults({ protocol, projectId, canEdit }: { protocol: MaedProto
         }}><Trash2 className="h-4 w-4" />Удалить</Button>}
       </div>
       {remove.isError && <p role="alert" className="text-sm text-red-400">{errorMessage(remove.error)}</p>}
+      {belowLimitCount > 0 && <p className="rounded-lg bg-amber-500/10 p-3 text-sm">Точек с результатом «менее»: {belowLimitCount}. В расчёте среднего, минимума, максимума и неопределённости вместо таких значений используется указанный предел (например, «менее 0,1» → 0,1). Исходные записи сохранены в таблице измерений.</p>}
       {protocol.calculation.method === 'manual' ? (
         <p className="text-sm text-[var(--text-secondary)]">δ введена вручную как готовая абсолютная расширенная неопределённость.</p>
       ) : (
@@ -98,7 +100,7 @@ function ProtocolResults({ protocol, projectId, canEdit }: { protocol: MaedProto
         <div className="mt-3 max-h-80 overflow-auto">
           <table className="w-full text-sm">
             <thead><tr><th className="p-2 text-left">№ точки</th><th className="p-2 text-right">МАЭД, мкЗв/ч</th><th className="p-2 text-right">Расширенная неопределённость (k=2), мкЗв/ч</th></tr></thead>
-            <tbody>{protocol.points.map((point) => <tr key={point.number} className="border-t border-[var(--border-color)]"><td className="p-2">{point.number}</td><td className="p-2 text-right">{point.value}</td><td className="p-2 text-right">{point.uncertainty === null ? '—' : `± ${point.uncertainty}`}</td></tr>)}</tbody>
+            <tbody>{protocol.points.map((point) => <tr key={point.number} className="border-t border-[var(--border-color)]"><td className="p-2">{point.number}</td><td className="p-2 text-right">{point.sourceValue ?? point.value}</td><td className="p-2 text-right">{point.uncertainty === null ? '—' : `± ${point.uncertainty}`}</td></tr>)}</tbody>
           </table>
         </div>
       </details>

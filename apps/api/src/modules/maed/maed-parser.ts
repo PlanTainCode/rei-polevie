@@ -5,6 +5,9 @@ export interface MaedPoint {
   number: string;
   value: number;
   uncertainty: number | null;
+  // Для «менее L» value содержит L по согласованному правилу подстановки.
+  belowLimit?: boolean;
+  sourceValue?: string;
 }
 
 const text = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -70,15 +73,20 @@ export function parseMaed(buffer: Buffer) {
       const sequence = cells.find(Boolean) ?? '';
       if (!/^\d+$/.test(sequence)) continue;
       const point = cells[pointColumn];
-      const value = number(row[valueColumn]);
+      const sourceValue = text(row[valueColumn]);
+      const belowLimitMatch = sourceValue.match(/^(?:менее\s*|<\s*)(\d+(?:[.,]\d+)?)$/i);
+      const value = number(belowLimitMatch ? belowLimitMatch[1] : row[valueColumn]);
       const rawUncertainty = text(row[uncertaintyColumn]);
-      const uncertainty = number(rawUncertainty, true);
-      if (!point || value === null || (rawUncertainty && uncertainty === null)) {
+      const missingUncertainty = rawUncertainty === '' || /^[-–—−]+$/.test(rawUncertainty);
+      const uncertainty = missingUncertainty ? null : number(rawUncertainty, true);
+      if (!point || value === null || (belowLimitMatch && value === 0) || (!missingUncertainty && uncertainty === null)) {
         throw new BadRequestException(`Некорректное измерение в строке № ${sequence} (лист «${sheetName}»)`);
       }
       if (seen.has(point)) throw new BadRequestException(`Точка ${point} повторяется в протоколе`);
       seen.add(point);
-      points.push({ number: point, value, uncertainty });
+      points.push({ number: point, value, uncertainty,
+        ...(belowLimitMatch ? { belowLimit: true, sourceValue } : {}),
+      });
     }
   }
   if (!points.length) throw new BadRequestException('В файле не найдена таблица результатов МАЭД');
