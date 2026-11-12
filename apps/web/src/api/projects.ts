@@ -31,6 +31,7 @@ export interface Project {
   updatedAt: string;
   canEdit?: boolean;
   canEditPhotos?: boolean;
+  canCreateSamples?: boolean;
   canDelete?: boolean;
   _count?: {
     samples: number;
@@ -356,6 +357,17 @@ export interface UpdateSampleData {
   longitude?: string;
 }
 
+export interface CreateSampleData {
+  cipher: string;
+  platformType: Platform['type'];
+  platformNumber: number;
+  analysisCode: 'АХ' | 'АМ' | 'АП' | 'АЭ' | 'БХ' | 'ВХ';
+  layerNumber: number;
+  depthFrom: number;
+  depthTo: number;
+  mass: string;
+}
+
 // Типы для фотоальбомов
 export interface PhotoAlbum {
   id: string;
@@ -604,6 +616,11 @@ export const projectsApi = {
 
   getSamples: async (projectId: string): Promise<Sample[]> => {
     const response = await apiClient.get<Sample[]>(`/projects/${projectId}/samples`);
+    return response.data;
+  },
+
+  createSample: async (projectId: string, data: CreateSampleData): Promise<Sample> => {
+    const response = await apiClient.post<Sample>(`/projects/${projectId}/samples`, data);
     return response.data;
   },
 

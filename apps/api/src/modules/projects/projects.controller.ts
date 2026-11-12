@@ -33,6 +33,7 @@ import { WordService } from '../word/word.service';
 import { DistanceService } from '../distance/distance.service';
 import { AiService } from '../ai/ai.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CreateSampleDto } from './dto/create-sample.dto';
 import { CreateProjectDto, UpdateSampleDto, UpdatePhotoDto, ReorderPhotosDto, GenerateAlbumDto, UpdateProgramIeiDto, UpdatePlatformCoordinatesDto, CreatePhotoAlbumDto, UpdatePhotoAlbumDto } from './dto/project.dto';
 
 // Multer config для документов Word
@@ -565,6 +566,16 @@ export class ProjectsController {
     await this.projectsService.findById(id, req.user.userId);
     
     return this.samplesService.getSamplesByProject(id);
+  }
+
+  // Добавить пробу вручную
+  @Post(':id/samples')
+  async createSample(
+    @Request() req: { user: { userId: string } },
+    @Param('id') id: string,
+    @Body() dto: CreateSampleDto,
+  ) {
+    return this.samplesService.createSample(id, req.user.userId, dto);
   }
 
   // Обновить пробу (описание, координаты)

@@ -10,9 +10,11 @@ import {
   Check,
   Pencil,
   ExternalLink,
+  Plus,
 } from 'lucide-react';
 import { projectsApi, type Sample } from '@/api/projects';
 import { Button, Input, Card, CardHeader, CardTitle, CardContent } from '@/components/ui';
+import { CreateSampleForm } from './CreateSampleForm';
 
 /**
  * Конвертирует координату из формата "55 50.792" или "55.84653" в десятичные градусы
@@ -72,6 +74,8 @@ export function ProjectSamplesPage() {
   const [editingSampleId, setEditingSampleId] = useState<string | null>(null);
   const [editData, setEditData] = useState({ description: '', latitude: '', longitude: '' });
   const [isHeaderScrolled, setIsHeaderScrolled] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [createdCipher, setCreatedCipher] = useState('');
 
   const { data: project, isLoading: projectLoading } = useQuery({
     queryKey: ['project', id],
@@ -188,7 +192,7 @@ export function ProjectSamplesPage() {
           Назад к объекту
         </Link>
         
-        <div className="flex items-start justify-between">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 rounded-xl bg-primary-500/20 flex items-center justify-center">
               <Beaker className="w-7 h-7 text-primary-400" />
@@ -198,8 +202,21 @@ export function ProjectSamplesPage() {
               <p className="text-[var(--text-secondary)]">{project.name}</p>
             </div>
           </div>
+          {project.canCreateSamples && !isCreating && (
+            <Button onClick={() => { setIsCreating(true); setCreatedCipher(''); }}>
+              <Plus className="w-4 h-4" />
+              Добавить пробу
+            </Button>
+          )}
         </div>
       </div>
+
+      {project.canCreateSamples && isCreating && (
+        <CreateSampleForm key={id} projectId={id!}
+          onCancel={() => setIsCreating(false)}
+          onCreated={(cipher) => { setCreatedCipher(cipher); setIsCreating(false); }} />
+      )}
+      {createdCipher && <p role="status" className="text-sm text-green-400 mb-4 break-all">Проба «{createdCipher}» добавлена.</p>}
 
       {/* Статистика */}
       <div className="grid grid-cols-3 gap-4 mb-6">
@@ -228,9 +245,11 @@ export function ProjectSamplesPage() {
         <Card>
           <CardContent className="py-12 text-center">
             <Beaker className="w-12 h-12 text-[var(--text-tertiary)] mx-auto mb-3" />
-            <p className="text-[var(--text-secondary)]">Пробы пока не сгенерированы</p>
+            <p className="text-[var(--text-secondary)]">Проб пока нет</p>
             <p className="text-sm text-[var(--text-tertiary)] mt-2">
-              Загрузите поручение на странице проекта для генерации проб
+              {project.canCreateSamples
+                ? 'Добавьте пробу вручную или загрузите поручение на странице объекта для генерации проб.'
+                : 'Пробы появятся после добавления менеджером или генерации из поручения.'}
             </p>
           </CardContent>
         </Card>
@@ -247,8 +266,8 @@ export function ProjectSamplesPage() {
                     {editingSampleId === sample.id ? (
                       // Режим редактирования
                       <div className="space-y-3">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-medium text-primary-400">{sample.cipher}</span>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono font-medium text-primary-400 break-all">{sample.cipher}</span>
                           <span className="text-xs text-[var(--text-secondary)]">{sample.depthLabel} м</span>
                           <span className="text-xs text-[var(--text-tertiary)]">{sample.mass}</span>
                         </div>
@@ -301,10 +320,10 @@ export function ProjectSamplesPage() {
                       </div>
                     ) : (
                       // Режим просмотра
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <div>
-                            <span className="font-mono font-medium text-primary-400">{sample.cipher}</span>
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0 flex flex-wrap items-center gap-4">
+                          <div className="min-w-0 max-w-full break-words">
+                            <span className="font-mono font-medium text-primary-400 break-all">{sample.cipher}</span>
                             <span className="text-xs text-[var(--text-secondary)] ml-2">{sample.depthLabel} м</span>
                             <span className="text-xs text-[var(--text-tertiary)] ml-2">{sample.mass}</span>
                           </div>
@@ -331,7 +350,7 @@ export function ProjectSamplesPage() {
                           )}
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex shrink-0 flex-wrap items-center gap-2">
                           {sample.status === 'COLLECTED' && (
                             <span className="text-xs text-green-400 flex items-center gap-1">
                               <CheckCircle className="w-3 h-3" />

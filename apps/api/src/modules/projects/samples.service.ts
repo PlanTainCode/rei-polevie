@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SamplingLayer } from './word-parser.service';
-import { PlatformType, SampleType } from '@prisma/client';
+import { PlatformType, Prisma, SampleType } from '@prisma/client';
+import { CreateSampleDto } from './dto/create-sample.dto';
 
 export interface GenerateSamplesInput {
   projectId: string;
@@ -32,6 +33,70 @@ interface GeneratedSample {
 @Injectable()
 export class SamplesService {
   constructor(private prisma: PrismaService) {}
+
+  async createSample(projectId: string, userId: string, dto: CreateSampleDto) {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, company: { members: { some: { userId } } } },
+      select: { companyId: true },
+    });
+    if (!project) throw new NotFoundException('Объект не найден');
+
+    const membership = await this.prisma.companyMember.findUnique({
+      where: { userId_companyId: { userId, companyId: project.companyId } },
+    });
+    if (!membership || !['OWNER', 'ADMIN', 'MANAGER'].includes(membership.role)) {
+      throw new ForbiddenException('Нет прав на добавление проб');
+    }
+    if (dto.depthTo < dto.depthFrom) {
+      throw new BadRequestException('Глубина «до» не может быть меньше глубины «от»');
+    }
+
+    const type: SampleType = dto.analysisCode === 'БХ' ? 'SEDIMENT' : dto.analysisCode === 'ВХ' ? 'WATER' : 'SOIL';
+    const validPlatform = type === 'SEDIMENT' ? dto.platformType === 'DO'
+      : type === 'WATER' ? dto.platformType === 'V'
+      : dto.platformType === 'PP' || dto.platformType === 'SK';
+    if (!validPlatform) throw new BadRequestException('Тип площадки не соответствует виду анализа');
+
+    const prefix = { PP: 'ПП', SK: 'СК', DO: 'ДО', V: 'В' }[dto.platformType];
+    const formatDepth = (depth: number) => {
+      const value = String(depth).replace('.', ',');
+      return Number.isInteger(depth) ? `${value},0` : value;
+    };
+
+    // Площадка и проба создаются вместе: при ошибке не остаётся пустой площадки.
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const platform = await tx.platform.upsert({
+          where: { projectId_type_number: { projectId, type: dto.platformType, number: dto.platformNumber } },
+          create: { projectId, type: dto.platformType, number: dto.platformNumber, label: `${prefix}${dto.platformNumber}` },
+          // Непустой update позволяет Prisma использовать атомарный PostgreSQL upsert.
+          update: { number: dto.platformNumber },
+        });
+        return tx.sample.create({
+          data: {
+            projectId,
+            platformId: platform.id,
+            cipher: dto.cipher.trim(),
+            sampleNumber: dto.platformNumber,
+            analysisCode: dto.analysisCode,
+            layerNumber: dto.layerNumber,
+            depthFrom: dto.depthFrom,
+            depthTo: dto.depthTo,
+            depthLabel: type === 'WATER' && dto.depthFrom === 0 && dto.depthTo === 0
+              ? '-' : `${formatDepth(dto.depthFrom)}-${formatDepth(dto.depthTo)}`,
+            type,
+            mass: dto.mass.trim(),
+          },
+          include: { platform: true },
+        });
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('Проба с таким шифром уже существует в этом объекте');
+      }
+      throw error;
+    }
+  }
 
   /**
    * Генерирует пробы для проекта на основе слоёв отбора

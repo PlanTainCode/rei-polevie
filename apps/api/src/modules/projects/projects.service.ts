@@ -576,6 +576,7 @@ export class ProjectsService {
       ...mergedProject,
       canEdit: project.createdById === userId || ['OWNER', 'ADMIN'].includes(membership.role),
       canEditPhotos: project.createdById === userId || ['OWNER', 'ADMIN', 'EMPLOYEE'].includes(membership.role),
+      canCreateSamples: ['OWNER', 'ADMIN', 'MANAGER'].includes(membership.role),
       canDelete: ['OWNER', 'ADMIN'].includes(membership.role),
     };
   }
