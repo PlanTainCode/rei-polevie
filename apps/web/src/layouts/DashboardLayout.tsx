@@ -16,6 +16,7 @@ import {
   Compass,
   Activity,
   Landmark,
+  BookUser,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 
@@ -28,6 +29,7 @@ const navigation: {
 }[] = [
   { name: 'Главная', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Компания', href: '/company', icon: Building2 },
+  { name: 'Контрагенты', href: '/counterparties', icon: BookUser },
   { name: 'Объекты', href: '/projects', icon: FileText },
   { name: 'Мониторинги', href: '/monitorings', icon: Activity },
   { name: 'ГТС', href: '/gts-monitorings', icon: Landmark },

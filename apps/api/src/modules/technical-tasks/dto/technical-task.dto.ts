@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsIn, IsObject } from 'class-validator';
+import { IsString, IsOptional, IsIn, IsObject, IsBoolean } from 'class-validator';
 
 export class CreateTechnicalTaskDto {
   @IsString()
@@ -19,4 +19,9 @@ export class UpdateTechnicalTaskDto {
   @IsOptional()
   @IsObject()
   xmlData?: Record<string, unknown>;
+
+  /** Явное сохранение завершённого ввода; промежуточное автосохранение реестр не пополняет. */
+  @IsOptional()
+  @IsBoolean()
+  rememberCounterparties?: boolean;
 }

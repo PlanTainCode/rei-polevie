@@ -7,6 +7,7 @@ import { RegisterPage } from '@/pages/auth/RegisterPage';
 import { AcceptInvitePage } from '@/pages/auth/AcceptInvitePage';
 import { DashboardPage } from '@/pages/dashboard/DashboardPage';
 import { CompanyPage } from '@/pages/company/CompanyPage';
+import { CounterpartiesPage } from '@/pages/counterparties/CounterpartiesPage';
 import { CreateCompanyPage } from '@/pages/company/CreateCompanyPage';
 import { InviteMembersPage } from '@/pages/company/InviteMembersPage';
 import { ProjectsPage } from '@/pages/projects/ProjectsPage';
@@ -106,6 +107,7 @@ export default function App() {
       >
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/company" element={<CompanyPage />} />
+        <Route path="/counterparties" element={<CounterpartiesPage />} />
         <Route path="/company/create" element={<CreateCompanyPage />} />
         <Route path="/company/invite" element={<InviteMembersPage />} />
         <Route path="/projects" element={<ProjectsPage />} />

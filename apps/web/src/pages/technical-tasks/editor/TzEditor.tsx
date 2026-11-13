@@ -10,6 +10,7 @@ import { ConstructionBlock, CustomerBlock, ObjectBlock, RequisitesBlock } from '
 import { AvailableDocumentsBlock, EcologyBlock, InitiationDocumentsBlock, PurposesBlock, ResearchersBlock, SurveysBlock, TechnogenicBlock } from './blocks-surveys';
 import { BoundariesBlock, DangerousBlock, RequirementsBlock } from './blocks-requirements';
 import type { BlockProps } from './types';
+import { CounterpartyPickerContext } from './CounterpartyPicker';
 
 const BLOCK_COMPONENTS: Record<string, (p: BlockProps) => JSX.Element> = {
   requisites: RequisitesBlock,
@@ -46,6 +47,7 @@ export function TzEditor({ taskId, model, onChange, readOnly = false }: TzEditor
   };
 
   return (
+    <CounterpartyPickerContext.Provider value={{ enabled: true, readOnly }}>
     <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
       <aside className="space-y-1 lg:sticky lg:top-4 self-start">
         {TZ_BLOCKS.map((b) => {
@@ -77,8 +79,9 @@ export function TzEditor({ taskId, model, onChange, readOnly = false }: TzEditor
       </aside>
 
       <div className={readOnly ? 'pointer-events-none opacity-70' : ''}>
-        {Block ? <Block taskId={taskId} model={model} onChange={onChange} issues={issues} /> : null}
+        {Block ? <Block taskId={taskId} model={model} onChange={onChange} issues={issues} readOnly={readOnly} /> : null}
       </div>
     </div>
+    </CounterpartyPickerContext.Provider>
   );
 }

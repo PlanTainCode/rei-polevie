@@ -7,12 +7,14 @@ import { TechnicalTasksController } from './technical-tasks.controller';
 import { TzXmlExtractorService } from './tz-xml-extractor.service';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { CompaniesModule } from '../companies/companies.module';
+import { CounterpartiesModule } from '../counterparties/counterparties.module';
 
 @Module({
   imports: [
     ConfigModule,
     PrismaModule,
     CompaniesModule,
+    CounterpartiesModule,
     MulterModule.register({
       storage: memoryStorage(),
       limits: {

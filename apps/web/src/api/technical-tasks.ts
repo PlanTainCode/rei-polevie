@@ -32,6 +32,8 @@ export interface TechnicalTask extends TechnicalTaskListItem {
   createdById: string | null;
   canEdit?: boolean;
   canDelete?: boolean;
+  counterpartiesAdded?: number;
+  registryWarning?: string;
 }
 
 export interface UploadedAttachment extends AttachedFile {
@@ -88,7 +90,7 @@ export const technicalTasksApi = {
     return response.data;
   },
 
-  update: async (id: string, data: { name?: string; xmlData?: TzXmlModel }): Promise<TechnicalTask> => {
+  update: async (id: string, data: { name?: string; xmlData?: TzXmlModel; rememberCounterparties?: boolean }): Promise<TechnicalTask> => {
     const response = await apiClient.patch<TechnicalTask>(`/technical-tasks/${id}`, data);
     return response.data;
   },

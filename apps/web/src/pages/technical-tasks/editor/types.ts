@@ -5,4 +5,5 @@ export interface BlockProps {
   model: TzXmlModel;
   onChange: (model: TzXmlModel) => void;
   issues: ValidationIssue[];
+  readOnly?: boolean;
 }

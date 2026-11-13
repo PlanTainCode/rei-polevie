@@ -60,6 +60,7 @@ function TaskView({ task, onDeleted }: { task: TechnicalTask; onDeleted: () => v
   const [tab, setTab] = useState<'form' | 'preview'>('form');
   const [generateIssues, setGenerateIssues] = useState<ValidationIssue[] | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [registryNotice, setRegistryNotice] = useState('');
   const lastSaved = useRef<string>(JSON.stringify(task.xmlData));
   const currentModel = useRef(model);
   const enqueue = useMemo(() => createTaskOperationQueue(), [task.id]);
@@ -75,6 +76,11 @@ function TaskView({ task, onDeleted }: { task: TechnicalTask; onDeleted: () => v
   }, [task.xmlData, dirty]);
 
   const acceptSavedTask = (data: TechnicalTask) => {
+    if (data.registryWarning) setRegistryNotice(data.registryWarning);
+    else if (data.counterpartiesAdded !== undefined) {
+      setRegistryNotice(data.counterpartiesAdded ? `В реестр добавлено контрагентов: ${data.counterpartiesAdded}.` : '');
+      if (data.counterpartiesAdded) queryClient.invalidateQueries({ queryKey: ['counterparties'] });
+    }
     lastSaved.current = JSON.stringify(data.xmlData);
     // Ответ на старый снимок формы не должен отменять новые несохранённые правки.
     setDirty(JSON.stringify(currentModel.current) !== lastSaved.current);
@@ -83,14 +89,14 @@ function TaskView({ task, onDeleted }: { task: TechnicalTask; onDeleted: () => v
   };
 
   const saveMutation = useMutation({
-    mutationFn: (m: TzXmlModel) => enqueue(() => technicalTasksApi.update(task.id, { xmlData: m })),
+    mutationFn: ({ model: m, remember = false }: { model: TzXmlModel; remember?: boolean }) => enqueue(() => technicalTasksApi.update(task.id, { xmlData: m, rememberCounterparties: remember })),
     onSuccess: acceptSavedTask,
   });
 
   const generateMutation = useMutation({
     mutationFn: (m: TzXmlModel) => enqueue(async () => {
       // Черновик сохраняется до проверки XML, включая незаполненные и ошибочные поля.
-      const saved = await technicalTasksApi.update(task.id, { xmlData: m });
+      const saved = await technicalTasksApi.update(task.id, { xmlData: m, rememberCounterparties: true });
       acceptSavedTask(saved);
       return technicalTasksApi.generate(task.id);
     }),
@@ -116,7 +122,7 @@ function TaskView({ task, onDeleted }: { task: TechnicalTask; onDeleted: () => v
   // Автосохранение через 1,5 с после последней правки
   useEffect(() => {
     if (!task.canEdit || !dirty || !model || generateMutation.isPending) return;
-    const t = setTimeout(() => saveMutation.mutate(model), 1500);
+    const t = setTimeout(() => saveMutation.mutate({ model }), 1500);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model, dirty, task.canEdit, generateMutation.isPending]);
@@ -130,9 +136,9 @@ function TaskView({ task, onDeleted }: { task: TechnicalTask; onDeleted: () => v
   };
 
   const showPreview = async () => {
-    if (model && task.canEdit && (dirty || saveMutation.isPending)) {
+    if (model && task.canEdit) {
       try {
-        await saveMutation.mutateAsync(model);
+        await saveMutation.mutateAsync({ model, remember: true });
       } catch {
         return; // Ошибка сохранения показана рядом с формой, правки остаются в ней.
       }
@@ -168,7 +174,7 @@ function TaskView({ task, onDeleted }: { task: TechnicalTask; onDeleted: () => v
           </div>
           <div className="flex flex-wrap gap-2">
             {model && task.canEdit && (
-              <Button type="button" variant="secondary" size="sm" onClick={() => model && saveMutation.mutate(model)}>
+              <Button type="button" variant="secondary" size="sm" onClick={() => model && saveMutation.mutate({ model, remember: true })}>
                 <Save className="w-4 h-4" /> {saveMutation.isPending ? 'Сохранить текущие правки' : 'Сохранить'}
               </Button>
             )}
@@ -190,6 +196,8 @@ function TaskView({ task, onDeleted }: { task: TechnicalTask; onDeleted: () => v
           </div>
         </div>
       </div>
+
+      {registryNotice && <p role="status" className="mb-4 text-sm text-[var(--text-secondary)]">{registryNotice}</p>}
 
       {saveMutation.isError && (
         <Card className="mb-6 border-red-500/30">

@@ -22,6 +22,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { existsSync } from 'fs';
 import * as mammoth from 'mammoth';
 import { convertTzXmlToPdf } from './pdf-preview';
+import { CounterpartiesService } from '../counterparties/counterparties.service';
 
 // process.cwd() уже указывает на apps/api при запуске через bun workspaces
 const API_ROOT = process.cwd();
@@ -57,6 +58,7 @@ export class TechnicalTasksService {
   constructor(
     private prisma: PrismaService,
     private extractor: TzXmlExtractorService,
+    private counterparties: CounterpartiesService,
   ) {
     this.ensureDirs();
   }
@@ -253,7 +255,18 @@ export class TechnicalTasksService {
       }
     }
     await this.prisma.technicalTask.update({ where: { id }, data });
-    return this.findById(id, userId);
+    const saved = await this.findById(id, userId);
+    if (dto.rememberCounterparties && dto.xmlData) {
+      try {
+        const counterpartiesAdded = await this.counterparties.rememberFromModel(task.companyId, dto.xmlData as unknown as TzXmlModel);
+        return { ...saved, counterpartiesAdded };
+      } catch (error) {
+        // Сбой реестра не должен превращать успешное сохранение ТЗ в ошибку и терять правки.
+        this.logger.warn(`ТЗ ${id} сохранено, но контрагенты не добавлены в реестр: ${error instanceof Error ? error.message : String(error)}`);
+        return { ...saved, registryWarning: 'ТЗ сохранено, но не удалось добавить контрагентов в реестр. Повторите сохранение.' };
+      }
+    }
+    return saved;
   }
 
   async delete(id: string, userId: string) {

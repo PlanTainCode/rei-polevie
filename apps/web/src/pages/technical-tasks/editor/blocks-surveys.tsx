@@ -21,6 +21,7 @@ import { technicalTasksApi } from '@/api/technical-tasks';
 import { AddButton, Grid, RemoveButton, Section, SelectField, StringListField, TextBlockField, TextField, Toggle, errorFor } from './fields';
 import { EntrepreneurEditor, OrganizationEditor } from './entities';
 import { DocumentsEditor } from './DocumentsEditor';
+import { FillCompanyRequisites } from './FillCompanyRequisites';
 import type { BlockProps } from './types';
 
 export function InitiationDocumentsBlock({ taskId, model, onChange, issues }: BlockProps) {
@@ -96,7 +97,7 @@ function ContractFiles({ taskId, researcher, onChange, error }: { taskId: string
   );
 }
 
-export function ResearchersBlock({ taskId, model, onChange, issues }: BlockProps) {
+export function ResearchersBlock({ taskId, model, onChange, issues, readOnly }: BlockProps) {
   const prov = model.provenance ?? {};
   const list = model.researchers;
   const setList = (researchers: Researcher[]) => onChange({ ...model, researchers });
@@ -104,12 +105,15 @@ export function ResearchersBlock({ taskId, model, onChange, issues }: BlockProps
     <div className="space-y-4">
       <Section
         title="Лица, заключившие договоры на выполнение изысканий"
-        description="Исполнитель (РЭИ) подставляется из карточки компании. Организация должна быть в реестре НОПРИЗ."
+        description="Реквизиты своей компании можно подставить кнопкой ниже — заполнятся только пустые поля. Номер, дату и файл договора укажите отдельно."
         actions={<Toggle label="Включить блок" checked={model.enabled.researchers} onChange={(researchers) => onChange({ ...model, enabled: { ...model.enabled, researchers } })} />}
       >
         {model.enabled.researchers && (
           <>
             {errorFor(issues, 'researchers') && <p className="text-sm text-red-400">{errorFor(issues, 'researchers')}</p>}
+            {list.length === 0 && (
+              <FillCompanyRequisites value={emptyResearcher().organization} readOnly={readOnly} onChange={(organization) => setList([{ ...emptyResearcher(), organization }])} />
+            )}
             {list.map((r, i) => (
               <div key={i} className="p-3 rounded-lg border border-[var(--border-color)] space-y-3">
                 <div className="flex items-center justify-between">
@@ -127,7 +131,10 @@ export function ResearchersBlock({ taskId, model, onChange, issues }: BlockProps
                   allowEmpty={false}
                 />
                 {r.kind === 'ORGANIZATION' ? (
-                  <OrganizationEditor value={r.organization} onChange={(organization) => setList(list.map((x, j) => (j === i ? { ...x, organization } : x)))} issues={issues} path={`researchers[${i}].organization`} nopriz provenance={prov[`researchers[${i}].organization`]} />
+                  <>
+                    <FillCompanyRequisites value={r.organization} readOnly={readOnly} onChange={(organization) => setList(list.map((x, j) => (j === i ? { ...x, organization } : x)))} />
+                    <OrganizationEditor value={r.organization} onChange={(organization) => setList(list.map((x, j) => (j === i ? { ...x, organization } : x)))} issues={issues} path={`researchers[${i}].organization`} nopriz provenance={prov[`researchers[${i}].organization`]} />
+                  </>
                 ) : (
                   <EntrepreneurEditor value={r.entrepreneur} onChange={(entrepreneur) => setList(list.map((x, j) => (j === i ? { ...x, entrepreneur } : x)))} issues={issues} path={`researchers[${i}].entrepreneur`} nopriz />
                 )}

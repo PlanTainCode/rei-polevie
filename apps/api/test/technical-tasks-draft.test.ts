@@ -6,6 +6,8 @@ function draftService(role = 'OWNER', createdById = 'user', status = 'DRAFT') {
   let task = { id: 'task', companyId: 'company', createdById, xmlData: createEmptyModel(), status, processingError: null };
   let writes = 0;
   const service = Object.assign(Object.create(TechnicalTasksService.prototype), {
+    counterparties: { rememberFromModel: async () => 0 },
+    logger: { warn: () => {} },
     prisma: {
       companyMember: { findFirst: async () => ({ companyId: 'company', role, company: {} }) },
       technicalTask: {
@@ -57,4 +59,35 @@ test('сохранение черновика сохраняет проверк�
   const { service, writes } = draftService('MEMBER', 'another-user');
   await expect(service.update('task', { xmlData: createEmptyModel() as never }, 'user')).rejects.toThrow('Нет прав на редактирование ТЗ');
   expect(writes()).toBe(0);
+});
+
+test('реестр пополняется только при явном сохранении и с companyId самого ТЗ', async () => {
+  const { service } = draftService();
+  const calls: string[] = [];
+  Object.assign(service, { counterparties: { rememberFromModel: async (companyId: string) => { calls.push(companyId); return 2; } } });
+  const model = createEmptyModel();
+  await service.update('task', { xmlData: model as never }, 'user');
+  expect(calls).toEqual([]);
+  const saved = await service.update('task', { xmlData: model as never, rememberCounterparties: true }, 'user');
+  expect(calls).toEqual(['company']);
+  expect(saved).toHaveProperty('counterpartiesAdded', 2);
+  expect(saved.xmlData).toEqual(model);
+});
+
+test('сбой реестра не мешает сохранению ТЗ и возвращает понятное сообщение', async () => {
+  const { service, writes } = draftService();
+  Object.assign(service, { counterparties: { rememberFromModel: async () => { throw new Error('Реестр недоступен'); } } });
+  const model = createEmptyModel();
+  const saved = await service.update('task', { xmlData: model as never, rememberCounterparties: true }, 'user');
+  expect(saved.xmlData).toEqual(model);
+  expect(saved).toHaveProperty('registryWarning');
+  expect(writes()).toBe(1);
+});
+
+test('чужое ТЗ не может пополнять реестр через сохранение', async () => {
+  const { service } = draftService('WORKER', 'another-user');
+  let called = false;
+  Object.assign(service, { counterparties: { rememberFromModel: async () => { called = true; return 0; } } });
+  await expect(service.update('task', { xmlData: createEmptyModel() as never, rememberCounterparties: true }, 'user')).rejects.toThrow('Нет прав');
+  expect(called).toBe(false);
 });

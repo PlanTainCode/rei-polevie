@@ -53,10 +53,30 @@ model Company {
   invitations    Invitation[]
   projects       Project[]
   technicalTasks TechnicalTask[]
+  counterparties Counterparty[]
   monitorings    Monitoring[]
   gtsMonitorings GtsMonitoring[]
 
   @@map("companies")
+}
+
+// Общий реестр компании. В ТЗ остаётся самостоятельная копия реквизитов.
+model Counterparty {
+  id          String   @id @default(cuid())
+  companyId   String
+  kind        String
+  identityKey String
+  name        String
+  searchText  String
+  details     Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, identityKey])
+  @@index([companyId, kind])
+  @@map("counterparties")
 }
 
 // Членство в компании (связь пользователь-компания)
