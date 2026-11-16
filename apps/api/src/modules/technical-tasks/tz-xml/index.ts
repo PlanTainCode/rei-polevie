@@ -14,3 +14,4 @@ export * from './build-xml';
 export * from './crc32';
 export * from './company';
 export * from './counterparties';
+export * from './authors';

@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { TechnicalTasksService } from '../src/modules/technical-tasks/technical-tasks.service';
-import { createEmptyModel } from '../src/modules/technical-tasks/tz-xml';
+import { createEmptyModel, emptyDocumentAuthor, getDocumentAuthors, withDocumentAuthors } from '../src/modules/technical-tasks/tz-xml';
 
 function draftService(role = 'OWNER', createdById = 'user', status = 'DRAFT') {
   let task = { id: 'task', companyId: 'company', createdById, xmlData: createEmptyModel(), status, processingError: null };
@@ -53,6 +53,22 @@ test('сохранение без изменения сформированно�
   const task = await service.findById('task', 'user');
   const result = await service.update('task', { xmlData: task.xmlData as never }, 'user');
   expect(result.status).toBe('COMPLETED');
+});
+
+test('старое ТЗ после добавления организаций сохраняет прежние реквизиты и повторно открывается со всеми участниками', async () => {
+  const { service } = draftService();
+  const task = await service.findById('task', 'user');
+  const legacy = task.xmlData as unknown as ReturnType<typeof createEmptyModel>;
+  legacy.approver.organization.fullName = 'Ранее заполненная организация';
+  legacy.approver.representatives[0].surname = 'Иванов';
+  legacy.object.name = 'Существующий объект';
+  const oldApprover = structuredClone(legacy.approver);
+  const next = withDocumentAuthors(legacy, [...getDocumentAuthors(legacy), emptyDocumentAuthor('ORGANIZATION'), emptyDocumentAuthor('ENTREPRENEUR')]);
+  await service.update('task', { xmlData: JSON.parse(JSON.stringify(next)) }, 'user');
+  const reopened = await service.findById('task', 'user');
+  expect(reopened.xmlData).toEqual(JSON.parse(JSON.stringify(next)));
+  expect(reopened.xmlData).toMatchObject({ approver: oldApprover, object: { name: 'Существующий объект' } });
+  expect((reopened.xmlData as unknown as typeof next).authors).toHaveLength(3);
 });
 
 test('сохранение черновика сохраняет проверку прав редактирования', async () => {

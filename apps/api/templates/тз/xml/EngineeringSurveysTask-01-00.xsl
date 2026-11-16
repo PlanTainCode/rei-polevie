@@ -366,15 +366,18 @@
 		<a name="chAuthors"/>
 		<h2 class="bckgr upper center">лист согласования задания на проведение изысканий</h2>
 		
+		<xsl:if test="not(/Document/Requisites/Authors/Author//*[@FunctionalRole = 'Согласовано'])">
+			<p>Согласующие лица отсутствуют</p>
+		</xsl:if>
 		<xsl:for-each select="/Document/Requisites/Authors/Author">
 			
-			<xsl:if test="Organization">
+			<xsl:if test="Organization and Representatives/Representative[@FunctionalRole = 'Согласовано']">
 				<p class="center bold margin-top-small upper">
 					<xsl:if test="Organization[RAFP]">Представительство (филиал) иностранного юридического лица</xsl:if>
 					<xsl:if test="Organization[OGRN]">Юридическое лицо</xsl:if>
 				</p>
 				<xsl:apply-templates select="Organization"/>
-				<xsl:for-each select="Representatives/Representative">
+				<xsl:for-each select="Representatives/Representative[@FunctionalRole = 'Согласовано']">
 					<xsl:sort select="@FunctionalRole"/>
 					<b><xsl:call-template name="FunctionalRolesList">
 						<xsl:with-param name="Code"><xsl:value-of select="@FunctionalRole"/></xsl:with-param>
@@ -413,7 +416,7 @@
 				</xsl:for-each>
 			</xsl:if>
 			
-			<xsl:if test="IndividualEntrepreneur[@FunctionalRole != 'Утверждено']">
+			<xsl:if test="IndividualEntrepreneur[@FunctionalRole = 'Согласовано']">
 				<p class="center bold margin-top-small upper">Индивидуальный предприниматель</p>
 				<b><xsl:call-template name="FunctionalRolesList">
 					<xsl:with-param name="Code"><xsl:value-of select="IndividualEntrepreneur/@FunctionalRole"/></xsl:with-param>
@@ -421,7 +424,7 @@
 				<xsl:apply-templates select="IndividualEntrepreneur"/>
 			</xsl:if>
 			
-			<xsl:if test="Person[@FunctionalRole != 'Утверждено']">
+			<xsl:if test="Person[@FunctionalRole = 'Согласовано']">
 				<p class="center bold margin-top-small upper">Физическое лицо</p>
 				<b><xsl:call-template name="FunctionalRolesList">
 					<xsl:with-param name="Code"><xsl:value-of select="Person/@FunctionalRole"/></xsl:with-param>

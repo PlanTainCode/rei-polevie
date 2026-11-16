@@ -19,7 +19,7 @@ export interface TzBlock {
 }
 
 export const TZ_BLOCKS: TzBlock[] = [
-  { id: 'requisites', title: 'Реквизиты и утверждение', hint: 'Шифр, дата, гриф, утверждающая организация и подписанты', required: true },
+  { id: 'requisites', title: 'Реквизиты и согласование', hint: 'Шифр, дата, гриф, участники утверждения и согласования с их подписантами', required: true },
   { id: 'object', title: 'Сведения об объекте', hint: 'Наименование, адрес, кадастр, характеристики объекта', required: true },
   { id: 'initiationDocuments', title: 'Основание для выполнения работ', hint: 'Договор и другие документы-основания', required: true },
   { id: 'construction', title: 'Вид деятельности и этап', hint: 'Вид градостроительной деятельности, этап изысканий, сроки', required: true },

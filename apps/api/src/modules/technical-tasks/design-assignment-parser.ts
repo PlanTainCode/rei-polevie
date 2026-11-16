@@ -16,11 +16,15 @@ import {
   createEmptyModel,
   emptyDocument,
   emptyOrganization,
+  emptyEntrepreneur,
   emptySurvey,
+  withDocumentAuthors,
   textBlock,
   type DocumentInfo,
+  type DocumentAuthor,
   type DocumentsInfo,
   type Organization,
+  type Representative,
   type RussianAddress,
   type Survey,
   type TextBlock,
@@ -92,7 +96,7 @@ function parseAddress(node: unknown): RussianAddress | undefined {
   return a;
 }
 
-function parseOrganization(node: unknown): Organization | undefined {
+function parseOrganization(node: unknown, allowIncomplete = false): Organization | undefined {
   if (!node) return undefined;
   const o = emptyOrganization();
   o.fullName = str(child(node, 'FullName'));
@@ -106,7 +110,7 @@ function parseOrganization(node: unknown): Organization | undefined {
   if (addr) o.address = addr;
   const nopriz = attr(node, 'NOPRIZNumber');
   if (nopriz) o.noprizNumber = nopriz;
-  return o.fullName ? o : undefined;
+  return o.fullName || allowIncomplete ? o : undefined;
 }
 
 function authorNoteFrom(node: unknown): string {
@@ -210,7 +214,7 @@ export function parseDesignAssignment(xml: string): DesignParseResult {
   const content = doc.Content as Node | undefined;
   if (!content) throw new Error('В файле нет раздела Content — это не задание на проектирование по схеме Минстроя');
 
-  const model = createEmptyModel();
+  let model = createEmptyModel();
   const prov = model.provenance!;
   const imported: string[] = [];
   const notes: string[] = [];
@@ -364,11 +368,72 @@ export function parseDesignAssignment(xml: string): DesignParseResult {
     imported.push('технический заказчик');
     if (tcOrgs.length > 1) notes.push('В задании на проектирование несколько технических заказчиков; перенесён первый');
   }
-  // Утверждает задание на изыскания заказчик: подставляем его организацию
+  // Запасной вариант для XML без Authors: подставляем организацию заказчика.
   const approverOrg = model.customerKind === 'TECHNICAL_CUSTOMER' ? tcOrgs[0] : devOrg;
   if (approverOrg) {
     model.approver.organization = { ...approverOrg, noprizNumber: approverOrg.noprizNumber || 'Не требуется' };
     mark('approver.organization');
+  }
+
+  // --- Утверждение и согласование: организации сохраняют собственных подписантов.
+  const sourceAuthors = child(doc.Requisites, 'Authors');
+  if (sourceAuthors !== undefined) {
+    const authors: DocumentAuthor[] = [];
+    let missingNopriz = false;
+    const roleFrom = (node: unknown): Representative['functionalRole'] => {
+      const role = attr(node, 'FunctionalRole');
+      if (role === 'Утверждено' || role === 'Согласовано') return role;
+      notes.push('У одного из подписантов не указана допустимая роль; выберите «Утверждено» или «Согласовано»');
+      return '';
+    };
+    for (const source of asArray(child(sourceAuthors, 'Author'))) {
+      const orgNode = child(source, 'Organization');
+      const organization = parseOrganization(orgNode, true);
+      const ip = child(source, 'IndividualEntrepreneur');
+      if (organization) {
+        if (!attr(orgNode, 'NOPRIZNumber')) missingNopriz = true;
+        organization.noprizNumber ||= 'Не требуется';
+        const representatives = asArray(child(child(source, 'Representatives'), 'Representative')).map((rep): Representative => ({
+          surname: str(child(rep, 'Surname')),
+          name: str(child(rep, 'Name')),
+          patronymic: str(child(rep, 'Patronymic')) || undefined,
+          position: str(child(rep, 'Position')),
+          email: str(child(rep, 'Email')) || undefined,
+          functionalRole: roleFrom(rep),
+        }));
+        const path = `authors[${authors.length}]`;
+        authors.push({ kind: 'ORGANIZATION', organization, representatives });
+        mark(`${path}.organization`);
+        mark(`${path}.representatives`);
+      } else if (ip) {
+        const entrepreneur = emptyEntrepreneur();
+        entrepreneur.surname = str(child(ip, 'Surname'));
+        entrepreneur.name = str(child(ip, 'Name'));
+        entrepreneur.patronymic = str(child(ip, 'Patronymic')) || undefined;
+        entrepreneur.ogrnip = str(child(ip, 'OGRNIP'));
+        entrepreneur.inn = str(child(ip, 'INN')) || undefined;
+        entrepreneur.email = str(child(ip, 'Email')) || undefined;
+        entrepreneur.postAddress = parseAddress({ RussianAddress: child(child(ip, 'PostAddress'), 'RussianPostAddress') }) ?? entrepreneur.postAddress;
+        entrepreneur.noprizNumber = attr(ip, 'NOPRIZNumber') || 'Не требуется';
+        if (!attr(ip, 'NOPRIZNumber')) missingNopriz = true;
+        mark(`authors[${authors.length}].entrepreneur`);
+        authors.push({ kind: 'ENTREPRENEUR', entrepreneur, functionalRole: roleFrom(ip) });
+      } else if (child(source, 'Person')) {
+        const person = child(source, 'Person');
+        const fio = ['Surname', 'Name', 'Patronymic'].map((key) => str(child(person, key))).filter(Boolean).join(' ');
+        notes.push(`Подписант ${fio} (${attr(person, 'FunctionalRole') || 'роль не указана'}) не перенесён: физическое лицо вне организации не предусмотрено в Authors схемы задания на изыскания. Укажите подходящую организацию или ИП и подписанта вручную`);
+      } else {
+        notes.push('Один из участников утверждения/согласования не распознан; проверьте состав подписантов');
+      }
+    }
+    model = withDocumentAuthors(model, authors);
+    mark('authors');
+    if (authors.length) imported.push(`участники утверждения и согласования (${authors.length}) и их подписанты`);
+    if (missingNopriz) notes.push('В реквизитах подписантов без номера НОПРИЗ подставлено «Не требуется»; проверьте применимость этого значения');
+    const approvalCount = authors.reduce((count, a) => count + (a.kind === 'ORGANIZATION'
+      ? a.representatives.filter((rep) => rep.functionalRole === 'Утверждено').length
+      : Number(a.functionalRole === 'Утверждено')), 0);
+    if (approvalCount !== 1) notes.push(`Перенесено утверждающих: ${approvalCount}. Для задания на изыскания должен остаться ровно один; проверьте роли подписантов`);
   }
 
   // --- Документы -------------------------------------------------------------------

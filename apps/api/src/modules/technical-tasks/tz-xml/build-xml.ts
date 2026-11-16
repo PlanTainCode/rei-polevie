@@ -8,6 +8,7 @@
  */
 
 import { DOCUMENT_TYPE_CODE } from './defaults';
+import { getDocumentAuthors } from './authors';
 import type {
   Area,
   AttachedFile,
@@ -172,8 +173,8 @@ function writePerson(x: Xml, tag: string, p: Person): void {
   x.close(tag);
 }
 
-function writeEntrepreneur(x: Xml, tag: string, e: Entrepreneur, nopriz: boolean): void {
-  x.open(tag, nopriz ? { NOPRIZNumber: e.noprizNumber || 'Не требуется' } : {});
+function writeEntrepreneur(x: Xml, tag: string, e: Entrepreneur, nopriz: boolean, functionalRole?: Representative['functionalRole']): void {
+  x.open(tag, { ...(nopriz ? { NOPRIZNumber: e.noprizNumber || 'Не требуется' } : {}), FunctionalRole: functionalRole });
   writeFio(x, e);
   x.el('OGRNIP', e.ogrnip);
   x.el('INN', e.inn);
@@ -285,12 +286,18 @@ function writeRequisites(x: Xml, m: TzXmlModel): void {
   x.el('Date', m.requisites.date);
   x.el('Number', m.requisites.number);
   x.open('Authors');
-  x.open('Author');
-  writeOrganization(x, 'Organization', m.approver.organization, true);
-  x.open('Representatives');
-  for (const r of m.approver.representatives) writeRepresentative(x, r);
-  x.close('Representatives');
-  x.close('Author');
+  for (const author of getDocumentAuthors(m)) {
+    x.open('Author');
+    if (author.kind === 'ORGANIZATION') {
+      writeOrganization(x, 'Organization', author.organization, true);
+      x.open('Representatives');
+      for (const r of author.representatives) writeRepresentative(x, r);
+      x.close('Representatives');
+    } else {
+      writeEntrepreneur(x, 'IndividualEntrepreneur', author.entrepreneur, true, author.functionalRole);
+    }
+    x.close('Author');
+  }
   x.close('Authors');
   x.el('SecurityLabel', m.requisites.securityLabel);
   x.close('Requisites');

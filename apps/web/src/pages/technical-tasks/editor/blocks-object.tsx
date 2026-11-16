@@ -21,21 +21,28 @@ import {
   SLEEPERS_MATERIALS,
   SURVEY_STAGES,
   emptyRepresentative,
+  emptyDocumentAuthor,
+  documentAuthorPath,
+  getDocumentAuthors,
+  withDocumentAuthors,
+  type DocumentAuthor,
   type ArealOks,
   type LinearKind,
   type LinearOks,
   type TzXmlModel,
 } from '@tz-xml';
 import { AddButton, Grid, MultiSelectField, RemoveButton, Section, SelectField, StringListField, TextAreaField, TextBlockField, TextField, Toggle, errorFor } from './fields';
-import { AddressEditor, OrganizationEditor, PersonEditor, RepresentativeEditor } from './entities';
+import { AddressEditor, EntrepreneurEditor, OrganizationEditor, PersonEditor, RepresentativeEditor } from './entities';
 import type { BlockProps } from './types';
 
 export function RequisitesBlock({ model, onChange, issues }: BlockProps) {
   const prov = model.provenance ?? {};
   const r = model.requisites;
   const setR = (patch: Partial<typeof r>) => onChange({ ...model, requisites: { ...r, ...patch } });
-  const reps = model.approver.representatives;
-  const setReps = (representatives: typeof reps) => onChange({ ...model, approver: { ...model.approver, representatives } });
+  const authors = getDocumentAuthors(model);
+  const setAuthors = (next: DocumentAuthor[]) => onChange(withDocumentAuthors(model, next));
+  const setAuthor = (index: number, value: DocumentAuthor) => setAuthors(authors.map((a, i) => i === index ? value : a));
+  const authorsError = errorFor(issues, model.authors == null ? 'approver.representatives' : 'authors');
 
   return (
     <div className="space-y-4">
@@ -50,22 +57,41 @@ export function RequisitesBlock({ model, onChange, issues }: BlockProps) {
         </Grid>
       </Section>
 
-      <Section title="Утверждающая организация" description="Задание утверждает заказчик (застройщик или технический заказчик), а не исполнитель.">
-        <OrganizationEditor value={model.approver.organization} onChange={(organization) => onChange({ ...model, approver: { ...model.approver, organization } })} issues={issues} path="approver.organization" nopriz provenance={prov['approver.organization']} />
-      </Section>
-
-      <Section title="Подписанты" description="Ровно один подписант с ролью «Утверждено»; остальные — «Согласовано».">
-        {errorFor(issues, 'approver.representatives') && <p className="text-sm text-red-400">{errorFor(issues, 'approver.representatives')}</p>}
-        {reps.map((rep, i) => (
-          <div key={i} className="p-3 rounded-lg border border-[var(--border-color)] space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">Подписант {i + 1}</span>
-              {reps.length > 1 && <RemoveButton onClick={() => setReps(reps.filter((_, j) => j !== i))} />}
+      <Section title="Утверждение и согласование" description="Добавьте организации с их подписантами или ИП. Во всём задании должен быть ровно один подписант с ролью «Утверждено» — он выводится на титуле. Остальные имеют роль «Согласовано» и выводятся в листе согласования.">
+        {authorsError && <p className="text-sm text-red-400">{authorsError}</p>}
+        {authors.map((author, index) => {
+          const path = documentAuthorPath(model, index);
+          return (
+            <div key={index} className="p-3 rounded-lg border border-[var(--border-color)] space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-medium">{author.kind === 'ORGANIZATION' ? 'Организация' : 'ИП'} · Участник {index + 1}</span>
+                <RemoveButton onClick={() => setAuthors(authors.filter((_, i) => i !== index))} />
+              </div>
+              {author.kind === 'ORGANIZATION' ? <>
+                <OrganizationEditor value={author.organization} onChange={(organization) => setAuthor(index, { ...author, organization })} issues={issues} path={`${path}.organization`} nopriz provenance={prov[`${path}.organization`]} />
+                <div className="text-sm font-medium">Подписанты этой организации</div>
+                {errorFor(issues, `${path}.representatives`) && <p className="text-sm text-red-400">{errorFor(issues, `${path}.representatives`)}</p>}
+                {author.representatives.map((rep, i) => (
+                  <div key={i} className="p-3 rounded-lg border border-[var(--border-color)] space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Подписант {i + 1}</span>
+                      {author.representatives.length > 1 && <RemoveButton onClick={() => setAuthor(index, { ...author, representatives: author.representatives.filter((_, j) => j !== i) })} />}
+                    </div>
+                    <RepresentativeEditor value={rep} onChange={(v) => setAuthor(index, { ...author, representatives: author.representatives.map((x, j) => j === i ? v : x) })} issues={issues} path={`${path}.representatives[${i}]`} />
+                  </div>
+                ))}
+                <AddButton onClick={() => setAuthor(index, { ...author, representatives: [...author.representatives, emptyRepresentative('Согласовано')] })} label="Добавить подписанта" />
+              </> : <>
+                <EntrepreneurEditor value={author.entrepreneur} onChange={(entrepreneur) => setAuthor(index, { ...author, entrepreneur })} issues={issues} path={`${path}.entrepreneur`} nopriz />
+                <SelectField label="Роль подписанта" value={author.functionalRole} onChange={(role) => setAuthor(index, { ...author, functionalRole: role as typeof author.functionalRole })} options={[{ code: 'Утверждено', label: 'Утверждено' }, { code: 'Согласовано', label: 'Согласовано' }]} allowEmpty={!author.functionalRole} required error={errorFor(issues, `${path}.functionalRole`)} />
+              </>}
             </div>
-            <RepresentativeEditor value={rep} onChange={(v) => setReps(reps.map((x, j) => (j === i ? v : x)))} issues={issues} path={`approver.representatives[${i}]`} />
-          </div>
-        ))}
-        <AddButton onClick={() => setReps([...reps, emptyRepresentative('Согласовано')])} label="Добавить подписанта" />
+          );
+        })}
+        <div className="flex flex-wrap gap-3">
+          <AddButton onClick={() => setAuthors([...authors, emptyDocumentAuthor('ORGANIZATION', authors.length ? 'Согласовано' : 'Утверждено')])} label="Добавить организацию" />
+          <AddButton onClick={() => setAuthors([...authors, emptyDocumentAuthor('ENTREPRENEUR', authors.length ? 'Согласовано' : 'Утверждено')])} label="Добавить ИП" />
+        </div>
       </Section>
     </div>
   );

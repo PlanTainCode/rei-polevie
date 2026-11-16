@@ -113,7 +113,7 @@ export interface Representative {
   patronymic?: string;
   position: string;
   email?: string;
-  functionalRole: 'Утверждено' | 'Согласовано';
+  functionalRole: 'Утверждено' | 'Согласовано' | '';
 }
 
 /** Контролёр (tControlPerson). */
@@ -294,6 +294,11 @@ export interface Approver {
   representatives: Representative[];
 }
 
+/** Участник утверждения/согласования (Requisites/Authors/Author). */
+export type DocumentAuthor =
+  | { kind: 'ORGANIZATION'; organization: Organization; representatives: Representative[] }
+  | { kind: 'ENTREPRENEUR'; entrepreneur: Entrepreneur; functionalRole: Representative['functionalRole'] };
+
 export interface Developer {
   kind: 'ORGANIZATION' | 'PERSON';
   organization: Organization;
@@ -425,7 +430,10 @@ export interface EnabledBlocks {
 export interface TzXmlModel {
   schemaVersion: '01.00';
   requisites: Requisites;
+  /** Старый формат; читается, пока authors отсутствует. */
   approver: Approver;
+  /** Независимые организации со своими подписантами и ИП. */
+  authors?: DocumentAuthor[];
   object: ObjectInfo;
   initiationDocuments: DocumentsInfo;
   constructionType: string; // CONSTRUCTION_TYPES

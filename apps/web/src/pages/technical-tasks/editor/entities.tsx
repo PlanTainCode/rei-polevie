@@ -145,8 +145,9 @@ export function RepresentativeEditor({ value, onChange, issues, path }: { value:
             { code: 'Утверждено', label: 'Утверждено' },
             { code: 'Согласовано', label: 'Согласовано' },
           ]}
-          allowEmpty={false}
+          allowEmpty={!value.functionalRole}
           required
+          error={errorFor(issues, `${path}.functionalRole`)}
         />
       </Grid>
     </div>

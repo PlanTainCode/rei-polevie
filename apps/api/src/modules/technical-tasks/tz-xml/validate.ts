@@ -26,6 +26,7 @@ import {
   type DictItem,
 } from './dictionaries';
 import { isBlockEnabled } from './blocks';
+import { documentAuthorPath, getDocumentAuthors } from './authors';
 import type {
   DocumentsInfo,
   Entrepreneur,
@@ -185,17 +186,33 @@ export function validateModel(model: TzXmlModel): ValidationIssue[] {
   if (!inDict(SECURITY_LABELS, r.securityLabel)) add('requisites', 'requisites.securityLabel', 'Выберите гриф доступа');
   if (!r.versionNumber || r.versionNumber < 1) add('requisites', 'requisites.versionNumber', 'Номер версии от 1');
 
-  checkOrganization('requisites', 'approver.organization', model.approver.organization, true);
-  const reps = model.approver.representatives ?? [];
-  if (reps.length === 0) add('requisites', 'approver.representatives', 'Добавьте подписанта');
-  const approvers = reps.filter((x) => x.functionalRole === 'Утверждено').length;
-  if (approvers !== 1) add('requisites', 'approver.representatives', 'Должен быть ровно один подписант с ролью «Утверждено»');
-  reps.forEach((rep, i) => {
-    const p = `approver.representatives[${i}]`;
-    checkFio('requisites', p, rep);
-    if (!filled(rep.position)) add('requisites', `${p}.position`, 'Укажите должность');
-    if (filled(rep.email) && !PATTERNS.email.test(rep.email!)) add('requisites', `${p}.email`, 'Некорректный e-mail');
+  const authors = getDocumentAuthors(model);
+  const authorsPath = model.authors == null ? 'approver.representatives' : 'authors';
+  if (!authors.length) add('requisites', authorsPath, 'Добавьте участника утверждения или согласования');
+  let approvers = 0;
+  const checkRole = (path: string, role: string) => {
+    if (role === 'Утверждено') approvers += 1;
+    else if (role !== 'Согласовано') add('requisites', path, 'Выберите роль подписанта');
+  };
+  authors.forEach((author, index) => {
+    const path = documentAuthorPath(model, index);
+    if (author.kind === 'ENTREPRENEUR') {
+      checkEntrepreneur('requisites', `${path}.entrepreneur`, author.entrepreneur, true);
+      if (filled(author.entrepreneur.email) && !PATTERNS.email.test(author.entrepreneur.email!)) add('requisites', `${path}.entrepreneur.email`, 'Некорректный e-mail');
+      checkRole(`${path}.functionalRole`, author.functionalRole);
+      return;
+    }
+    checkOrganization('requisites', `${path}.organization`, author.organization, true);
+    if (!author.representatives.length) add('requisites', `${path}.representatives`, 'Добавьте подписанта');
+    author.representatives.forEach((rep, i) => {
+      const p = `${path}.representatives[${i}]`;
+      checkFio('requisites', p, rep);
+      if (!filled(rep.position)) add('requisites', `${p}.position`, 'Укажите должность');
+      if (filled(rep.email) && !PATTERNS.email.test(rep.email!)) add('requisites', `${p}.email`, 'Некорректный e-mail');
+      checkRole(`${p}.functionalRole`, rep.functionalRole);
+    });
   });
+  if (approvers !== 1) add('requisites', authorsPath, 'Должен быть ровно один подписант с ролью «Утверждено» во всём задании');
 
   // --- Объект ---------------------------------------------------------------
   const o = model.object;

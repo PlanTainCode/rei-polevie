@@ -1,4 +1,5 @@
 import { emptyAddress, emptyEntrepreneur, emptyOrganization, emptyPerson } from './defaults';
+import { getDocumentAuthors } from './authors';
 import { fillEmptyAddressFields, fillEmptyOrganizationFields, organizationIdentifiersConflict } from './company';
 import type { Entrepreneur, Organization, Person, TzXmlModel } from './model';
 import type { ValidationIssue } from './validate';
@@ -125,7 +126,10 @@ export function collectCounterparties(model: TzXmlModel): CounterpartyDraft[] {
     if (entry.kind === 'ORGANIZATION') organization(entry.organization);
     else candidates.push({ kind: 'ENTREPRENEUR', details: entry.entrepreneur });
   };
-  organization(model.approver.organization);
+  getDocumentAuthors(model).forEach((author) => {
+    if (author.kind === 'ORGANIZATION') organization(author.organization);
+    else candidates.push({ kind: 'ENTREPRENEUR', details: author.entrepreneur });
+  });
   if (model.customerKind === 'DEVELOPER' || model.customerKind === 'BOTH') {
     if (model.developer.kind === 'ORGANIZATION') organization(model.developer.organization);
     else candidates.push({ kind: 'PERSON', details: model.developer.person });

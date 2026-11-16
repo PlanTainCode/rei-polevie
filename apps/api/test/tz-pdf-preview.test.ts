@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { renderTzHtml } from '../src/modules/technical-tasks/pdf-preview';
-import { buildTzXml, createEmptyModel, emptyDocument, emptySurvey, textBlock, type TzXmlModel } from '../src/modules/technical-tasks/tz-xml';
+import { buildTzXml, createEmptyModel, emptyDocument, emptySurvey, getDocumentAuthors, textBlock, type TzXmlModel } from '../src/modules/technical-tasks/tz-xml';
 import { buildSampleModel, SAMPLE_IMAGE_BASE64, SAMPLE_IMAGE_URL } from './fixtures/tz-xml-sample-model';
 
 const xslPath = join(import.meta.dir, '../templates/тз/xml/EngineeringSurveysTask-01-00.xsl');
@@ -19,6 +19,62 @@ async function previewText(model: TzXmlModel) {
     await rm(dir, { recursive: true, force: true });
   }
 }
+
+function approvalSheet(text: string): string {
+  return text.split('лист согласования задания на проведение изысканий')[1].split('Состав задания на выполнение инженерных изысканий')[0];
+}
+
+xsltTest('старое ТЗ: утверждающий остаётся на титуле, пустой лист согласования содержит пояснение', async () => {
+  const m = buildSampleModel();
+  const before = JSON.stringify(m);
+  const text = await previewText(m);
+  expect(text.split('лист согласования задания на проведение изысканий')[0]).toContain('Иванов Иван Иванович');
+  const sheet = approvalSheet(text);
+  expect(sheet).toContain('Согласующие лица отсутствуют');
+  expect(sheet).not.toContain('Иванов');
+  expect(sheet).not.toContain('Горсвязьстрой');
+  expect(JSON.stringify(m)).toBe(before);
+});
+
+xsltTest('лист согласования группирует согласующих по организациям и исключает только утверждающего', async () => {
+  const m = buildSampleModel();
+  m.approver.representatives.push({ surname: 'Сидоров', name: 'Сидор', position: 'Главный инженер', functionalRole: 'Согласовано' });
+  m.authors = [...getDocumentAuthors(m), {
+    kind: 'ORGANIZATION',
+    organization: { ...m.approver.organization, fullName: 'ООО «Проектировщик»' },
+    representatives: [{ surname: 'Петров', name: 'Пётр', position: 'Начальник бюро', functionalRole: 'Согласовано' }],
+  }];
+  const text = await previewText(m);
+  const sheet = approvalSheet(text);
+  expect(sheet).toContain('Горсвязьстрой');
+  expect(sheet).toContain('Сидоров');
+  expect(sheet).toContain('Проектировщик');
+  expect(sheet).toContain('Петров');
+  expect(sheet.indexOf('Горсвязьстрой')).toBeLessThan(sheet.indexOf('Сидоров'));
+  expect(sheet.indexOf('Сидоров')).toBeLessThan(sheet.indexOf('Проектировщик'));
+  expect(sheet.indexOf('Проектировщик')).toBeLessThan(sheet.indexOf('Петров'));
+  expect(sheet).not.toContain('Иванов');
+  expect(sheet).not.toContain('УТВЕРЖДЕНО');
+  expect(sheet).not.toContain('Согласующие лица отсутствуют');
+});
+
+xsltTest('ИП выводится на титуле или в согласовании согласно роли', async () => {
+  const m = buildSampleModel();
+  const ip = {
+    kind: 'ENTREPRENEUR' as const, functionalRole: 'Согласовано' as const,
+    entrepreneur: { surname: 'Петров', name: 'Пётр', ogrnip: '315774600000001', noprizNumber: 'Не требуется', postAddress: { ...m.approver.organization.address } },
+  };
+  m.authors = [...getDocumentAuthors(m), ip];
+  const sheet = approvalSheet(await previewText(m));
+  expect(sheet).toContain('Петров');
+  expect(sheet).not.toContain('Горсвязьстрой');
+  expect(sheet).not.toContain('Иванов');
+  m.authors = [{ ...ip, functionalRole: 'Утверждено' }];
+  const text = await previewText(m);
+  expect(text.split('лист согласования задания на проведение изысканий')[0]).toContain('Петров Пётр');
+  expect(approvalSheet(text)).not.toContain('Петров');
+  expect(approvalSheet(text)).toContain('Согласующие лица отсутствуют');
+});
 
 xsltTest('PDF-шаблон сохраняет заказчика, всех подписантов, адрес, цели, задачи и опасные процессы', async () => {
   const m = buildSampleModel();
