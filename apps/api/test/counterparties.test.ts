@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { collectCounterparties, counterpartyIdentity, counterpartyIssues, emptyCounterparty, fillEmptyCounterpartyFields, counterpartyConflicts, parseCounterparty } from '../src/modules/technical-tasks/tz-xml/counterparties';
-import { buildTzXml, emptyOrganization } from '../src/modules/technical-tasks/tz-xml';
+import { buildTzXml, emptyOrganization, emptyRepresentative, getDocumentAuthors, mergeCounterpartySignatories, type CounterpartySignatory } from '../src/modules/technical-tasks/tz-xml';
 import { CounterpartiesService } from '../src/modules/counterparties/counterparties.service';
 import { buildSampleModel, SAMPLE_IMAGE_URL, SAMPLE_IMAGE_BASE64 } from './fixtures/tz-xml-sample-model';
 
@@ -108,6 +108,11 @@ function registryService(role = 'OWNER', companyId = 'company-a') {
         return { count };
       },
       findFirst: async ({ where }: { where: { id: string; companyId: string } }) => rows.find((r) => r.id === where.id && r.companyId === where.companyId) ?? null,
+      update: async ({ where, data }: { where: { id: string; companyId: string }; data: Partial<Row> }) => {
+        const row = rows.find((r) => r.id === where.id && r.companyId === where.companyId)!;
+        Object.assign(row, structuredClone(data));
+        return row;
+      },
       deleteMany: async ({ where }: { where: { id: string; companyId: string } }) => {
         const i = rows.findIndex((r) => r.id === where.id && r.companyId === where.companyId);
         if (i === -1) return { count: 0 };
@@ -155,4 +160,95 @@ test('удаление карточки из реестра не меняет с
   await service.delete('user', rows[0].id);
   expect(rows).toHaveLength(1);
   expect(model).toEqual(snapshot);
+});
+
+const signatory: CounterpartySignatory = { surname: 'Петров', name: 'Пётр', patronymic: 'Петрович', position: 'Главный инженер', email: 'p@example.ru' };
+
+test('карточка хранит подписантов без роли ТЗ; старые карточки остаются допустимыми', () => {
+  const legacy = parseCounterparty('ORGANIZATION', org().details);
+  const source = { ...org().details, signatories: [{ ...signatory, functionalRole: 'Утверждено', internalId: 'secret' }] };
+  const saved = parseCounterparty('ORGANIZATION', source);
+  expect(saved.details).toHaveProperty('signatories', [signatory]);
+  expect(counterpartyIdentity(saved)).toBe(counterpartyIdentity(legacy));
+  expect(counterpartyIssues(saved)).toEqual([]);
+  expect(counterpartyIssues(legacy)).toEqual([]);
+  expect(legacy.details).not.toHaveProperty('signatories');
+  expect(source.signatories[0].functionalRole).toBe('Утверждено');
+  expect(() => parseCounterparty('ORGANIZATION', { ...org().details, signatories: {} })).toThrow();
+  expect(() => parseCounterparty('ORGANIZATION', { ...org().details, signatories: Array(101).fill(signatory) })).toThrow();
+});
+
+test('незаполненный подписант мешает сохранению карточки, но не меняет идентификатор организации', () => {
+  const draft = parseCounterparty('ORGANIZATION', { ...org().details, signatories: [{ surname: '', name: '', position: '', email: 'wrong' }] });
+  expect(counterpartyIssues(draft).map((i) => i.path)).toEqual(['details.signatories[0].surname', 'details.signatories[0].name', 'details.signatories[0].position', 'details.signatories[0].email']);
+  expect(counterpartyIdentity(draft)).toBe(counterpartyIdentity(org()));
+});
+
+test('выбор подписантов дополняет пустую строку, сохраняет роль и ручные поля, повторный выбор не создаёт дублей', () => {
+  const current = [emptyRepresentative('Утверждено')];
+  const source = [{ ...signatory }, { ...signatory, surname: 'Сидоров', name: 'Сидор' }];
+  const filled = mergeCounterpartySignatories(current, source);
+  expect(filled).toHaveLength(2);
+  expect(filled[0]).toEqual({ ...signatory, functionalRole: 'Утверждено' });
+  expect(filled[1].functionalRole).toBe('Согласовано');
+  filled[0].position = 'Ручная должность';
+  filled[0].email = '';
+  const again = mergeCounterpartySignatories(filled, [{ ...signatory, surname: ' ПЕТРОВ ' }]);
+  expect(again).toHaveLength(2);
+  expect(again[0]).toMatchObject({ surname: 'Петров', position: 'Ручная должность', email: signatory.email, functionalRole: 'Утверждено' });
+  expect(current).toEqual([emptyRepresentative('Утверждено')]);
+  expect(filled[0].email).toBe('');
+  source[1].position = 'Изменение реестра';
+  expect(filled[1].position).toBe(signatory.position);
+});
+
+test('частично введённого человека не подменяем; роль из реестра не переносим', () => {
+  const partial = { ...emptyRepresentative('Утверждено'), surname: 'Ручной' };
+  const result = mergeCounterpartySignatories([partial], [{ ...signatory, functionalRole: 'Утверждено' } as CounterpartySignatory]);
+  expect(result[0]).toEqual(partial);
+  expect(result[1].functionalRole).toBe('Согласовано');
+  expect(mergeCounterpartySignatories(result, [])).toEqual(result);
+  expect(mergeCounterpartySignatories(result, [signatory])).toEqual(result);
+});
+
+test('новая карточка из ТЗ объединяет подписантов одной организации, исключает пустые строки и не изменяет XML', () => {
+  const model = buildSampleModel();
+  const authors = getDocumentAuthors(model);
+  model.authors = [...authors, { kind: 'ORGANIZATION', organization: structuredClone(model.approver.organization), representatives: [{ ...signatory, functionalRole: 'Согласовано' }, emptyRepresentative('Согласовано')] }];
+  const before = JSON.stringify(model);
+  const xmlBefore = buildTzXml(model, { images: { [SAMPLE_IMAGE_URL]: SAMPLE_IMAGE_BASE64 } });
+  const records = collectCounterparties(model);
+  const record = records.find((r) => r.kind === 'ORGANIZATION' && r.details.inn === model.approver.organization.inn)!;
+  if (record.kind !== 'ORGANIZATION') throw new Error('Ожидалась организация');
+  expect(record.details.signatories?.map((s) => s.surname)).toEqual(['Иванов', 'Петров']);
+  expect(record.details.signatories?.[0]).not.toHaveProperty('functionalRole');
+  expect(JSON.stringify(model)).toBe(before);
+  expect(buildTzXml(model, { images: { [SAMPLE_IMAGE_URL]: SAMPLE_IMAGE_BASE64 } })).toBe(xmlBefore);
+});
+
+test('изменение подписантов ТЗ не обновляет существующую карточку; явное изменение реестра не меняет ТЗ', async () => {
+  const { service, rows } = registryService();
+  const model = buildSampleModel();
+  await service.rememberFromModel('company-a', model);
+  const row = rows.find((r) => (r.details as { inn?: string }).inn === model.approver.organization.inn)!;
+  const saved = structuredClone(row.details);
+  model.approver.representatives.push({ ...signatory, functionalRole: 'Согласовано' });
+  await service.rememberFromModel('company-a', model);
+  expect(row.details).toEqual(saved);
+  const before = JSON.stringify(model);
+  await service.update('user', row.id, { ...org(), details: { ...org().details, signatories: [signatory] } } as never);
+  expect(row.details).toHaveProperty('signatories', [signatory]);
+  expect(row).toHaveProperty('searchText', expect.stringContaining('Петров'));
+  expect(JSON.stringify(model)).toBe(before);
+});
+
+test('старый клиент при обновлении реквизитов не удаляет подписантов; явный пустой список удаляет', async () => {
+  const { service, rows } = registryService();
+  await service.rememberFromModel('company-a', buildSampleModel());
+  const row = rows.find((r) => (r.details as { inn?: string }).inn === org().details.inn)!;
+  const signatories = (row.details as { signatories: unknown }).signatories;
+  await service.update('user', row.id, org() as never);
+  expect(row.details).toHaveProperty('signatories', signatories);
+  await service.update('user', row.id, { ...org(), details: { ...org().details, signatories: [] } } as never);
+  expect(row.details).toHaveProperty('signatories', []);
 });

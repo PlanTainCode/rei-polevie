@@ -3,7 +3,7 @@
  * контролёр. Используются во многих блоках конструктора.
  */
 
-import { REGION_CODES, type ControlPerson, type Entrepreneur, type Organization, type Person, type Representative, type RussianAddress, type ValidationIssue } from '@tz-xml';
+import { REGION_CODES, type ControlPerson, type CounterpartySignatory, type Entrepreneur, type Organization, type Person, type Representative, type RussianAddress, type ValidationIssue } from '@tz-xml';
 import { Grid, SelectField, TextField, errorFor, type Provenance } from './fields';
 import { CounterpartyPicker } from './CounterpartyPicker';
 
@@ -54,13 +54,14 @@ interface OrganizationEditorProps {
   path: string;
   nopriz?: boolean;
   provenance?: Provenance;
+  onFillFromRegistry?: (organization: Organization, signatories: CounterpartySignatory[]) => void;
 }
 
-export function OrganizationEditor({ value, onChange, issues, path, nopriz = false, provenance }: OrganizationEditorProps) {
+export function OrganizationEditor({ value, onChange, issues, path, nopriz = false, provenance, onFillFromRegistry }: OrganizationEditorProps) {
   const set = <K extends keyof Organization>(k: K, v: Organization[K]) => onChange({ ...value, [k]: v === '' ? undefined : v });
   return (
     <div className="space-y-3">
-      <CounterpartyPicker kind="ORGANIZATION" value={value} onChange={onChange} />
+      <CounterpartyPicker kind="ORGANIZATION" value={value} withSignatories={Boolean(onFillFromRegistry)} onChange={(organization, signatories) => onFillFromRegistry ? onFillFromRegistry(organization, signatories ?? []) : onChange(organization)} />
       <TextField label="Полное наименование" value={value.fullName} onChange={(v) => onChange({ ...value, fullName: v })} required provenance={provenance} error={errorFor(issues, `${path}.fullName`)} />
       <Grid cols={4}>
         <TextField label="Сокращённое наименование" value={value.abbreviatedName} onChange={(v) => set('abbreviatedName', v)} />
@@ -128,6 +129,16 @@ export function EntrepreneurEditor({ value, onChange, issues, path, nopriz = fal
       <AddressEditor value={value.postAddress} onChange={(postAddress) => onChange({ ...value, postAddress })} issues={issues} path={`${path}.postAddress`} postal />
     </div>
   );
+}
+
+export function SignatoryEditor({ value, onChange, issues, path }: { value: CounterpartySignatory; onChange: (v: CounterpartySignatory) => void; issues: ValidationIssue[]; path: string }) {
+  return <div className="space-y-3">
+    <FioFields value={value} onChange={onChange} issues={issues} path={path} />
+    <Grid cols={2}>
+      <TextField label="Должность" value={value.position} onChange={(position) => onChange({ ...value, position })} required error={errorFor(issues, `${path}.position`)} />
+      <TextField label="E-mail" value={value.email} onChange={(email) => onChange({ ...value, email: email || undefined })} type="email" error={errorFor(issues, `${path}.email`)} />
+    </Grid>
+  </div>;
 }
 
 export function RepresentativeEditor({ value, onChange, issues, path }: { value: Representative; onChange: (v: Representative) => void; issues: ValidationIssue[]; path: string }) {

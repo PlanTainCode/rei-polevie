@@ -1,12 +1,14 @@
 import { emptyAddress, emptyEntrepreneur, emptyOrganization, emptyPerson } from './defaults';
 import { getDocumentAuthors } from './authors';
 import { fillEmptyAddressFields, fillEmptyOrganizationFields, organizationIdentifiersConflict } from './company';
-import type { Entrepreneur, Organization, Person, TzXmlModel } from './model';
+import type { Entrepreneur, Organization, Person, Representative, TzXmlModel } from './model';
 import type { ValidationIssue } from './validate';
 
 export const COUNTERPARTY_KINDS = ['ORGANIZATION', 'ENTREPRENEUR', 'PERSON'] as const;
 export type CounterpartyKind = typeof COUNTERPARTY_KINDS[number];
-export type CounterpartyDetails = { ORGANIZATION: Organization; ENTREPRENEUR: Entrepreneur; PERSON: Person };
+/** Роль зависит от конкретного ТЗ и в реестре не хранится. */
+export type CounterpartySignatory = Omit<Representative, 'functionalRole'>;
+export type CounterpartyDetails = { ORGANIZATION: Organization & { signatories?: CounterpartySignatory[] }; ENTREPRENEUR: Entrepreneur; PERSON: Person };
 export type CounterpartyDraft = { [K in CounterpartyKind]: { kind: K; details: CounterpartyDetails[K] } }[CounterpartyKind];
 export type CounterpartyRecord = CounterpartyDraft & { id: string; name: string; createdAt: string; updatedAt: string };
 
@@ -23,6 +25,7 @@ export function emptyCounterparty(kind: CounterpartyKind): CounterpartyDraft {
 const addressKeys = ['regionCode', 'postIndex', 'oktmoCode', 'oktmoName', 'district', 'city', 'settlement', 'street', 'building', 'room', 'note'] as const;
 const organizationKeys = ['fullName', 'abbreviatedName', 'ogrn', 'rafp', 'inn', 'kpp', 'email', 'noprizNumber'] as const;
 const personKeys = ['surname', 'name', 'patronymic', 'email'] as const;
+const signatoryKeys = [...personKeys, 'position'] as const;
 const normalize = (v: string | undefined) => (v ?? '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru');
 
 function object(value: unknown): Record<string, unknown> {
@@ -46,7 +49,12 @@ function strings(value: unknown, keys: readonly string[]): Record<string, string
 export function parseCounterparty(kind: string, value: unknown): CounterpartyDraft {
   const input = object(value);
   if (kind === 'ORGANIZATION') {
-    return { kind, details: { ...emptyOrganization(), ...strings(input, organizationKeys), address: { ...emptyAddress(), ...strings(input.address ?? {}, addressKeys) } } };
+    const details: CounterpartyDetails['ORGANIZATION'] = { ...emptyOrganization(), ...strings(input, organizationKeys), address: { ...emptyAddress(), ...strings(input.address ?? {}, addressKeys) } };
+    if (input.signatories !== undefined) {
+      if (!Array.isArray(input.signatories) || input.signatories.length > 100) throw new Error('Список подписантов: не более 100 человек');
+      details.signatories = input.signatories.map((s) => ({ surname: '', name: '', position: '', ...strings(s, signatoryKeys) }));
+    }
+    return { kind, details };
   }
   const postAddress = { ...emptyAddress(), ...strings(input.postAddress ?? {}, addressKeys) };
   if (kind === 'ENTREPRENEUR') {
@@ -64,6 +72,12 @@ export function counterpartyIssues(draft: CounterpartyDraft): ValidationIssue[] 
     if (!normalize(draft.details.fullName)) add('fullName', 'Укажите полное наименование');
     if (!/^\d{10}$/.test(draft.details.inn)) add('inn', 'ИНН юрлица: 10 цифр');
     if (!/^\d{9}$/.test(draft.details.kpp)) add('kpp', 'КПП: 9 цифр (нужен для различения филиалов)');
+    (draft.details.signatories ?? []).forEach((s, i) => {
+      if (!normalize(s.surname)) add(`signatories[${i}].surname`, 'Укажите фамилию');
+      if (!normalize(s.name)) add(`signatories[${i}].name`, 'Укажите имя');
+      if (!normalize(s.position)) add(`signatories[${i}].position`, 'Укажите должность');
+      if (normalize(s.email) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.email!)) add(`signatories[${i}].email`, 'Некорректный e-mail');
+    });
   } else {
     if (!normalize(draft.details.surname)) add('surname', 'Укажите фамилию');
     if (!normalize(draft.details.name)) add('name', 'Укажите имя');
@@ -86,7 +100,8 @@ export function counterpartyName(draft: CounterpartyDraft): string {
 }
 
 export function counterpartyIdentity(draft: CounterpartyDraft): string | null {
-  if (counterpartyIssues(draft).length) return null;
+  // Неполный подписант не меняет идентичность самой организации.
+  if (counterpartyIssues(draft).some((issue) => !issue.path.startsWith('details.signatories['))) return null;
   if (draft.kind === 'ORGANIZATION') return `org:${draft.details.inn}:${draft.details.kpp}`;
   if (draft.kind === 'ENTREPRENEUR') return `ip:${draft.details.ogrnip}`;
   const d = draft.details;
@@ -95,6 +110,28 @@ export function counterpartyIdentity(draft: CounterpartyDraft): string | null {
   const location = structured.some((key) => normalize(a[key])) ? structured.map((key) => normalize(a[key])) : [normalize(a.note)];
   // Не включаем e-mail и индекс: их уточнение не создаёт нового человека.
   return JSON.stringify(['person', normalize(d.surname), normalize(d.name), normalize(d.patronymic), normalize(a.regionCode), ...location]);
+}
+
+/** Дополняем только однозначно совпавшего человека; ручные значения и роли сохраняем. */
+export function mergeCounterpartySignatories(current: Representative[], selected: CounterpartySignatory[]): Representative[] {
+  const result = current.map((s) => ({ ...s }));
+  for (const selectedSignatory of selected) {
+    const source: CounterpartySignatory = { surname: '', name: '', position: '', ...strings(selectedSignatory, signatoryKeys) };
+    const matches = result.filter((s) => normalize(s.surname) === normalize(source.surname)
+      && normalize(s.name) === normalize(source.name)
+      && normalize(s.patronymic) === normalize(source.patronymic));
+    if (matches.length) {
+      // Не создаём дубль и не выбираем произвольно одного из нескольких однофамильцев.
+      if (matches.length === 1) for (const key of signatoryKeys) {
+        if (!normalize(matches[0][key]) && normalize(source[key])) matches[0][key] = source[key]!;
+      }
+      continue;
+    }
+    const empty = result.find((s) => signatoryKeys.every((key) => !normalize(s[key])));
+    if (empty) Object.assign(empty, source);
+    else result.push({ ...source, functionalRole: 'Согласовано' });
+  }
+  return result;
 }
 
 export function fillEmptyCounterpartyFields<K extends CounterpartyKind>(kind: K, current: CounterpartyDetails[K], source: CounterpartyDetails[K]): CounterpartyDetails[K] {
@@ -121,13 +158,17 @@ export function counterpartyConflicts<K extends CounterpartyKind>(kind: K, curre
 /** Только участники включённых разделов. ТЗ не изменяем, старые документы не переписываем. */
 export function collectCounterparties(model: TzXmlModel): CounterpartyDraft[] {
   const candidates: CounterpartyDraft[] = [];
-  const organization = (details: Organization) => candidates.push({ kind: 'ORGANIZATION', details });
+  const organization = (details: Organization, representatives?: Representative[]) => {
+    const signatories = representatives?.filter((s) => normalize(s.surname) && normalize(s.name) && normalize(s.position))
+      .map((s) => ({ surname: s.surname, name: s.name, patronymic: s.patronymic, position: s.position, email: s.email }));
+    candidates.push({ kind: 'ORGANIZATION', details: { ...details, ...(signatories?.length ? { signatories } : {}) } });
+  };
   const contractor = (entry: { kind: 'ORGANIZATION' | 'ENTREPRENEUR'; organization: Organization; entrepreneur: Entrepreneur }) => {
     if (entry.kind === 'ORGANIZATION') organization(entry.organization);
     else candidates.push({ kind: 'ENTREPRENEUR', details: entry.entrepreneur });
   };
   getDocumentAuthors(model).forEach((author) => {
-    if (author.kind === 'ORGANIZATION') organization(author.organization);
+    if (author.kind === 'ORGANIZATION') organization(author.organization, author.representatives);
     else candidates.push({ kind: 'ENTREPRENEUR', details: author.entrepreneur });
   });
   if (model.customerKind === 'DEVELOPER' || model.customerKind === 'BOTH') {
@@ -144,7 +185,13 @@ export function collectCounterparties(model: TzXmlModel): CounterpartyDraft[] {
   for (const candidate of candidates) {
     const parsed = parseCounterparty(candidate.kind, candidate.details);
     const identity = counterpartyIdentity(parsed);
-    if (identity && !unique.has(identity)) unique.set(identity, parsed);
+    if (!identity) continue;
+    const existing = unique.get(identity);
+    if (!existing) unique.set(identity, parsed);
+    else if (existing.kind === 'ORGANIZATION' && parsed.kind === 'ORGANIZATION' && parsed.details.signatories?.length) {
+      const merged = mergeCounterpartySignatories((existing.details.signatories ?? []).map((s) => ({ ...s, functionalRole: '' })), parsed.details.signatories);
+      existing.details.signatories = merged.map(({ functionalRole: _role, ...s }) => s);
+    }
   }
   return [...unique.values()];
 }

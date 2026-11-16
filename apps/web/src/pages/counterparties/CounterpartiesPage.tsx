@@ -5,7 +5,8 @@ import { BookUser, Plus, Save, Trash2 } from 'lucide-react';
 import { COUNTERPARTY_KINDS, COUNTERPARTY_LABELS, counterpartyIssues, emptyCounterparty, type CounterpartyDraft, type CounterpartyKind, type CounterpartyRecord } from '@tz-xml';
 import { counterpartiesApi } from '@/api/counterparties';
 import { Button, Card, CardContent, Input, Select } from '@/components/ui';
-import { EntrepreneurEditor, OrganizationEditor, PersonEditor } from '@/pages/technical-tasks/editor/entities';
+import { EntrepreneurEditor, OrganizationEditor, PersonEditor, SignatoryEditor } from '@/pages/technical-tasks/editor/entities';
+import { AddButton, RemoveButton, Section } from '@/pages/technical-tasks/editor/fields';
 
 function errorMessage(error: unknown): string {
   const message = isAxiosError(error) ? error.response?.data?.message : null;
@@ -47,6 +48,14 @@ function CounterpartyForm({ record, readOnly, onClose, onSaved }: {
           {draft.kind === 'ORGANIZATION' && <OrganizationEditor value={draft.details} onChange={(details) => setDraft({ kind: 'ORGANIZATION', details })} issues={issues} path="details" nopriz />}
           {draft.kind === 'ENTREPRENEUR' && <EntrepreneurEditor value={draft.details} onChange={(details) => setDraft({ kind: 'ENTREPRENEUR', details })} issues={issues} path="details" nopriz />}
           {draft.kind === 'PERSON' && <PersonEditor value={draft.details} onChange={(details) => setDraft({ kind: 'PERSON', details })} issues={issues} path="details" />}
+          {draft.kind === 'ORGANIZATION' && <Section title="Подписанты организации" description="Сохраните постоянных подписантов, чтобы выбирать их при заполнении ТЗ. Роль «Утверждено» или «Согласовано» задаётся в самом задании.">
+            {(draft.details.signatories ?? []).map((s, i) => <div key={i} className="space-y-3 rounded-lg border border-[var(--border-color)] p-3">
+              <div className="flex items-center justify-between"><span className="text-sm font-medium">Подписант {i + 1}</span><RemoveButton onClick={() => setDraft({ ...draft, details: { ...draft.details, signatories: draft.details.signatories!.filter((_, j) => j !== i) } })} /></div>
+              <SignatoryEditor value={s} onChange={(signatory) => setDraft({ ...draft, details: { ...draft.details, signatories: draft.details.signatories!.map((v, j) => j === i ? signatory : v) } })} issues={issues} path={`details.signatories[${i}]`} />
+            </div>)}
+            {!(draft.details.signatories?.length) && <p className="text-sm text-[var(--text-secondary)]">Подписанты пока не добавлены. Карточку можно сохранить без них.</p>}
+            {(draft.details.signatories?.length ?? 0) < 100 && <AddButton label="Добавить подписанта" onClick={() => setDraft({ ...draft, details: { ...draft.details, signatories: [...(draft.details.signatories ?? []), { surname: '', name: '', position: '' }] } })} />}
+          </Section>}
           {!readOnly && <Button type="button" onClick={() => save.mutate()} disabled={issues.length > 0} isLoading={save.isPending}><Save className="w-4 h-4" /> Сохранить карточку</Button>}
         </fieldset>
         {save.isError && <p role="alert" className="text-sm text-red-400">{errorMessage(save.error)}</p>}
@@ -116,6 +125,7 @@ export function CounterpartiesPage() {
                       <div className="font-medium break-words">{record.name}</div>
                       <div className="text-xs text-[var(--text-secondary)] mt-1">{COUNTERPARTY_LABELS[record.kind]}</div>
                       <div className="text-sm text-[var(--text-secondary)] break-words">{identifiers(record)}</div>
+                      {record.kind === 'ORGANIZATION' && !!record.details.signatories?.length && <div className="text-sm text-[var(--text-secondary)]">Подписантов: {record.details.signatories.length}</div>}
                     </div>
                     <Button type="button" size="sm" variant="secondary" disabled={editing !== null} onClick={() => setEditing(record)}>{query.data.canManage ? 'Редактировать' : 'Посмотреть'}</Button>
                     {query.data.canManage && <Button type="button" size="sm" variant="ghost" aria-label={`Удалить ${record.name}`} disabled={remove.isPending || editing !== null} onClick={() => {

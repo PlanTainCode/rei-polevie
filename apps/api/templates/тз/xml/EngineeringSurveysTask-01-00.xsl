@@ -220,8 +220,8 @@
 					<p><b>УТВЕРЖДЕНО:</b></p><br/>
 					<xsl:for-each select="//Requisites/Authors/Author//*[@FunctionalRole = 'Утверждено']">
 						<xsl:if test="name() = 'Representative'">
-							<p><xsl:value-of select="Position"/></p>
 							<p><xsl:value-of select="../../Organization/FullName"/></p>
+							<p><xsl:value-of select="Position"/></p>
 							<p><b>
 									<i><xsl:value-of select="Surname"/></i><xsl:text> </xsl:text>
 									<i><xsl:value-of select="Name"/></i><xsl:if test="Patronymic"><xsl:text> </xsl:text></xsl:if>

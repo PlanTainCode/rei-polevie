@@ -38,11 +38,13 @@ export class CounterpartiesService {
       ? [draft.details.inn, draft.details.kpp, draft.details.ogrn, draft.details.rafp, draft.details.abbreviatedName]
       : draft.kind === 'ENTREPRENEUR' ? [draft.details.inn, draft.details.ogrnip] : [];
     const name = counterpartyName(draft);
+    const signatories = draft.kind === 'ORGANIZATION'
+      ? (draft.details.signatories ?? []).flatMap((s) => [s.surname, s.name, s.patronymic, s.position]) : [];
     return {
       kind: draft.kind,
       identityKey: createHash('sha256').update(counterpartyIdentity(draft)!).digest('hex'),
       name,
-      searchText: [name, ...identifiers].filter(Boolean).join(' '),
+      searchText: [name, ...identifiers, ...signatories].filter(Boolean).join(' '),
       details: d as unknown as Prisma.InputJsonValue,
     };
   }
@@ -78,7 +80,12 @@ export class CounterpartiesService {
     const member = await this.membership(userId, true);
     const existing = await this.prisma.counterparty.findFirst({ where: { id, companyId: member.companyId } });
     if (!existing) throw new NotFoundException('Контрагент не найден');
-    const data = this.prepare(dto);
+    // Старый клиент не знает о подписантах: отсутствие поля не означает удаление.
+    // Новый клиент передаёт [] при явном удалении всех подписантов.
+    const oldDetails = existing.details as Record<string, unknown>;
+    const keepSignatories = dto.kind === 'ORGANIZATION' && existing.kind === 'ORGANIZATION'
+      && dto.details.signatories === undefined && oldDetails?.signatories !== undefined;
+    const data = this.prepare(keepSignatories ? { ...dto, details: { ...dto.details, signatories: oldDetails.signatories } } : dto);
     try {
       return await this.prisma.counterparty.update({ where: { id, companyId: member.companyId }, data });
     } catch (error) {

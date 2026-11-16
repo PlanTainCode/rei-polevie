@@ -25,6 +25,7 @@ import {
   documentAuthorPath,
   getDocumentAuthors,
   withDocumentAuthors,
+  mergeCounterpartySignatories,
   type DocumentAuthor,
   type ArealOks,
   type LinearKind,
@@ -68,7 +69,7 @@ export function RequisitesBlock({ model, onChange, issues }: BlockProps) {
                 <RemoveButton onClick={() => setAuthors(authors.filter((_, i) => i !== index))} />
               </div>
               {author.kind === 'ORGANIZATION' ? <>
-                <OrganizationEditor value={author.organization} onChange={(organization) => setAuthor(index, { ...author, organization })} issues={issues} path={`${path}.organization`} nopriz provenance={prov[`${path}.organization`]} />
+                <OrganizationEditor value={author.organization} onChange={(organization) => setAuthor(index, { ...author, organization })} onFillFromRegistry={(organization, signatories) => setAuthor(index, { ...author, organization, representatives: mergeCounterpartySignatories(author.representatives, signatories) })} issues={issues} path={`${path}.organization`} nopriz provenance={prov[`${path}.organization`]} />
                 <div className="text-sm font-medium">Подписанты этой организации</div>
                 {errorFor(issues, `${path}.representatives`) && <p className="text-sm text-red-400">{errorFor(issues, `${path}.representatives`)}</p>}
                 {author.representatives.map((rep, i) => (
