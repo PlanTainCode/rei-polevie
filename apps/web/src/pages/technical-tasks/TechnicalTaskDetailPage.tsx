@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, FileText, Download, Trash2, Clock, CheckCircle2, AlertCircle, Loader2, RefreshCw, Save, FileCode2, Eye, Info } from 'lucide-react';
+import { ArrowLeft, FileText, Download, Trash2, Clock, CheckCircle2, AlertCircle, Loader2, RefreshCw, Save, FileCode2, Eye, Info, Pencil } from 'lucide-react';
 import { createEmptyModel, type TzXmlModel, type ValidationIssue } from '@tz-xml';
 import { technicalTasksApi, type TechnicalTask, type TechnicalTaskStatus } from '@/api/technical-tasks';
-import { Button, Card, CardContent } from '@/components/ui';
+import { Button, Card, CardContent, Input } from '@/components/ui';
 import { TzEditor } from './editor/TzEditor';
 import { PdfPreview } from './editor/PdfPreview';
 import { createTaskOperationQueue } from './task-operation-queue';
@@ -61,6 +61,8 @@ function TaskView({ task, onDeleted }: { task: TechnicalTask; onDeleted: () => v
   const [generateIssues, setGenerateIssues] = useState<ValidationIssue[] | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [registryNotice, setRegistryNotice] = useState('');
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(task.name);
   const lastSaved = useRef<string>(JSON.stringify(task.xmlData));
   const currentModel = useRef(model);
   const enqueue = useMemo(() => createTaskOperationQueue(), [task.id]);
@@ -91,6 +93,14 @@ function TaskView({ task, onDeleted }: { task: TechnicalTask; onDeleted: () => v
   const saveMutation = useMutation({
     mutationFn: ({ model: m, remember = false }: { model: TzXmlModel; remember?: boolean }) => enqueue(() => technicalTasksApi.update(task.id, { xmlData: m, rememberCounterparties: remember })),
     onSuccess: acceptSavedTask,
+  });
+
+  const renameMutation = useMutation({
+    mutationFn: (name: string) => enqueue(() => technicalTasksApi.update(task.id, { name })),
+    onSuccess: (data) => {
+      acceptSavedTask(data);
+      setEditingName(false);
+    },
   });
 
   const generateMutation = useMutation({
@@ -157,8 +167,29 @@ function TaskView({ task, onDeleted }: { task: TechnicalTask; onDeleted: () => v
           <ArrowLeft className="w-4 h-4" /> Назад к списку
         </Button>
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-bold mb-1 truncate">{task.name}</h1>
+          <div className="min-w-0 flex-1">
+            {editingName && task.canEdit ? (
+              <form className="mb-3 space-y-2" onSubmit={(event) => {
+                event.preventDefault();
+                if (!nameDraft.trim() || renameMutation.isPending) return;
+                if (nameDraft.trim() === task.name) { setEditingName(false); return; }
+                renameMutation.mutate(nameDraft.trim());
+              }}>
+                <Input id="technical-task-name" label="Название ТЗ" value={nameDraft} onChange={(event) => { setNameDraft(event.target.value); renameMutation.reset(); }} autoFocus disabled={renameMutation.isPending} error={!nameDraft.trim() ? 'Введите название ТЗ' : undefined} onKeyDown={(event) => {
+                  if (event.key === 'Escape' && !renameMutation.isPending) { event.preventDefault(); setEditingName(false); }
+                }} />
+                <div className="flex gap-2">
+                  <Button type="submit" size="sm" isLoading={renameMutation.isPending} disabled={!nameDraft.trim()}><Save className="w-4 h-4" /> Сохранить название</Button>
+                  <Button type="button" variant="secondary" size="sm" disabled={renameMutation.isPending} onClick={() => setEditingName(false)}>Отмена</Button>
+                </div>
+                {renameMutation.isError && <p role="alert" className="text-sm text-red-400">Не удалось сохранить название. Попробуйте ещё раз.</p>}
+              </form>
+            ) : (
+              <div className="flex items-start gap-2 mb-1">
+                <h1 className="text-2xl font-bold break-words min-w-0">{task.name}</h1>
+                {task.canEdit && <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={() => { setNameDraft(task.name); renameMutation.reset(); setEditingName(true); }} aria-label="Изменить название ТЗ" title="Изменить название ТЗ"><Pencil className="w-4 h-4" /></Button>}
+              </div>
+            )}
             <div className="flex flex-wrap items-center gap-3 text-sm text-[var(--text-secondary)]">
               <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${status.cls}`}>
                 <StatusIcon className={`w-3.5 h-3.5 ${task.status === 'PROCESSING' ? 'animate-spin' : ''}`} /> {status.label}
