@@ -14,6 +14,7 @@ import {
   SCALES,
   SPECIAL_SURVEY_TYPES,
   createEmptyModel,
+  normsWithImportedDocuments,
   emptyDocument,
   emptyOrganization,
   emptyEntrepreneur,
@@ -530,7 +531,7 @@ export function parseDesignAssignment(xml: string): DesignParseResult {
     }
     const norms = asArray(child(es.Norms, 'Norm')).map(str).filter(Boolean);
     if (norms.length) {
-      model.requirements.usedNorms = norms;
+      model.requirements.usedNorms = normsWithImportedDocuments(norms);
       model.enabled.usedNorms = true;
       mark('requirements.usedNorms');
       imported.push('перечень нормативных документов');

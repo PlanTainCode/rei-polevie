@@ -20,6 +20,7 @@ import {
   REGION_CODES,
   SPECIFIC_SOILS,
   createEmptyModel,
+  normsWithImportedDocuments,
   emptyDocument,
   emptySurvey,
   textBlock,
@@ -396,7 +397,7 @@ export class TzXmlExtractorService {
     }
     const norms = list(e.normativeDocuments);
     if (norms.length) {
-      model.requirements.usedNorms = norms;
+      model.requirements.usedNorms = normsWithImportedDocuments(norms);
       model.enabled.usedNorms = true;
       mark('requirements.usedNorms', 'нормативные документы');
     }

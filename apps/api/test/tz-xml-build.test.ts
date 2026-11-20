@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
-import { buildTzXml, createEmptyModel, validateModel, crc32Hex } from '../src/modules/technical-tasks/tz-xml';
+import { buildTzXml, createEmptyModel, missingTypicalNorms, validateModel, crc32Hex } from '../src/modules/technical-tasks/tz-xml';
 import { buildSampleModel, SAMPLE_IMAGE_BASE64, SAMPLE_IMAGE_URL } from './fixtures/tz-xml-sample-model';
 
 test('пустая модель не проходит проверку и называет обязательные блоки', () => {
@@ -12,6 +12,21 @@ test('пустая модель не проходит проверку и наз
   expect(blocks.has('dangerous')).toBe(true);
   expect(blocks.has('initiationDocuments')).toBe(true);
   expect(blocks.has('availableDocuments')).toBe(true);
+});
+
+test('новое ЗИИ получает 17 отдельных нормативов, в XML попадает отредактированный список', () => {
+  const model = createEmptyModel();
+  const norms = model.requirements.usedNorms;
+  expect(model.enabled.usedNorms).toBe(true);
+  expect(norms).toHaveLength(17);
+  expect(norms.every((norm) => !/^\s*[-–—]/.test(norm))).toBe(true);
+  const [removed] = norms.splice(1, 1);
+  norms.push('Документ заказчика');
+  expect(missingTypicalNorms(norms)).toEqual([removed]);
+  expect(missingTypicalNorms([...norms, removed])).toEqual([]);
+  expect(createEmptyModel().requirements.usedNorms[1]).toBe(removed);
+  const doc = new XMLParser().parse(buildTzXml(model, { images: {} }));
+  expect(doc.Document.Content.Requirements.UsedNorms.UsedNorm).toEqual(norms);
 });
 
 test('заполненная модель проходит проверку', () => {

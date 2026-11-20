@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { parseDesignAssignment } from '../src/modules/technical-tasks/design-assignment-parser';
-import { getDocumentAuthors, validateModel } from '../src/modules/technical-tasks/tz-xml';
+import { getDocumentAuthors, REQUIREMENT_DEFAULTS, validateModel } from '../src/modules/technical-tasks/tz-xml';
 
 const xml = readFileSync(join(import.meta.dir, 'fixtures/design-assignment-sample.xml'), 'utf8');
 
@@ -52,7 +52,7 @@ test('переносит документы, изыскания, нормы и �
   expect(model.surveys[0].additionalRequirements?.paragraphs).toEqual(['Границы изысканий: В границах ГПЗУ', 'Оценить радиационную обстановку.']);
   expect(model.surveys[0].purposes.length).toBeGreaterThan(0);
   expect(model.object.arealSite.shootingScale).toBe('1:500');
-  expect(model.requirements.usedNorms).toEqual(['СП 47.13330.2016', 'СП 502.1325800.2021']);
+  expect(model.requirements.usedNorms).toEqual(REQUIREMENT_DEFAULTS.usedNorms);
   expect(model.enabled.archivalMaterials).toBe(true);
   expect(model.requirements.archivalMaterials?.documents[0].name).toBe('Технический отчёт ИЭИ 2020 г.');
   expect(model.dangerous.processesAdditional?.paragraphs[0]).toContain('подтопление');
@@ -60,6 +60,14 @@ test('переносит документы, изыскания, нормы и �
   expect(model.timePeriod).toContain('Этап 1');
   expect(imported).toContain('наименование объекта');
   expect(notes.some((n) => n.includes('Файлы документов'))).toBe(true);
+});
+
+test('добавляет к типовому перечню дополнительные документы и уточнения из задания', () => {
+  const extra = 'СП 47.13330.2016, применять раздел 5';
+  const input = xml.replace('</Norms>', `<Norm>${extra}</Norm><Norm>ГОСТ 5180-2015</Norm><Norm>ГОСТ 5180-2015</Norm></Norms>`);
+  expect(parseDesignAssignment(input).model.requirements.usedNorms).toEqual([
+    ...REQUIREMENT_DEFAULTS.usedNorms, extra, 'ГОСТ 5180-2015',
+  ]);
 });
 
 test('отвергает чужой XML', () => {

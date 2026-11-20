@@ -11,6 +11,7 @@ import {
   YES_NO,
   emptyArea,
   emptyLinearRoute,
+  missingTypicalNorms,
   regionalCoordinateSystem,
   stateCoordinateSystem,
   type Area,
@@ -241,6 +242,8 @@ const OUTSIDE_BY = [
 export function RequirementsBlock({ taskId, model, onChange, issues }: BlockProps) {
   const prov = model.provenance ?? {};
   const q = model.requirements;
+  const usedNorms = q.usedNorms ?? [];
+  const missingNorms = missingTypicalNorms(usedNorms);
   const setQ = (patch: Partial<Requirements>) => onChange({ ...model, requirements: { ...q, ...patch } });
   const outside = q.controlQuality.outside;
   const setOutside = (o: OutsideControl | undefined) => setQ({ controlQuality: { ...q.controlQuality, outside: o } });
@@ -337,7 +340,14 @@ export function RequirementsBlock({ taskId, model, onChange, issues }: BlockProp
         </div>
         <div className="space-y-2">
           <Toggle label="Перечень нормативных правовых актов и НД" checked={en.usedNorms} onChange={(usedNorms) => setEnabled({ usedNorms })} />
-          {en.usedNorms && <StringListField label="Нормативные документы" values={q.usedNorms} onChange={(usedNorms) => setQ({ usedNorms })} required provenance={prov['requirements.usedNorms']} error={errorFor(issues, 'requirements.usedNorms')} addLabel="Добавить документ" />}
+          {en.usedNorms && (
+            <>
+              <StringListField label="Нормативные документы" values={usedNorms} onChange={(usedNorms) => setQ({ usedNorms })} required provenance={prov['requirements.usedNorms']} error={errorFor(issues, 'requirements.usedNorms')} addLabel="Добавить документ" />
+              {missingNorms.length > 0 && (
+                <AddButton label="Добавить недостающие типовые нормативы" onClick={() => setQ({ usedNorms: [...usedNorms, ...missingNorms] })} />
+              )}
+            </>
+          )}
         </div>
       </Section>
     </div>
