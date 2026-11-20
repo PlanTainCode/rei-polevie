@@ -16,3 +16,11 @@ export function parseMetalValue(value: string | number | null | undefined): numb
     ? Number(cleaned)
     : METAL_VALUE_ERROR;
 }
+
+export function metalBackgroundRatio(value: string | number | null, background: number) {
+  if (value === null) return '—';
+  const concentration = parseMetalValue(value);
+  if (concentration === METAL_VALUE_ERROR) return METAL_VALUE_ERROR;
+  // Для записи «менее X» в таблице K также используем минимальное значение.
+  return Math.max(0.1, (concentration ?? 0) / background);
+}

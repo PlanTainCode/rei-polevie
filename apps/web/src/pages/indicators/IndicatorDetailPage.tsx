@@ -1,4 +1,4 @@
-import { METAL_VALUE_ERROR, parseMetalValue } from './metal-value';
+import { METAL_VALUE_ERROR, metalBackgroundRatio, parseMetalValue } from './metal-value';
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
@@ -506,11 +506,7 @@ export function IndicatorDetailPage() {
     value: string | number | null,
     soilType: string | null,
     regionType: 'moscow' | 'mo',
-  ): number | typeof METAL_VALUE_ERROR => {
-    const numValue = parseMetalValue(value);
-    if (numValue === METAL_VALUE_ERROR) return METAL_VALUE_ERROR;
-    if (numValue === null) return 0;
-
+  ) => {
     // Выбираем фоновое значение
     let background: number;
     if (regionType === 'moscow') {
@@ -521,7 +517,7 @@ export function IndicatorDetailPage() {
         : BACKGROUND_VALUES.mo_sg[metal];
     }
 
-    return numValue / background;
+    return metalBackgroundRatio(value, background);
   };
 
   // Расчёт Zc (суммарный показатель загрязнения)
