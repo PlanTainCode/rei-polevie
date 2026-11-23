@@ -95,7 +95,6 @@ interface ExtractedTz {
   specificSoils?: string[];
   boundariesText?: string;
   additionalRequirements?: string[];
-  pollutionSources?: string;
   normativeDocuments?: string[];
   providedDocuments?: string[];
   reportRequirements?: string;
@@ -175,7 +174,6 @@ export class TzXmlExtractorService {
   "dangerousProcesses": [], "dangerousProcessesText": "", "specificSoils": [],
   "boundariesText": "описание границ площадки/трассы",
   "additionalRequirements": ["дополнительные требования к отдельным видам работ"],
-  "pollutionSources": "сведения об источниках загрязнения",
   "normativeDocuments": ["перечень НД"],
   "providedDocuments": ["перечень предоставляемых заказчиком материалов"],
   "reportRequirements": "требования к отчётной документации"
@@ -389,11 +387,6 @@ export class TzXmlExtractorService {
     if (s(e.boundariesText)) {
       model.boundaries.areaOutWorks = textBlock([s(e.boundariesText)]);
       mark('boundaries.areaOutWorks', 'описание границ');
-    }
-    if (s(e.pollutionSources)) {
-      model.ecology.existingPollutionSources = textBlock([s(e.pollutionSources)]);
-      model.enabled.ecology = true;
-      mark('ecology.existingPollutionSources', 'источники загрязнения');
     }
     const norms = list(e.normativeDocuments);
     if (norms.length) {

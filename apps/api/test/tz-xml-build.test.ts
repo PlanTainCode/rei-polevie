@@ -49,6 +49,11 @@ test('XML собирается, корректен и содержит ключ�
   expect(doc.Document.Content.ObjectInfo.ArealObject.ShootingScale).toBe('1:500');
   expect(doc.Document.Content.BoundariesArealLinear.AreasImages.Image.ImageData).toBe(SAMPLE_IMAGE_BASE64);
   expect(doc.Document.Content.DangerousNaturalProcesses.PermafrostSoils).toBe('нет');
+  expect(doc.Document.Content.Ecology.ExistingPollutionSources.Text).toBe('Проезжая часть автомобильных дорог, места парковки автотранспорта – выбросы загрязняющих веществ');
+  expect(doc.Document.Content.Ecology.PlannedPollutionSources.Text).toEqual([
+    '- период строительства: строительная техника и механизмы - выбросы загрязняющих веществ.',
+    '- период эксплуатации: места парковки автотранспорта – выбросы загрязняющих веществ: азота диоксид, азота оксид, сажа, ангидрид сернистый, углерода оксид, бензин, бенз(а)пирен, формальдегид.',
+  ]);
 
   // порядок разделов Content
   const order = Object.keys(doc.Document.Content).filter((k) => !k.startsWith('@'));
@@ -62,6 +67,7 @@ test('XML собирается, корректен и содержит ключ�
     'Tasks',
     'EngineeringSurveyStage',
     'EngineeringSurveyTypes',
+    'Ecology',
     'BoundariesArealLinear',
     'DangerousNaturalProcesses',
     'Requirements',

@@ -237,7 +237,15 @@ export function emptySurvey(kind: Survey['kind'] = 'BASIC', typeCode = ''): Surv
 }
 
 export function emptyEcology(): Ecology {
-  return {};
+  return {
+    existingPollutionSources: textBlock([
+      'Проезжая часть автомобильных дорог, места парковки автотранспорта – выбросы загрязняющих веществ',
+    ]),
+    plannedPollutionSources: textBlock([
+      '- период строительства: строительная техника и механизмы - выбросы загрязняющих веществ.',
+      '- период эксплуатации: места парковки автотранспорта – выбросы загрязняющих веществ: азота диоксид, азота оксид, сажа, ангидрид сернистый, углерода оксид, бензин, бенз(а)пирен, формальдегид.',
+    ]),
+  };
 }
 
 export function emptyBoundaries(): Boundaries {
@@ -351,7 +359,7 @@ export function defaultEnabledBlocks(): EnabledBlocks {
   return {
     researchers: true,
     technogenicImpacts: false,
-    ecology: false,
+    ecology: true,
     timePeriod: false,
     suggestionsRecommendation: false,
     archivalMaterials: false,
@@ -402,6 +410,8 @@ export function createEmptyModel(): TzXmlModel {
     'purposes',
     'tasks',
     'surveys',
+    'ecology.existingPollutionSources',
+    'ecology.plannedPollutionSources',
     'requirements.scientificSupport',
     'requirements.accuracySecurity',
     'requirements.forecastChangesNaturalConditions',
