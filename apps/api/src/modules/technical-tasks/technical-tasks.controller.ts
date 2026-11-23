@@ -31,9 +31,13 @@ const SOURCE_MIMES = [
   'text/xml',
 ];
 
+function encodeDownloadName(name: string): string {
+  return encodeURIComponent(name).replace(/['()*]/g, (ch) => '%' + ch.charCodeAt(0).toString(16).toUpperCase());
+}
+
 function sendFile(res: Response, path: string, name: string) {
   if (!existsSync(path)) throw new NotFoundException('Файл не найден');
-  const encodedName = encodeURIComponent(name);
+  const encodedName = encodeDownloadName(name);
   res.setHeader('Content-Disposition', `attachment; filename="${encodedName}"; filename*=UTF-8''${encodedName}`);
   res.sendFile(path);
 }
@@ -144,7 +148,7 @@ export class TechnicalTasksController {
   async previewPdf(@Request() req: Req, @Param('id') id: string, @Res() res: Response) {
     const { buffer, fileName } = await this.technicalTasksService.getPreviewPdf(id, req.user.userId);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeDownloadName(fileName)}`);
     res.setHeader('Cache-Control', 'no-store');
     res.send(buffer);
   }

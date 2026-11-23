@@ -2,8 +2,8 @@ import { expect, test } from 'bun:test';
 import { TechnicalTasksService } from '../src/modules/technical-tasks/technical-tasks.service';
 import { createEmptyModel, emptyDocumentAuthor, getDocumentAuthors, withDocumentAuthors } from '../src/modules/technical-tasks/tz-xml';
 
-function draftService(role = 'OWNER', createdById = 'user', status = 'DRAFT') {
-  let task = { id: 'task', companyId: 'company', createdById, xmlData: createEmptyModel(), status, processingError: null };
+function draftService(role = 'OWNER', createdById = 'user', status = 'DRAFT', xmlFileUrl: string | null = null) {
+  let task = { id: 'task', name: 'Путевой пр., 30 801-48-26', companyId: 'company', createdById, xmlFileUrl, xmlData: createEmptyModel(), status, processingError: null };
   let writes = 0;
   const service = Object.assign(Object.create(TechnicalTasksService.prototype), {
     counterparties: { rememberFromModel: async () => 0 },
@@ -12,6 +12,7 @@ function draftService(role = 'OWNER', createdById = 'user', status = 'DRAFT') {
       companyMember: { findFirst: async () => ({ companyId: 'company', role, company: {} }) },
       technicalTask: {
         findUnique: async () => task,
+        findMany: async () => [task],
         update: async ({ data }: { data: Partial<typeof task> }) => { writes++; task = { ...task, ...data }; return task; },
       },
     },
@@ -29,6 +30,16 @@ test('пустые обязательные поля и неверный ИНН 
   const result = await service.update('task', { xmlData: m as never }, 'user');
   expect(result.xmlData).toEqual(m);
   expect(result.issues.length).toBeGreaterThan(0);
+});
+
+test('скачивание и список учитывают переименование уже сформированного XML', async () => {
+  const { service } = draftService('OWNER', 'user', 'COMPLETED', 'technical-tasks/xml/old.xml');
+  const original = await service.getXmlPath('task', 'user');
+  expect(original.fileName).toBe('ЗИИ_Путевой пр., 30 801-48-26.xml');
+  const renamed = await service.update('task', { name: 'Путевой пр., 30/1' }, 'user');
+  expect(renamed.xmlFileName).toBe('ЗИИ_Путевой пр., 30_1.xml');
+  expect((await service.findAll('user'))[0].xmlFileName).toBe(renamed.xmlFileName);
+  expect(await service.getXmlPath('task', 'user')).toEqual({ path: original.path, fileName: renamed.xmlFileName });
 });
 
 test('после ошибки проверки XML можно продолжить заполнение и сохранить', async () => {

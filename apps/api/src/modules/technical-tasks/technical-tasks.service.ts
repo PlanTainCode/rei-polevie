@@ -47,6 +47,21 @@ function safeBaseName(name: string): string {
   return basename(name).replace(/[\\/:*?"<>|]/g, '_');
 }
 
+function exportFileName(taskName: string, extension: 'xml' | 'pdf'): string {
+  const title = taskName.trim().replace(/[\\/:*?"<>|\x00-\x1f\x7f]/g, '_');
+  let stem = 'ЗИИ';
+  if (title) {
+    stem += '_';
+    let bytes = Buffer.byteLength(stem + '.' + extension);
+    for (const ch of title) {
+      bytes += Buffer.byteLength(ch);
+      if (bytes > 255) break;
+      stem += ch;
+    }
+  }
+  return stem + '.' + extension;
+}
+
 @Injectable()
 export class TechnicalTasksService {
   private readonly logger = new Logger(TechnicalTasksService.name);
@@ -194,7 +209,7 @@ export class TechnicalTasksService {
 
   async findAll(userId: string) {
     const membership = await this.membership(userId);
-    return this.prisma.technicalTask.findMany({
+    const tasks = await this.prisma.technicalTask.findMany({
       where: { companyId: membership.companyId },
       select: {
         id: true,
@@ -202,7 +217,7 @@ export class TechnicalTasksService {
         status: true,
         source: true,
         sourceFileName: true,
-        xmlFileName: true,
+        xmlFileUrl: true,
         xmlGeneratedAt: true,
         createdAt: true,
         updatedAt: true,
@@ -210,6 +225,10 @@ export class TechnicalTasksService {
       },
       orderBy: { createdAt: 'desc' },
     });
+    return tasks.map(({ xmlFileUrl, ...task }) => ({
+      ...task,
+      xmlFileName: xmlFileUrl ? exportFileName(task.name, 'xml') : null,
+    }));
   }
 
   async findById(id: string, userId: string) {
@@ -225,6 +244,7 @@ export class TechnicalTasksService {
     const issues: ValidationIssue[] = xmlData ? validateModel(xmlData) : [];
     return {
       ...task,
+      xmlFileName: task.xmlFileUrl ? exportFileName(task.name, 'xml') : null,
       issues,
       canEdit: task.createdById === userId || ['OWNER', 'ADMIN'].includes(membership.role),
       canDelete: ['OWNER', 'ADMIN'].includes(membership.role),
@@ -347,8 +367,7 @@ export class TechnicalTasksService {
 
     const xml = buildTzXml(model, { images, objectId: `object-${id}` });
     if (task.xmlFileUrl) await this.deleteFile(task.xmlFileUrl);
-    const cipher = model.requisites.number.replace(/[\\/:*?"<>|\s]+/g, '_') || 'ЗИИ';
-    const xmlFileName = `${cipher}.xml`;
+    const xmlFileName = exportFileName(task.name, 'xml');
     const uniqueName = `${id}-${Date.now()}.xml`;
     await writeFile(join(this.xmlDir, uniqueName), xml, 'utf8');
 
@@ -361,8 +380,8 @@ export class TechnicalTasksService {
 
   async getXmlPath(id: string, userId: string) {
     const task = await this.findById(id, userId);
-    if (!task.xmlFileUrl) throw new NotFoundException('XML ещё не сгенерирован');
-    return { path: join(API_ROOT, 'uploads', task.xmlFileUrl), fileName: task.xmlFileName || 'task.xml' };
+    if (!task.xmlFileUrl || !task.xmlFileName) throw new NotFoundException('XML ещё не сгенерирован');
+    return { path: join(API_ROOT, 'uploads', task.xmlFileUrl), fileName: task.xmlFileName };
   }
 
   getXslPath(): string {
@@ -388,7 +407,7 @@ export class TechnicalTasksService {
     const images = await this.loadBoundaryImages(model);
     const xml = buildTzXml(model, { images, objectId: `object-${id}`, preview: true });
     const buffer = await convertTzXmlToPdf(xml, this.getXslPath());
-    const fileName = `${safeBaseName(model.requisites.number || task.name || 'ЗИИ')}.pdf`;
+    const fileName = exportFileName(task.name, 'pdf');
     return { buffer, fileName };
   }
 
