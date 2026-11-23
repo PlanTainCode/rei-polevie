@@ -52,6 +52,9 @@ test('переносит документы, изыскания, нормы и �
   expect(model.surveys[0].additionalRequirements?.paragraphs).toEqual(['Границы изысканий: В границах ГПЗУ', 'Оценить радиационную обстановку.']);
   expect(model.surveys[0].purposes.length).toBeGreaterThan(0);
   expect(model.object.arealSite.shootingScale).toBe('1:500');
+  expect(model.requirements.compositionOrderTransfer.paragraphs).toHaveLength(4);
+  expect(model.requirements.compositionOrderTransfer.paragraphs).toEqual(REQUIREMENT_DEFAULTS.compositionOrderTransfer);
+  expect(model.provenance?.['requirements.compositionOrderTransfer']).toBe('default');
   expect(model.requirements.usedNorms).toEqual(REQUIREMENT_DEFAULTS.usedNorms);
   expect(model.enabled.archivalMaterials).toBe(true);
   expect(model.requirements.archivalMaterials?.documents[0].name).toBe('Технический отчёт ИЭИ 2020 г.');

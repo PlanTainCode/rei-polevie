@@ -490,14 +490,6 @@ export function parseDesignAssignment(xml: string): DesignParseResult {
   // --- Инженерные изыскания --------------------------------------------------------------
   const es = content.EngineeringSurvey as Node | undefined;
   if (es) {
-    const common = parseTextBlock(es.Common);
-    if (common) {
-      model.technogenicImpacts = undefined;
-      model.requirements.compositionOrderTransfer = {
-        paragraphs: [...common.paragraphs, ...model.requirements.compositionOrderTransfer.paragraphs],
-      };
-      mark('requirements.compositionOrderTransfer');
-    }
     const surveys: Survey[] = [];
     for (const s of asArray(child(es.SurveysRequirements, 'Survey'))) {
       const basic = str(child(s, 'BasicEngineeringSurvey'));

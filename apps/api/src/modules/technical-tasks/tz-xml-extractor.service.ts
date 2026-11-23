@@ -97,7 +97,6 @@ interface ExtractedTz {
   additionalRequirements?: string[];
   normativeDocuments?: string[];
   providedDocuments?: string[];
-  reportRequirements?: string;
 }
 
 @Injectable()
@@ -175,8 +174,7 @@ export class TzXmlExtractorService {
   "boundariesText": "описание границ площадки/трассы",
   "additionalRequirements": ["дополнительные требования к отдельным видам работ"],
   "normativeDocuments": ["перечень НД"],
-  "providedDocuments": ["перечень предоставляемых заказчиком материалов"],
-  "reportRequirements": "требования к отчётной документации"
+  "providedDocuments": ["перечень предоставляемых заказчиком материалов"]
 }`;
 
     const response = await this.chat([
@@ -393,10 +391,6 @@ export class TzXmlExtractorService {
       model.requirements.usedNorms = normsWithImportedDocuments(norms);
       model.enabled.usedNorms = true;
       mark('requirements.usedNorms', 'нормативные документы');
-    }
-    if (s(e.reportRequirements)) {
-      model.requirements.compositionOrderTransfer = textBlock([s(e.reportRequirements)]);
-      mark('requirements.compositionOrderTransfer', 'требования к отчётности');
     }
     const provided = list(e.providedDocuments);
     if (provided.length) {
