@@ -39,6 +39,8 @@ test('XML собирается, корректен и содержит ключ�
   expect(XMLValidator.validate(xml)).toBe(true);
 
   const doc = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@' }).parse(xml);
+  expect(doc.Document['@xmlns:xsi']).toBe('http://www.w3.org/2001/XMLSchema-instance');
+  expect(doc.Document['@xsi:noNamespaceSchemaLocation']).toBe('EngineeringSurveysTask-01-00.xsd');
   expect(doc.Document['@TypeCode']).toBe('05.01');
   expect(doc.Document['@VersionNumber']).toBe('1');
   expect(doc.Document.Content['@SchemaVersion']).toBe('01.00');

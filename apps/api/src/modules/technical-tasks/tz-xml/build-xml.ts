@@ -631,6 +631,8 @@ export function buildTzXml(m: TzXmlModel, options: BuildOptions): string {
   const objectId = options.objectId ?? 'object-1';
 
   x.open('Document', {
+    'xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
+    'xsi:noNamespaceSchemaLocation': 'EngineeringSurveysTask-01-00.xsd',
     Id: m.requisites.id,
     TypeCode: DOCUMENT_TYPE_CODE,
     VersionNumber: String(m.requisites.versionNumber || 1),
