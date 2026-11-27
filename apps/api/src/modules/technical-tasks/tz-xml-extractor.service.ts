@@ -12,6 +12,7 @@ import * as mammoth from 'mammoth';
 import { readFile } from 'fs/promises';
 import { join, extname } from 'path';
 import { parseJsonObjectFromAi } from '../ai/parse-json';
+import { classifyTechnogenicSoil } from './tz-xml/specific-soils';
 import {
   CONSTRUCTION_TYPES,
   DANGEROUS_PROCESSES,
@@ -151,7 +152,7 @@ export class TzXmlExtractorService {
 - object.fireDangerCategory: «Категория не устанавливается» или буква «А», «Б», «В», «Г», «Д».
 - object.foundationTypes — из списка: ${FOUNDATION_TYPES.map((c) => c.code).join(', ')}. object.foundationMaterials — из списка: ${FOUNDATION_MATERIALS.map((c) => c.code).join(', ')}.
 - dangerousProcesses — только коды из списка: ${DANGEROUS_PROCESSES.map((c) => c.code).join(', ')}. Если в ТЗ написано «отсутствуют» или «нет данных» — пустой массив, а текст положи в dangerousProcessesText.
-- specificSoils — только из списка: ${SPECIFIC_SOILS.map((c) => c.code).join(', ')}.
+- specificSoils — только из списка: ${SPECIFIC_SOILS.map((c) => c.code).join(', ')}. «Техногенный грунт» относится к specificSoils (код «техногенные»). Учитывай отрицания.
 - Числа (этажность, высота, глубины) — только число без единиц, десятичный разделитель точка.
 - Даты в формате ГГГГ-ММ-ДД.
 - ИНН заказчика 10 цифр, КПП 9, ОГРН 13 — только если есть в документе.
@@ -373,15 +374,14 @@ export class TzXmlExtractorService {
       model.dangerous.processes = dp;
       mark('dangerous.processes', 'опасные природные процессы');
     }
-    if (s(e.dangerousProcessesText)) {
-      model.dangerous.processesAdditional = textBlock([s(e.dangerousProcessesText)]);
-      mark('dangerous.processesAdditional');
-    }
     const soils = list(e.specificSoils).filter((p) => SPECIFIC_SOILS.some((d) => d.code === p));
-    if (soils.length) {
-      model.dangerous.soils = soils;
-      mark('dangerous.soils');
+    model.dangerous.soils = soils;
+    if (s(e.dangerousProcessesText)) {
+      model.dangerous = classifyTechnogenicSoil({ ...model.dangerous, processesAdditional: textBlock([s(e.dangerousProcessesText)]) });
+      if (model.dangerous.processesAdditional) mark('dangerous.processesAdditional');
+      else mark('dangerous.soilsAdditional');
     }
+    if (model.dangerous.soils.length) mark('dangerous.soils');
     if (s(e.boundariesText)) {
       model.boundaries.areaOutWorks = textBlock([s(e.boundariesText)]);
       mark('boundaries.areaOutWorks', 'описание границ');

@@ -65,6 +65,15 @@ test('переносит документы, изыскания, нормы и �
   expect(notes.some((n) => n.includes('Файлы документов'))).toBe(true);
 });
 
+test('переносит «Техногенный грунт» из опасных процессов ЗнП в специфические грунты ЗИИ', () => {
+  const input = xml.replace('Возможно подтопление территории грунтовыми водами.', 'Техногенный грунт');
+  const { model } = parseDesignAssignment(input);
+  expect(model.dangerous.soils).toEqual(['техногенные']);
+  expect(model.dangerous.processesAdditional).toBeUndefined();
+  expect(model.dangerous.soilsAdditional?.paragraphs).toEqual(['На площадке изысканий предполагается наличие: техногенный грунт']);
+  expect(model.provenance?.['dangerous.soils']).toBe('document');
+});
+
 test('добавляет к типовому перечню дополнительные документы и уточнения из задания', () => {
   const extra = 'СП 47.13330.2016, применять раздел 5';
   const input = xml.replace('</Norms>', `<Norm>${extra}</Norm><Norm>ГОСТ 5180-2015</Norm><Norm>ГОСТ 5180-2015</Norm></Norms>`);

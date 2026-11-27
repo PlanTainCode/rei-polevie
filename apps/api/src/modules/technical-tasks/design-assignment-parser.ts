@@ -9,6 +9,7 @@
  */
 
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
+import { classifyTechnogenicSoil } from './tz-xml/specific-soils';
 import {
   BASIC_SURVEY_TYPES,
   SCALES,
@@ -481,9 +482,15 @@ export function parseDesignAssignment(xml: string): DesignParseResult {
   if (climate) {
     const dnp = parseTextBlock(climate.DangerousNatureProcesses);
     if (dnp) {
-      model.dangerous.processesAdditional = dnp;
-      mark('dangerous.processesAdditional');
-      notes.push('Описание опасных процессов перенесено текстом; коды процессов нужно выбрать из справочника');
+      model.dangerous = classifyTechnogenicSoil({ ...model.dangerous, processesAdditional: dnp });
+      if (model.dangerous.processesAdditional) {
+        mark('dangerous.processesAdditional');
+        notes.push('Описание опасных процессов перенесено текстом; коды процессов нужно выбрать из справочника');
+      } else {
+        mark('dangerous.soils');
+        mark('dangerous.soilsAdditional');
+        imported.push('специфические грунты');
+      }
     }
   }
 

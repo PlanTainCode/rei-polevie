@@ -77,6 +77,27 @@ test('XML собирается, корректен и содержит ключ�
   ]);
 });
 
+test('экспорт старого ТЗ по Окской разделяет грунт и подтопление, сохраняя ручные данные', () => {
+  const model = createEmptyModel();
+  const d = model.dangerous;
+  d.processes = ['подтопление'];
+  d.soils = ['просадочные', 'техногенные'];
+  d.processesAdditional = { paragraphs: ['Техногенный грунт'] };
+  d.soilsAdditional = { paragraphs: ['Описание изыскателя'] };
+  const block = () => new XMLParser().parse(buildTzXml(model, { images: {} })).Document.Content.DangerousNaturalProcesses;
+  expect(block()).toEqual({
+    DangerousNaturalProcesses: { Process: 'подтопление' },
+    PermafrostSoils: 'нет',
+    SpecificSoils: { Soil: ['просадочные', 'техногенные'] },
+    SpecificSoilsAdditional: { Text: 'Описание изыскателя' },
+  });
+  expect(d.processesAdditional.paragraphs).toEqual(['Техногенный грунт']);
+  d.soils = [];
+  d.processesAdditional.paragraphs = ['Техногенный грунт не выявлен'];
+  expect(block().SpecificSoils).toBeUndefined();
+  expect(block().DangerousNaturalProcessesAdditional.Text).toBe('Техногенный грунт не выявлен');
+});
+
 test('пустые значения не попадают в XML, числа с запятой нормализуются', () => {
   const m = buildSampleModel();
   m.object.areal.energyEfficiency = '';

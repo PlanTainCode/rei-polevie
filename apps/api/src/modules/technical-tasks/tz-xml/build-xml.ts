@@ -9,6 +9,7 @@
 
 import { DOCUMENT_TYPE_CODE } from './defaults';
 import { getDocumentAuthors } from './authors';
+import { classifyTechnogenicSoil } from './specific-soils';
 import type {
   Area,
   AttachedFile,
@@ -562,7 +563,7 @@ function writeBoundaries(x: Xml, m: TzXmlModel, images: Record<string, string>):
 }
 
 function writeDangerous(x: Xml, m: TzXmlModel): void {
-  const d = m.dangerous;
+  const d = classifyTechnogenicSoil(m.dangerous);
   x.open('DangerousNaturalProcesses');
   x.open('DangerousNaturalProcesses');
   for (const p of d.processes.filter(filled)) x.el('Process', p);
