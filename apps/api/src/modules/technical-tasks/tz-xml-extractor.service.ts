@@ -379,7 +379,6 @@ export class TzXmlExtractorService {
     if (s(e.dangerousProcessesText)) {
       model.dangerous = classifyTechnogenicSoil({ ...model.dangerous, processesAdditional: textBlock([s(e.dangerousProcessesText)]) });
       if (model.dangerous.processesAdditional) mark('dangerous.processesAdditional');
-      else mark('dangerous.soilsAdditional');
     }
     if (model.dangerous.soils.length) mark('dangerous.soils');
     if (s(e.boundariesText)) {

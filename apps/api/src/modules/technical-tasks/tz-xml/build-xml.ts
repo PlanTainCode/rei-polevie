@@ -577,7 +577,13 @@ function writeDangerous(x: Xml, m: TzXmlModel): void {
     for (const s of soils) x.el('Soil', s);
     x.close('SpecificSoils');
   }
-  writeTextBlock(x, 'SpecificSoilsAdditional', d.soilsAdditional);
+  let note = d.soilsAdditional;
+  if (note && !note.title && soils.includes('техногенные')) {
+    // Старые задания могли сохранить эту автоматически добавленную строку рядом с ручными примечаниями.
+    const paragraphs = note.paragraphs.filter((p) => p.trim() !== 'На площадке изысканий предполагается наличие: техногенный грунт');
+    note = { ...note, paragraphs };
+  }
+  writeTextBlock(x, 'SpecificSoilsAdditional', note);
   x.close('DangerousNaturalProcesses');
 }
 

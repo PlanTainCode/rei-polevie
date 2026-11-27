@@ -24,6 +24,25 @@ function approvalSheet(text: string): string {
   return text.split('лист согласования задания на проведение изысканий')[1].split('Состав задания на выполнение инженерных изысканий')[0];
 }
 
+xsltTest('специфические грунты выводятся один раз, включая ранее сохранённое ТЗ', async () => {
+  const m = buildSampleModel();
+  const phrase = 'На площадке изысканий предполагается наличие: техногенный грунт';
+  m.dangerous.soils = ['техногенные'];
+  m.dangerous.soilsAdditional = textBlock([phrase]);
+  const xml = buildTzXml(m, { images: { [SAMPLE_IMAGE_URL]: SAMPLE_IMAGE_BASE64 } });
+  expect(xml).toContain('<Soil>техногенные</Soil>');
+  expect(xml).not.toContain('<SpecificSoilsAdditional');
+  const text = await previewText(m);
+  expect(text.split(phrase)).toHaveLength(2);
+  expect(text).not.toContain('специфических грунтов: техногенные');
+  m.dangerous.soils.push('просадочные');
+  m.dangerous.soilsAdditional.paragraphs.push('Мощность слоя до 2 м.');
+  const withNote = await previewText(m);
+  expect(withNote).toContain('техногенные, просадочные');
+  expect(withNote).toContain('Мощность слоя до 2 м.');
+  expect(withNote).not.toContain(phrase);
+});
+
 xsltTest('старое ТЗ: утверждающий остаётся на титуле, пустой лист согласования содержит пояснение', async () => {
   const m = buildSampleModel();
   const before = JSON.stringify(m);

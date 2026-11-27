@@ -1226,11 +1226,18 @@
 		<xsl:if test="/Document/Content/DangerousNaturalProcesses/SpecificSoils">
 			<h3>Сведения о наличии специфических грунтов</h3>
 			
-			<p>На площадке изысканий предполагается наличие следующих специфических грунтов: <xsl:for-each select="/Document/Content/DangerousNaturalProcesses/SpecificSoils/Soil">
-				<xsl:value-of select="."/>
-				<xsl:if test="position() != last()">, </xsl:if>
-			</xsl:for-each>
-			</p>
+			<xsl:variable name="soils" select="/Document/Content/DangerousNaturalProcesses/SpecificSoils/Soil"/>
+			<xsl:choose>
+				<xsl:when test="count($soils) = 1 and $soils = 'техногенные'">
+					<p>На площадке изысканий предполагается наличие: техногенный грунт</p>
+				</xsl:when>
+				<xsl:otherwise>
+					<p>На площадке изысканий предполагается наличие следующих специфических грунтов: <xsl:for-each select="$soils">
+						<xsl:value-of select="."/>
+						<xsl:if test="position() != last()">, </xsl:if>
+					</xsl:for-each></p>
+				</xsl:otherwise>
+			</xsl:choose>
 			<xsl:if test="/Document/Content/DangerousNaturalProcesses/SpecificSoilsAdditional">
 				<xsl:call-template name="TextBlockInTable">
 					<xsl:with-param name="obj" select="/Document/Content/DangerousNaturalProcesses/SpecificSoilsAdditional"/>

@@ -12,8 +12,5 @@ export function classifyTechnogenicSoil(dangerous: DangerousProcesses): Dangerou
     ...dangerous,
     processesAdditional: undefined,
     soils: [...new Set([...dangerous.soils, 'техногенные'])],
-    soilsAdditional: dangerous.soilsAdditional ?? {
-      paragraphs: ['На площадке изысканий предполагается наличие: техногенный грунт'],
-    },
   };
 }

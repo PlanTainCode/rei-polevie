@@ -488,7 +488,6 @@ export function parseDesignAssignment(xml: string): DesignParseResult {
         notes.push('Описание опасных процессов перенесено текстом; коды процессов нужно выбрать из справочника');
       } else {
         mark('dangerous.soils');
-        mark('dangerous.soilsAdditional');
         imported.push('специфические грунты');
       }
     }

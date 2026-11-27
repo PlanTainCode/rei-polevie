@@ -70,7 +70,7 @@ test('переносит «Техногенный грунт» из опасны
   const { model } = parseDesignAssignment(input);
   expect(model.dangerous.soils).toEqual(['техногенные']);
   expect(model.dangerous.processesAdditional).toBeUndefined();
-  expect(model.dangerous.soilsAdditional?.paragraphs).toEqual(['На площадке изысканий предполагается наличие: техногенный грунт']);
+  expect(model.dangerous.soilsAdditional).toBeUndefined();
   expect(model.provenance?.['dangerous.soils']).toBe('document');
 });
 
